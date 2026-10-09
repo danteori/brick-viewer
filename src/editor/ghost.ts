@@ -19,6 +19,7 @@ import { BOX_EDGE_COUNT, boxEB, boxIB } from '../render/meshes/registry.ts';
 import { displayName } from '../ui/names.ts';
 import { initAudio, playClick } from '../ui/audio.ts';
 import { setStatus } from '../ui/status.ts';
+import { minOf, maxOf } from '../core/math';
 
 export interface Ghost {
   items: Brick[];
@@ -80,11 +81,7 @@ export function initGhost(c: HTMLCanvasElement): void {
   S.hooks.beforeLoad.push(() => endPlacing());
 }
 
-export const gsize = (items: readonly Brick[]): V3 => {
-  const m: V3 = [-Infinity, -Infinity, -Infinity];
-  for (const t of items) for (let i = 0; i < 3; i++) m[i] = Math.max(m[i], t.hi[i]);
-  return m;
-};
+export const gsize = (items: readonly Brick[]): V3 => [0, 1, 2].map((i) => maxOf(items, (t) => t.hi[i]!)) as V3;
 export const gsteps = (items: readonly Brick[]): V3 => (items.some((t) => t.micro) ? [MICRO, MICRO, MICRO] : [STEP, STEP, PLATE]);
 
 export function itemName(t: Brick): string {
@@ -143,7 +140,7 @@ export function rotateItems(items: Brick[], turns: number): void {
       if (t.shape && ROTATE[t.shape]) ROTATE[t.shape](t);
       if (!t.up && t.side) t.side = turnSide(t.side);
     }
-    const m = [0, 1].map((i) => { let v = Infinity; for (const t of items) v = Math.min(v, t.lo[i]); return v; });   // back onto the group's low corner
+    const m = [0, 1].map((i) => minOf(items, (t) => t.lo[i]!));   // back onto the group's low corner
     for (const t of items) for (const i of [0, 1]) { t.lo[i] = r3(t.lo[i] - m[i]); t.hi[i] = r3(t.hi[i] - m[i]); }
   }
 }

@@ -25,3 +25,9 @@ export function rotY(t: number): Mat4 {
 
 /** Orbit view = Rx(pitch) * Ry(yaw). */
 export const viewOf = (yaw: number, pitch: number): Mat4 => mul(rotX(pitch), rotY(yaw));
+
+// Large-array helpers. Spreading a big array into a call (push(...a), Math.min(...a)) passes every
+// element as an argument and overflows the call stack on saves with hundreds of thousands of bricks.
+export function pushAll<T>(dst: T[], src: readonly T[]): void { for (let i = 0; i < src.length; i++) dst.push(src[i]!); }
+export function minOf<T>(src: readonly T[], f: (t: T) => number): number { let m = Infinity; for (let i = 0; i < src.length; i++) { const v = f(src[i]!); if (v < m) m = v; } return m; }
+export function maxOf<T>(src: readonly T[], f: (t: T) => number): number { let m = -Infinity; for (let i = 0; i < src.length; i++) { const v = f(src[i]!); if (v > m) m = v; } return m; }
