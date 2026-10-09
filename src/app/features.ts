@@ -2,6 +2,8 @@
 // this module which features are on, so lite never imports the full-only modules and
 // tree-shaking drops them (ARCHITECTURE.md section 2).
 
+import type { SqlBackend } from '../format/sql.ts';
+
 declare const __LITE__: boolean;
 
 // The dev server serves both entries from one config, so there lite.html opts in by its path.
@@ -21,6 +23,16 @@ export interface FeatureFlags {
   /** HDR pipeline: shadows, SSAO, bloom, AA, sky; quality tiers. */
   hdr: boolean;
 }
+
+/**
+ * The lazy SQLite backend for .brdb worlds, or null in lite. Load full-only modules through
+ * IS_LITE-gated exports like this one: the bundler folds IS_LITE to a constant and drops the
+ * import from lite, but it can't see through FEATURES.x (a property of a frozen object), so
+ * `if (FEATURES.brdb) import(...)` would still pull sql.js and its wasm into the lite file.
+ */
+export const loadBrdbBackend: (() => Promise<SqlBackend>) | null = IS_LITE
+  ? null
+  : () => import('../format/sqljs.ts').then((m) => m.loadSqlJs());
 
 export const FEATURES: Readonly<FeatureFlags> = Object.freeze({
   brzRead: true,

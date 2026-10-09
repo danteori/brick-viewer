@@ -20,12 +20,14 @@
     "golden:compare": "node scripts/golden-compare.mjs"
   },
   "dependencies": {
-    "fzstd": "0.1.1"
+    "fzstd": "0.1.1",
+    "sql.js": "1.14.2"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.64.0",
     "@types/node": "^26.6.4",
+    "@types/sql.js": "1.4.11",
     "eslint": "^10.12.0",
     "pngjs": "^7.0.0",
     "typescript": "^6.0.3",
