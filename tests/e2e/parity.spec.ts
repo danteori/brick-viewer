@@ -152,7 +152,9 @@ async function run(page: Page): Promise<{ step: string; snap: unknown }[]> {
   await click(page, await beside(page, 0, -0.3));
   await snap('place microbrick');
 
-  // zoom out (scroll down over the scene)
+  // fold the side panels away so more of the scene is clickable, then zoom out (scroll down)
+  await page.locator('#btoggle').click();
+  await page.locator('#ptoggle').click();
   await page.mouse.move(640, 400);
   await page.mouse.wheel(0, 500);
   await snap('zoom out');
@@ -163,8 +165,10 @@ async function run(page: Page): Promise<{ step: string; snap: unknown }[]> {
     for (let k = 0; k < snap.bricks.length; k++) {
       if (k === snap.sel) continue;
       const { lo, hi } = t.brickBox(k);
-      const p = t.project((lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, hi[2]);
-      if (document.elementFromPoint(p[0], p[1])?.id === 'c') return p;
+      for (const fx of [0.5, 0.25, 0.75]) for (const fy of [0.5, 0.25, 0.75]) {
+        const p = t.project(lo[0] + (hi[0] - lo[0]) * fx, lo[1] + (hi[1] - lo[1]) * fy, hi[2]);
+        if (document.elementFromPoint(p[0], p[1])?.id === 'c') return p;
+      }
     }
     throw new Error('no other brick on screen');
   });
