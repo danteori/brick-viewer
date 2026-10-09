@@ -61,6 +61,12 @@ export const SHADE = {
   SOCKET: 0.60, SOCKET_T: 0.10,
   /** socket wall chamfers */
   SOCKET_CH: 0.02,
+  /**
+   * Specular anti-aliasing (U-10): a pixel whose screen-space normal variance |fwidth(n)|^2 exceeds
+   * SPEC_AA_T has its glint divided by 1 + SPEC_AA_K x the excess, so a stud crease thinner than a
+   * pixel can't flash white on one pixel; such a pixel's glint is also capped at SPEC_AA_CAP (linear).
+   */
+  SPEC_AA_T: 0.04, SPEC_AA_K: 25, SPEC_AA_CAP: 0.06,
 };
 
 /** Round to 3 decimals (the legacy viewer's frame-safe rounding). */

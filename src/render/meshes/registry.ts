@@ -78,11 +78,34 @@ export function shapeBuffer(b: Brick, size: V3): WebGLBuffer {
  * Each flat, axis-aligned face of a shape mesh gets its rectangle in the face plane as its cap
  * attribute (u0, v0, u1, v1) in unit-box coords, u / v the face's two other GL axes in x, y, z
  * order (the shader's faceFrame). A face is a run of consecutive triangles with the same part and
- * plane. Slanted and curved faces keep zeros (the box bevel).
+ * plane. Slanted faces keep zeros (the box bevel); curved faces get their straight axis (see smooth).
+ * Faces whose generator already set a rectangle (localMesh `rect`) keep it.
  */
 export function faceRects(mesh: ShapeMesh): ShapeMesh {
   const P = mesh.positions, N = mesh.normals, K = mesh.parts, C = mesh.caps, T = mesh.count / 3;
+  // A curved (smooth-normal) triangle: its normals differ. It gets no rectangle; instead the cap
+  // marks the axis its surface runs straight along (the one no normal has a component on) as
+  // (0, 0, 0, -(axis + 1)), and the shader bevels only across that axis's ends (U-09).
+  const smooth = (t: number): boolean => {
+    for (let v = 3 * t + 1; v < 3 * t + 3; v++) for (let a = 0; a < 3; a++) if (Math.abs(N[3 * v + a] - N[9 * t + a]) > 1e-4) return true;
+    return false;
+  };
+  const straightAxis = (t: number): number => {
+    for (let a = 0; a < 3; a++) {
+      let ok = true;
+      for (let v = 3 * t; v < 3 * t + 3 && ok; v++) ok = Math.abs(N[3 * v + a]) < 1e-4;
+      if (ok) return a;
+    }
+    return -1;
+  };
+  const preset = (t: number): boolean => C[12 * t + 2] > C[12 * t];   // the generator gave a rectangle
   const axisOf = (t: number): number => {
+    if (preset(t)) return -1;
+    if (smooth(t)) {
+      const s = straightAxis(t);
+      if (s >= 0) for (let v = 3 * t; v < 3 * t + 3; v++) C.set([0, 0, 0, -(s + 1)], 4 * v);
+      return -1;
+    }
     for (let a = 0; a < 3; a++) {
       let ok = true;
       for (let v = 3 * t; v < 3 * t + 3 && ok; v++) ok = Math.abs(N[3 * v + a]) > 0.999;

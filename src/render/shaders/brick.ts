@@ -81,6 +81,9 @@ uniform float uExposure;
 // everything else uses), 1 glass, 2 translucent plastic, 3 glow. uMatPass: glass 0 = the multiply
 // pass, 1 = the reflection add pass; 2 = linear emission for the bloom buffer.
 uniform float uMat, uIntensity, uMatPass;
+// specular anti-aliasing (U-10): normal-variance threshold and glint fade strength
+uniform float uStudFade;
+const float SPEC_AA_T = ${glf(SHADE.SPEC_AA_T)}, SPEC_AA_K = ${glf(SHADE.SPEC_AA_K)}, SPEC_AA_CAP = ${glf(SHADE.SPEC_AA_CAP)};
 ${TONEMAP_GLSL}
 ${MATERIALS_GLSL}
 float smin(float a, float b, float k){ float h = clamp(0.5 + 0.5*(b-a)/k, 0.0, 1.0); return mix(b, a, h) - k*h*(1.0-h); }
@@ -253,6 +256,9 @@ void main(){
     } else {
       vec3 dist = vHalf - abs(vL);
       vec3 own = step(0.5, abs(nG));
+      // a curved face (cap w = -(axis + 1)): bevel only at the ends of the axis it runs straight
+      // along, never across the curve (U-09; the game's UV strip runs around the curve)
+      if (vCap.w < -0.5) { float ax = -vCap.w - 1.0; own = vec3(1.0) - vec3(step(abs(ax), 0.5), step(abs(ax - 1.0), 0.5), step(abs(ax - 2.0), 0.5)); }
       vec3 k = (1.0 - smoothstep(vBevel*BEVEL_EDGE, vBevel, dist)) * (1.0 - own);
       n = normalize(n + k * sign(vL));
     }
@@ -260,7 +266,16 @@ void main(){
   vec3 L = normalize(uLight);
   float d = max(dot(n, L), 0.0);
   float bent = smoothstep(0.0, 0.02, 1.0 - dot(n, nG));
-  float spec = pow(max(dot(n, normalize(L + uEye)), 0.0), 28.0) * 0.32 * bent;
+  // Specular anti-aliasing (U-10): where the shading normal changes faster than a pixel (the stud
+  // creases, hard bevel chamfers at a distance) one pixel can land on a normal that glints white.
+  // Fade the glint by the excess screen-space normal variance |fwidth(n)|^2 over SPEC_AA_T (it only
+  // ever dims, never widens, so nothing new lights up), and the stud glint with the stud distance
+  // fade. Pixels whose normal varies less than that keep the exact original highlight.
+  vec3 dn = fwidth(n);
+  float nv = max(dot(dn, dn) - SPEC_AA_T, 0.0), sk = 1.0 / (1.0 + SPEC_AA_K * nv);
+  if (studTop) sk *= uStudFade;
+  float spec = pow(max(dot(n, normalize(L + uEye)), 0.0), 28.0) * 0.32 * bent * sk;
+  if (nv > 0.0) spec = min(spec, SPEC_AA_CAP);     // an aliased pixel's glint can't approach white on dark plastic
   vec3 lit = (toLinear(vBase) * (uSky + uSun*d) + uFloor + spec) * shade;
   if (uMat > 0.5) {
     // Blended in display space over the tone-mapped scene (the forward pipeline has no linear
