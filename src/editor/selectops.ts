@@ -27,7 +27,7 @@ import { markBrick } from '../render/instances.ts';
 import { clearSelection, effectiveIds, setSelection } from './select.ts';
 import { focusKeepZoom, listTx, nearestBrick } from './ops.ts';
 import { ed, endPlacing, ghostName, itemName, startPlacing, type Ghost } from './ghost.ts';
-import { clip } from './clipboard.ts';
+import { clip, startPaste } from './clipboard.ts';
 import { keepZoom, selectBrick } from './resize.ts';
 import { initAudio, playClick, playDelete, playError } from '../ui/audio.ts';
 import { setStatus } from '../ui/status.ts';
@@ -110,7 +110,9 @@ export function cutSelection(): void {
   clip.items = groupItems(ids);
   removeIds(ids, 'cut');
   initAudio(); playDelete();
-  setStatus(`Cut ${ids.length === 1 ? itemName(clip.items[0]!) : plural(ids.length)}` + (clip.mode === 'brick' ? ' · Ctrl+V to paste' : ' · Ctrl+V uploads: switch it to Paste brick under Open save'));
+  // the cut bricks are in hand at once, as a paste: click to put them down, Esc keeps them on the clipboard
+  startPaste();
+  setStatus(`Cut ${ids.length === 1 ? itemName(clip.items[0]!) : plural(ids.length)}: click to put ${ids.length === 1 ? 'it' : 'them'} down, Esc keeps ${ids.length === 1 ? 'it' : 'them'} on the clipboard (Ctrl+V)`);
 }
 
 // --- move ------------------------------------------------------------------------------------------

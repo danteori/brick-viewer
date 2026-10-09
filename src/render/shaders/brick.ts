@@ -52,8 +52,6 @@ uniform mat4 uMVP;
 uniform vec3 uChunkOffset;
 // w > 0.5: a single draw of local GL size xyz, centred at uChunkOffset (iPos / iHalf.xyz unused)
 uniform vec4 uBox;
-uniform vec3 uEye;
-uniform vec3 uLight;
 uniform float uStudFade;
 uniform float uBevelMax;
 uniform float uBevelFit;
@@ -61,7 +59,9 @@ out vec3 vN; out vec3 vW; out vec3 vL; out float vSlope;
 out vec3 vHalf; out vec3 vBase; out vec4 vFlags; out vec3 vBevel;
 out vec2 vBevelK;
 // the light and eye directions in the brick's frame; its orientation byte; x = linear colour, y = selected
-flat out vec3 vLightL; flat out vec3 vEyeL; flat out uint vOrient; flat out vec2 vMisc;
+// No flat varyings: ANGLE on D3D11 emulates flat shading with a geometry shader that broke line
+// draws (the overlay outlines rendered as filled triangles). These are constant over a brick anyway.
+out float vOrient; out vec2 vMisc;
 // units per viewer unit (50), a uniform so the scale is a true, correctly rounded division
 uniform float uUnitDiv;
 ${ORIENT_GLSL}
@@ -96,8 +96,7 @@ void main(){
   float s = (w & 128u) != 0u ? 0.0 : 1.0;
   vFlags = vec4((top == 0u ? s : 0.0)*uStudFade, s*uStudFade, 1.0, top == 2u ? s : 0.0);
   vMisc = vec2((w & 256u) != 0u ? 1.0 : 0.0, (iMisc.w & 1u) != 0u ? 1.0 : 0.0);
-  mat3 Rt = transpose(R);
-  vLightL = Rt * uLight; vEyeL = Rt * uEye; vOrient = w & 31u;
+  vOrient = float(w & 31u);
   gl_Position = uMVP * vec4(p, 1.0);
 }`;
 
@@ -115,7 +114,9 @@ const float PITCH = 0.2, TOP = ${glf(SHADE.TOP)}, SLOPE = ${glf(SHADE.SLOPE)};
 const float ROUND = ${glf(SHADE.ROUND)};
 const float BEVEL_EDGE = ${glf(SHADE.BEVEL_EDGE)};
 // the light / eye in the brick's frame (turned by the vertex shader), its orientation, x = linear colour, y = selected
-flat in vec3 vLightL; flat in vec3 vEyeL; flat in uint vOrient; flat in vec2 vMisc;
+in float vOrient; in vec2 vMisc;
+uniform vec3 uEye;
+uniform vec3 uLight;
 ${ORIENT_GLSL}
 // the selection highlight (E-01), mixed over the tone-mapped colour
 const vec3 SEL_TINT = vec3(1.0, 0.62, 0.28); const float SEL_MIX = 0.42;
@@ -244,7 +245,7 @@ void main(){
   bool slope = vSlope > 0.5;
   if (slope && uBump > 0.0) {
     // in world axes: the slope texture keeps the layout of the world-frame meshes it was tuned on
-    mat3 vR = orientGL(vOrient);
+    mat3 vR = orientGL(uint(vOrient + 0.5));
     vec3 nW = vR * nG, lW = vR * vL;
     vec3 an = abs(nW);
     vec3 w = an.z <= an.x && an.z <= an.y ? vec3(0.0, 0.0, 1.0) : an.x <= an.y ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
@@ -315,6 +316,8 @@ void main(){
       n = normalize(n + k * sign(vL));
     }
   }
+  mat3 Rt = transpose(orientGL(uint(vOrient + 0.5)));
+  vec3 vLightL = Rt * uLight, vEyeL = Rt * uEye;   // the light and eye in the brick's frame
   vec3 L = normalize(vLightL);
   float d = max(dot(n, L), 0.0);
   float bent = smoothstep(0.0, 0.02, 1.0 - dot(n, nG));

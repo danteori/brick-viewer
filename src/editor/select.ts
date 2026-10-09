@@ -13,7 +13,7 @@
 
 import { S, hasFocus } from '../app/state.ts';
 import { BRZ_UNIT } from '../core/units.ts';
-import { boxQuery } from '../scene/spatial.ts';
+import { boxQuery, pickRay } from '../scene/spatial.ts';
 import { touching } from '../scene/collision.ts';
 import { syncScene } from '../scene/sync.ts';
 import { markBrick } from '../render/instances.ts';
@@ -119,8 +119,23 @@ export function selectConnected(): number {
 }
 
 /**
- * Box select: bricks whose centre projects inside the screen rectangle (CSS px) of `canvas`. Every
- * depth counts, hidden bricks too. mode 'add' or 'remove'.
+ * Is brick id visible from the camera? Its centre or the centre of one of its camera-facing faces
+ * is the first brick a view ray there meets.
+ */
+function seen(id: number, box: number[]): boolean {
+  const lo = box.slice(0, 3).map((v) => v * BRZ_UNIT), hi = box.slice(3).map((v) => v * BRZ_UNIT);
+  const c = [0, 1, 2].map((i) => (lo[i]! + hi[i]!) / 2), pts = [c];
+  for (let i = 0; i < 3; i++) { const p = c.slice(); p[i] = S.ns[i]! > 0 ? hi[i]! : lo[i]!; pts.push(p); }
+  for (const p of pts) {
+    const v = toView(p[0]!, p[1]!, p[2]!), h = pickRay(v[0], v[1]);
+    if (h && h.k === id) return true;
+  }
+  return false;
+}
+
+/**
+ * Box select: the VISIBLE bricks whose centre projects inside the screen rectangle (CSS px) of
+ * `canvas` (bricks hidden behind others aren't picked up). mode 'add' or 'remove'.
  */
 export function marqueeSelect(canvas: HTMLCanvasElement, x0: number, y0: number, x1: number, y1: number, mode: 'add' | 'remove'): number {
   const r = canvas.getBoundingClientRect(), cw = canvas.clientWidth, ch = canvas.clientHeight, cam = S.cam;
@@ -131,7 +146,7 @@ export function marqueeSelect(canvas: HTMLCanvasElement, x0: number, y0: number,
     if (S.hidden.has(id)) continue;
     const v = toView(s.px[id]! * BRZ_UNIT, s.py[id]! * BRZ_UNIT, s.pz[id]! * BRZ_UNIT);
     const px = ((v[0] - cam.x) * sx + 1) * cw / 2, py = (1 - (v[1] - cam.y) * sy) * ch / 2;
-    if (px >= ax && px <= bx && py >= ay && py <= by) hits.push(id);
+    if (px >= ax && px <= bx && py >= ay && py <= by && seen(id, s.box(id, new Array<number>(6)) as number[])) hits.push(id);
   }
   if (mode === 'add') addToSelection(hits); else removeFromSelection(hits);
   return hits.length;
