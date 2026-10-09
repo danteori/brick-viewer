@@ -78,6 +78,16 @@ export function selectSameColour(id: number): number {
   return out.length;
 }
 
+/** Bricks of brick id's type: the same save asset (any size, orientation or colour). */
+export function selectSameType(id: number): number {
+  const s = S.scene;
+  if (!s.alive(id)) return 0;
+  const a = s.asset[id]!, out: number[] = [];
+  for (const k of s.ids()) if (s.asset[k] === a) out.push(k);
+  setSelection(out);
+  return out.length;
+}
+
 /**
  * Flood from `seed` over bricks touching face to face (or overlapping), within the same grid.
  * Returns the connected ids (seed included). `limit` caps the result.

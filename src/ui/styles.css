@@ -178,6 +178,7 @@ body.placing canvas { cursor:copy !important; }
 #props #selcount.on { color:#ffb070; font-weight:600; }
 #selbody { display:grid; gap:4px; padding:2px 0 8px; }
 #selbody .selrow { display:grid; grid-template-columns:repeat(4, 1fr); gap:4px; }
+#selbody .selrow.sel3 { grid-template-columns:repeat(3, 1fr); }
 #props #selbody button { padding:5px 4px; border-radius:7px; background:#2b2c30; border:1px solid rgba(255,255,255,.1); color:#c9ccd3;
   font-size:11.5px; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 #props #selbody button:hover:not(:disabled) { color:#fff; border-color:#e8590c; }

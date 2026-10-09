@@ -63,9 +63,10 @@ const MARKUP = `
   <button type="button" id="seltoggle" aria-expanded="true" aria-controls="selbody" title="Select several bricks (Shift+click, Shift+drag, Ctrl+A) and move, copy, cut or delete them together">Selection
     <span id="selcount"></span>${CHEV}</button>
   <div id="selbody">
-    <div class="selrow">
+    <div class="selrow sel3">
       <button type="button" data-sel="all" title="Select every brick (Ctrl+A)">All</button>
       <button type="button" data-sel="colour" title="Select every brick with the focused brick's colour">Colour</button>
+      <button type="button" data-sel="type" title="Select every brick of the focused brick's type (its asset, any size)">Type</button>
       <button type="button" data-sel="connected" title="Add every brick touching the selection face to face, and what touches those">Connected</button>
       <button type="button" data-sel="clear" title="Clear the selection (Esc)">Clear</button>
     </div>

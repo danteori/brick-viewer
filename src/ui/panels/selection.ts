@@ -3,7 +3,7 @@
 // the focused brick, so they stay enabled while there is one.
 
 import { S, hasFocus } from '../../app/state.ts';
-import { clearSelection, selectAll, selectConnected, selectSameColour } from '../../editor/select.ts';
+import { clearSelection, selectAll, selectConnected, selectSameColour, selectSameType } from '../../editor/select.ts';
 import { copySelection, cutSelection, deleteSelection, startMove } from '../../editor/selectops.ts';
 import { ed } from '../../editor/ghost.ts';
 import { initAudio, playClick, playSelect } from '../audio.ts';
@@ -17,6 +17,10 @@ const ACTIONS: Record<string, () => void> = {
   colour: () => {
     if (!hasFocus()) { setStatus('Focus a brick first: its colour is the one selected'); return; }
     const n = selectSameColour(S.sel); setStatus(`Selected ${n} brick${n === 1 ? '' : 's'} of the focused brick's colour`); playSelect();
+  },
+  type: () => {
+    if (!hasFocus()) { setStatus('Focus a brick first: its type is the one selected'); return; }
+    const n = selectSameType(S.sel); setStatus(`Selected ${n} brick${n === 1 ? '' : 's'} of the focused brick's type`); playSelect();
   },
   connected: () => {
     const n = selectConnected();
@@ -57,6 +61,6 @@ export function tickSelection(): void {
   countEl.classList.toggle('on', n > 0);
   for (const b of buttons) {
     const a = b.dataset.sel!;
-    b.disabled = busy || (a === 'clear' ? !n : a === 'all' ? !S.scene.count : a === 'colour' ? !focus : !(n || focus));
+    b.disabled = busy || (a === 'clear' ? !n : a === 'all' ? !S.scene.count : a === 'colour' || a === 'type' ? !focus : !(n || focus));
   }
 }
