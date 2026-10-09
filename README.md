@@ -17,14 +17,25 @@ without WebGL2.
 On top of that:
 
 - **Save .brz:** download your edits, written back into the save you opened (uncompressed).
+- **Selection:** Shift+click adds or removes a brick, Shift+drag box-selects (Ctrl+Shift+drag
+  removes), Ctrl+A selects everything, Esc clears; select by colour or everything connected to the
+  selection. Selected bricks are tinted and counted.
+- **Move, copy, cut, paste, delete a selection:** M picks the selection up into the placement
+  ghost (R turns it, PgUp / PgDn raise or lower a plate, it can't go into other bricks), Ctrl+C /
+  Ctrl+X / Ctrl+V, Delete. Each is one undo step.
 - **Paint:** a colour palette (upload your own palette `.bp`), material and intensity, with an
-  eyedropper; paints the focused brick, undoable.
+  eyedropper; paints the selection (or the focused brick), undoable.
 - **Environment:** a world's own environment lights the scene and shows its ground plate; the full
   build adds an Environment panel for every sky, sun, cloud, fog, water and ground plate setting,
   with `.bp` load and save.
 - **Worlds (full build):** open `.brdb` worlds, view any earlier revision, see moving grids
   (vehicles, doors) where they are parked (read-only), and save as a new world (experimental).
 - **Map (full build):** a top-down map of the opened save; click it to jump to that spot.
+
+**Under the hood:** the scene is one structure-of-arrays store in whole save units with stable
+brick ids; it renders in chunks of instanced bricks (24 bytes each) positioned relative to the
+camera, and every brick's orientation is applied in the shader, so all 24 orientations draw
+through one path. Saving keeps components and wires pointing at their bricks.
 
 ## Run it
 
@@ -50,7 +61,8 @@ npm run site         # site/ = what GitHub Pages serves: /, /lite/brick-viewer.h
 ```sh
 npm run lint
 npm test             # Vitest unit tests
-npx playwright install chromium && npx playwright test   # smoke tests in Chromium
+npx playwright install chromium && npx playwright test --workers=1   # end-to-end tests in Chromium
+npm run build && node scripts/bench.mjs SAVE.brz   # frame times over a scripted orbit (GPU)
 ```
 
 Some tests run against real save files. Those aren't in this repository: point `BRICK_REFS` at a

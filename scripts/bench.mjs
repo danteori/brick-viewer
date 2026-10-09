@@ -70,9 +70,10 @@ for (const file of files) {
       return dts;
     }, { n: FRAMES, zoom: info.zoom });
     const mean = res.reduce((a, b) => a + b, 0) / res.length;
+    const rs = await page.evaluate(() => window.__brickTest.renderStats?.() ?? null);
     console.log([basename(file), TARGET, SWIFT ? 'swiftshader' : 'gpu', `run ${run + 1}`, `load ${loadMs} ms`,
       `frame median ${q(res, 0.5).toFixed(2)} ms`, `p95 ${q(res, 0.95).toFixed(2)} ms`, `mean ${mean.toFixed(2)} ms`,
-      info.status.slice(0, 120), errors.length ? `${errors.length} page errors: ${errors[0]}` : ''].join(' | '));
+      rs ? `draws ${rs.draws} in ${rs.chunks} of ${rs.total} chunks` : '', info.status.slice(0, 120), errors.length ? `${errors.length} page errors: ${errors[0]}` : ''].join(' | '));
     if (run === 0) console.log(`  renderer: ${renderer}`);
     await ctx.close();
   }

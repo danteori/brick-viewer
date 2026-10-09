@@ -1,8 +1,9 @@
-// The Phase 1 brick record (the legacy viewer's data model) and the rules derived from it:
-// top style, shader flags, size grids, ramp directions.
+// The editor's brick record and the rules derived from it: top style, shader flags, size grids,
+// ramp directions.
 //
-// A brick is {lo, hi} box faces [X, Y, Z] in viewer units, in the current frame (see histOrigin in
-// app/state.ts), plus its type fields. Phase 2 replaces this with the SoA SceneStore.
+// A brick is {lo, hi} box faces [X, Y, Z] in absolute viewer units plus its type fields. The scene
+// itself is the SoA SceneStore (scene/store.ts); a Brick is what the editor, the panels and the
+// clipboard read from a row and write back (scene/view.ts brickView / writeBrick).
 
 import { BrickShapes } from '../render/meshes/shapes.js';
 import { BRICK, BRZ_UNIT, MICROB, PLATE, STEP } from '../core/units.ts';

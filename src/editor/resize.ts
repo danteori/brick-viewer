@@ -5,12 +5,13 @@
 // ghost) until committed by release or right-click. The drag is locked to the pending axis while it
 // has a change; returning to the committed size unlocks it. Grabbing a face starts locked to its axis.
 
-import { S, type AxisDir } from '../app/state.ts';
+import { S, hasFocus, type AxisDir } from '../app/state.ts';
 import { MAX, MICROB, BRICK, THRESH, TOL } from '../core/units.ts';
 import { brickType, cloneBrick, fixedSize, lockedType, sizeRule, type V3 } from '../scene/brick.ts';
+import { brickView, writeBrick } from '../scene/view.ts';
 import { focusChangeHits, freeGrowth } from '../scene/collision.ts';
 import { setStatus } from '../ui/status.ts';
-import { farOf, fitHalf, PITCH_MAX, PITCH_MIN, snapToIso, studPx, toView, updateDirs, ZOOM_MAX, ZOOM_MIN } from '../render/camera.ts';
+import { farOf, fitHalf, PITCH_MAX, PITCH_MIN, snapToIso, studPx, toView, updateDirs, viewDir, ZOOM_MAX, ZOOM_MIN } from '../render/camera.ts';
 import { viewOf } from '../core/math.ts';
 import { histBegin, histEnd } from '../scene/history.ts';
 import { initAudio, playClick, playError, playResize, playSelect } from '../ui/audio.ts';
@@ -67,12 +68,21 @@ export function step(q: { i: number; d: number }): void {
   if (!S.pendUnits) S.pendAxis = -1;
 }
 
+/**
+ * Writes the focused brick (S.focus, whose faces S.lo / S.hi are) back into the scene. `orient`:
+ * its new orientation byte after a turn.
+ */
+export function pushFocus(orient = -1): void {
+  if (hasFocus()) writeBrick(S.scene, S.sel, S.focus!, true, orient);
+}
+
 /** the ghost becomes part of the solid brick; returns the committed axis or -1 */
 export function commit(): number {
   if (S.pendAxis < 0) return -1;
   const i = S.pendAxis, [l, h] = proposedBox();
   S.lo[i] = l[i]; S.hi[i] = h[i];
   S.pendAxis = -1; S.pendUnits = 0; S.lockAxis = -1;
+  pushFocus();
   return i;
 }
 
@@ -89,37 +99,42 @@ export function pinned(): [number, number] {
 
 /** Typed sizes, shared by the dimension labels and the top-left menu. Like dragging, typing only moves the near face. */
 export function setSize(i: number, n: number): void {
-  const b = S.bricks[S.sel];
-  if (!(n > 0) || !b || fixedSize(b) || isFixedAxis(i)) return;   // empty scene, a fixed-size round or a fixed axis
+  const b = S.focus;
+  if (!(n > 0) || !hasFocus() || !b || fixedSize(b) || isFixedAxis(i)) return;   // empty scene, a fixed-size round or a fixed axis
   const was = units(i), want = Math.max(minUnits(i), Math.min(maxUnits(i), n));
   const to = was + growFree(i, 0, want - was);           // a typed size stops at the last one that fits
   if (to === was && want > was) return;
   histBegin('size');
-  setNear(i, to); S.lastAxis = i; recenter();
+  setNear(i, to); S.lastAxis = i; pushFocus(); recenter();
   histEnd();
   if (units(i) !== was) playResize(units(i));
 }
 
 /**
- * Re-base the scene so the focused box sits on the origin and shift the camera with it (no visible
- * jump); the frame loop then glides the camera back to centre.
+ * Moves the render origin to the focused box, so GPU positions stay exact near the camera, and
+ * shifts the camera (which lives relative to it) along: no visible jump; the frame loop then glides
+ * the camera over. Bricks never move: they are absolute.
  */
 export function recenter(): void {
-  const { lo, hi } = S;
+  const { lo, hi } = S, o = S.origin;
   const c = [0, 1, 2].map((i) => +((lo[i] + hi[i]) / 2).toFixed(3));
-  for (const b of S.bricks) for (let i = 0; i < 3; i++) {
-    b.lo[i] = +(b.lo[i] - c[i]).toFixed(3); b.hi[i] = +(b.hi[i] - c[i]).toFixed(3);
-  }
-  for (let i = 0; i < 3; i++) { S.dlo[i] -= c[i]; S.dhi[i] -= c[i]; S.histOrigin[i] = +(S.histOrigin[i] + c[i]).toFixed(3); }
-  const v = toView(c[0], c[1], c[2]); S.cam.x -= v[0]; S.cam.y -= v[1];
+  const v = viewDir(c[0]! - o[0], c[1]! - o[1], c[2]! - o[2]);
+  S.cam.x -= v[0]; S.cam.y -= v[1];
+  S.origin = c as V3;
 }
 
 /**
  * Give brick i the focus: the size menu, dimensions, name label and resizing all follow it, and the
- * camera glides over to centre on it (recenter shifts the world under the camera).
+ * camera glides over to centre on it. i < 0 (or a brick that's gone): no focus, a detached box.
  */
 export function selectBrick(i: number): void {
-  S.sel = i; const b = S.bricks[i];
+  if (!S.scene.alive(i)) {
+    S.sel = -1; S.focus = null; S.lo = S.lo.slice() as V3; S.hi = S.hi.slice() as V3;
+    S.pendAxis = -1; S.pendUnits = 0; S.lockAxis = -1; S.lastAxis = -1;
+    return;
+  }
+  S.sel = i; const b = brickView(S.scene, i);
+  S.focus = b;
   S.lo = b.lo; S.hi = b.hi; S.micro = !!b.micro;
   const M = S.micro ? MICROB : BRICK;
   S.RULE = sizeRule(b);                                  // this type's grid, minimums and fixed axes
@@ -136,8 +151,8 @@ export function selectBrick(i: number): void {
  * is exact, micro -> brick rounds to the nearest stud / plate, never below 1.
  */
 export function setMode(mode: string): void {
-  const b = S.bricks[S.sel], m = mode === 'micro';
-  if (!b || mode === brickType(b) || lockedType(b)) return;
+  const b = S.focus, m = mode === 'micro';
+  if (!hasFocus() || !b || mode === brickType(b) || lockedType(b)) return;
   const prev = cloneBrick(b), prevLo = S.lo.slice(), prevHi = S.hi.slice();
   histBegin('type');
   if (b.shape === 'ramp') { delete b.shape; delete b.run; delete b.lip; }
@@ -145,7 +160,7 @@ export function setMode(mode: string): void {
   b.top = mode === 'tile' ? 'smooth' : mode === 'plain' ? 'plain' : 'studs'; b.tile = b.top === 'smooth';
   setModeButtons(mode);
   S.RULE = sizeRule(b);                         // a ramp's 2-stud run minimum goes with its shape
-  if (m === S.micro) { histEnd(); initAudio(); playClick(); return; }   // brick <-> tiles: same sizes, just the top changes
+  if (m === S.micro) { pushFocus(); histEnd(); initAudio(); playClick(); return; }   // brick <-> tiles: same sizes, just the top changes
   S.micro = m; b.micro = m;
   const M = S.micro ? MICROB : BRICK;
   S.RULE = sizeRule(b);
@@ -165,6 +180,7 @@ export function setMode(mode: string): void {
     refuse('overlaps a brick');
     return;
   }
+  pushFocus();
   recenter();
   S.pendAxis = -1; S.pendUnits = 0; S.lockAxis = -1; S.lastAxis = -1; S.dragDir = null;
   histEnd();
@@ -181,14 +197,14 @@ export const SNAP = 0.6;
 
 export function onDown(e: PointerEvent, canvas: HTMLCanvasElement): void {
   if (e.button === 1) { startOrbit(e, canvas); return; }
-  if (e.button !== 0 || S.orbit.dragging || !S.bricks[S.sel]) return;
+  if (e.button !== 0 || S.orbit.dragging || !hasFocus()) return;
   if (S.hoverBrick >= 0 && S.hoverBrick !== S.sel) {            // clicked another brick: just move the focus
     const keep = S.cam.half;
     histEnd(); initAudio(); selectBrick(S.hoverBrick); playSelect();
     keepZoom(keep);
     return;
   }
-  if (fixedSize(S.bricks[S.sel])) return;                     // rounds / cones can't be resized
+  if (fixedSize(S.focus)) return;                     // rounds / cones can't be resized
   snapToIso();                                           // resize from a balanced iso corner
   histBegin('resize');                                    // the whole drag is one undo step
   S.held = true; S.grab = [0, 0, 0]; S.steppedThisDrag = false; S.userZoomed = false;

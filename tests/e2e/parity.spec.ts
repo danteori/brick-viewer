@@ -9,6 +9,9 @@
 //   a brick in the way).
 // - E-22 paste: the app reports a paste as "Pasted ..." (it may drop overlapping bricks), legacy as
 //   "Placed ...".
+// - Phase 2 store: the app reads every brick back from save data, so default fields are always
+//   there (material "BMC_Plastic", top "studs", tile false) where legacy's hand-made bricks (the
+//   startup brick, catalogue drops) leave them out. canon() drops those defaults on both sides.
 
 import { expect, test, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
@@ -204,6 +207,17 @@ async function run(page: Page): Promise<{ step: string; snap: unknown }[]> {
 
 interface Snap { bricks: { lo: number[]; hi: number[]; grid?: string }[]; sel: number; status: string }
 
+/** A snapshot with default brick fields dropped (see the Phase 2 note at the top). */
+function canon(snap: unknown): unknown {
+  const s = structuredClone(snap) as { bricks?: Record<string, unknown>[] };
+  for (const b of s.bricks ?? []) {
+    if (b.material === 'BMC_Plastic') delete b.material;
+    if (b.top === 'studs') delete b.top;
+    if (b.tile === false) delete b.tile;
+  }
+  return s;
+}
+
 /** The app's expected snapshot after `step`, from legacy's (prev: legacy's snapshot one step before). */
 function expectedApp(step: string, legacy: unknown, prev: unknown): unknown {
   const s = structuredClone(legacy) as Snap;
@@ -247,7 +261,7 @@ test('interaction script gives the same brick lists in legacy and the new app', 
   }
   expect(app.map((r) => r.step)).toEqual(legacy.map((r) => r.step));
   for (let i = 0; i < legacy.length; i++) {
-    expect(app[i].snap, `after "${legacy[i].step}"`).toEqual(expectedApp(legacy[i].step, legacy[i].snap, legacy[i - 1]?.snap));
+    expect(canon(app[i].snap), `after "${legacy[i].step}"`).toEqual(canon(expectedApp(legacy[i].step, legacy[i].snap, legacy[i - 1]?.snap)));
   }
   // the script really edited the scene
   const counts = legacy.map((r) => (r.snap as { bricks: unknown[] }).bricks.length);
@@ -295,7 +309,7 @@ test('every reference save loads to the same brick list', async ({ browser }) =>
   for (const rel of saves) {
     const b64 = readFileSync(join(REFS, rel)).toString('base64'), name = basename(rel);
     const [a, b] = [await load(pages[0], b64, name, true), await load(pages[1], b64, name, false)];
-    expect(b, rel).toEqual(a);
+    expect(canon(b), rel).toEqual(canon(a));
     compared++;
   }
   expect(compared).toBe(saves.length);

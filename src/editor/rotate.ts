@@ -10,17 +10,16 @@
 // are taken from the result; colour, material, intensity, grid and pass-through save data stay.
 // A placed brick that would newly overlap a brick of its grid is refused (collision.ts rules).
 
-import { S } from '../app/state.ts';
+import { S, hasFocus } from '../app/state.ts';
 import { r3 } from '../core/units.ts';
 import { cloneBrick, type Brick, type V3 } from '../scene/brick.ts';
 import { orientOf, plainBrick } from '../scene/save.ts';
 import { viewerBrick } from '../scene/load.ts';
 import { focusChangeHits } from '../scene/collision.ts';
 import { hist, histBegin, histEnd } from '../scene/history.ts';
-import { markBrick } from '../render/instances.ts';
 import { cameraBasisFromView, dragToWorldDir, reorientTo, rotateBy } from './reorient.ts';
 import { ed, ghostName, itemName, rotateItems } from './ghost.ts';
-import { keepZoom, resizeBlock, selectBrick } from './resize.ts';
+import { keepZoom, pushFocus, resizeBlock, selectBrick } from './resize.ts';
 import { initAudio, playClick, playError } from '../ui/audio.ts';
 import { setStatus } from '../ui/status.ts';
 
@@ -66,18 +65,18 @@ function refuse(msg: string): void {
  * Returns false when refused (overlap, or not drawable that way).
  */
 function turnFocused(f: (o: number) => number, label: string, tx: { open: boolean }): boolean {
-  const b = S.bricks[S.sel];
-  if (!b || S.held) return false;
-  const nb = orientBrick(b, f(orientOf(b)));
+  const b = S.focus;
+  if (!hasFocus() || !b || S.held) return false;
+  const o = f(S.scene.orient[S.sel]!), nb = orientBrick(b, o);
   if (!nb) { refuse(`Can't ${label} ${itemName(b)} that way`); return false; }
-  if (sameBrick(nb, b)) return true;
+  if (sameBrick(nb, b)) return true;     // looks the same (a square box, an upright round): nothing to record
   if (focusChangeHits(b.lo, b.hi, nb.lo, nb.hi)) { refuse(`Can't ${label} ${itemName(b)}: overlaps a brick`); return false; }
   if (!tx.open || !hist.open) { histBegin(label); tx.open = true; }
   const lo = b.lo, hi = b.hi, keep = S.cam.half;
   for (const k of ORIENT_KEYS) delete (b as unknown as Record<string, unknown>)[k];
   Object.assign(b, nb);
   b.lo = lo; b.hi = hi; lo.splice(0, 3, ...nb.lo); hi.splice(0, 3, ...nb.hi);   // S.lo / S.hi are these arrays
-  markBrick(S.sel);
+  pushFocus(o);
   selectBrick(S.sel);                    // size grid, menu and frame follow the new orientation
   keepZoom(keep);
   return true;
@@ -92,11 +91,11 @@ export function rotateTap(dir: 1 | -1): void {
     rotateItems(G.items, dir); initAudio(); playClick();          // a group turns about world Z
     return;
   }
-  if (!S.bricks[S.sel]) return;
+  if (!hasFocus()) return;
   const tx = { open: false };
   const ok = turnFocused(f, 'rotate', tx);
   if (tx.open) histEnd();
-  if (ok) { initAudio(); playClick(); setStatus(`Rotated ${itemName(S.bricks[S.sel])}`); }
+  if (ok) { initAudio(); playClick(); setStatus(`Rotated ${itemName(S.focus!)}`); }
 }
 
 /** An R-held reorient gesture: measured from where the pointer was when R went down. */
@@ -128,7 +127,7 @@ export function reorientMove(p: [number, number]): void {
     if (turnGhostItem(f)) { initAudio(); playClick(); } else { setStatus(`Can't turn ${ghostName(G.items)} that way`); initAudio(); playError(); }
     return;
   }
-  if (turnFocused(f, 'reorient', g.tx)) { initAudio(); playClick(); setStatus(`Reoriented ${itemName(S.bricks[S.sel])}: top toward ${axisLabel(d)}`); }
+  if (turnFocused(f, 'reorient', g.tx)) { initAudio(); playClick(); setStatus(`Reoriented ${itemName(S.focus!)}: top toward ${axisLabel(d)}`); }
 }
 
 /**

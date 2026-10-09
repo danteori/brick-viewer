@@ -60,7 +60,23 @@ const MARKUP = `
       <label class="crow"><span>Hex</span><input id="chex" type="text" maxlength="7" autocomplete="off" spellcheck="false" aria-label="Hex colour, #rgb or #rrggbb"></label>
     </div>
   </div>
-  <button type="button" id="painttoggle" aria-expanded="false" aria-controls="paintbody" title="Colour palette, material and intensity: paint the focused brick">Paint
+  <button type="button" id="seltoggle" aria-expanded="true" aria-controls="selbody" title="Select several bricks (Shift+click, Shift+drag, Ctrl+A) and move, copy, cut or delete them together">Selection
+    <span id="selcount"></span>${CHEV}</button>
+  <div id="selbody">
+    <div class="selrow">
+      <button type="button" data-sel="all" title="Select every brick (Ctrl+A)">All</button>
+      <button type="button" data-sel="colour" title="Select every brick with the focused brick's colour">Colour</button>
+      <button type="button" data-sel="connected" title="Add every brick touching the selection face to face, and what touches those">Connected</button>
+      <button type="button" data-sel="clear" title="Clear the selection (Esc)">Clear</button>
+    </div>
+    <div class="selrow">
+      <button type="button" data-sel="move" title="Pick the selection up and put it down somewhere else (M)">Move</button>
+      <button type="button" data-sel="copy" title="Copy the selection (Ctrl+C)">Copy</button>
+      <button type="button" data-sel="cut" title="Cut the selection (Ctrl+X)">Cut</button>
+      <button type="button" data-sel="delete" title="Delete the selection (Delete)">Delete</button>
+    </div>
+  </div>
+  <button type="button" id="painttoggle" aria-expanded="false" aria-controls="paintbody" title="Colour palette, material and intensity: paint the selection (or the focused brick)">Paint
     ${CHEV}</button>
   <div id="paintbody" hidden></div>
 </section>`;

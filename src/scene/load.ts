@@ -1,6 +1,8 @@
 // Loading a .brz into the scene (ported from the legacy viewer's loadSave). The format layer reads
-// the container and the grid's chunks (src/format); this turns each save brick into a viewer brick
-// with its world box, shape and display colour, and swaps the scene in as one undoable step.
+// the container and the grid's chunks (src/format); every brick the viewer can draw becomes a row of
+// a new SceneStore (no per-brick objects), and the new store is swapped in as one undoable step.
+// viewerBrick (a save brick -> an editor Brick) is the one conversion store rows are read with too
+// (scene/view.ts brickView).
 
 import { S } from '../app/state.ts';
 import { BrickShapes } from '../render/meshes/shapes.js';
@@ -11,8 +13,9 @@ import { linearByteToSrgb } from '../core/colour.ts';
 import { rampDir, sideCode, type Brick, type SaveExtras, type V3 } from './brick.ts';
 import { roundHalf } from '../render/meshes/registry.ts';
 import { histEnd, histPush, sceneSnap } from './history.ts';
-import { instAll } from '../render/instances.ts';
 import { selectBrick } from '../editor/resize.ts';
+import { FLAG_NAMES, SceneStore } from './store.ts';
+import { putPlain, supportedAsset } from './view.ts';
 import { fitHalf, ZOOM_MAX } from '../render/camera.ts';
 import { setStatus } from '../ui/status.ts';
 
@@ -25,7 +28,7 @@ export type SeqBrick = PlainBrick & { seq?: number };
 export interface Skip { skip: string }
 
 /**
- * One save brick -> a viewer brick (world box in viewer units, frame-independent), or the asset
+ * One save brick -> a viewer brick (world box in absolute viewer units), or the asset
  * name when the type isn't supported. `linear`: the chunk stores linear colour bytes.
  */
 export function viewerBrick(pb: PlainBrick, linear: boolean): Brick | Skip {
@@ -93,6 +96,33 @@ export function bricksFromFiles(files: FileMap): { bricks: Brick[]; report: Omit
   return { bricks: out, report: { skipped, skippedTypes, sideways, extraGrids }, unsupported };
 }
 
+/** Save files -> a SceneStore of grid 1's drawable bricks, plus the bricks it can't draw (with their load order). */
+export function storeFromFiles(files: FileMap): { store: SceneStore; report: Omit<LoadReport, 'name' | 'drawn'>; unsupported: SeqBrick[] } {
+  const skippedTypes: Record<string, number> = {}, unsupported: SeqBrick[] = [];
+  let skipped = 0, sideways = 0, extraGrids = 0;
+  const grids = [...new Set([...files.keys()].map((k) => k.match(/^World\/0\/Bricks\/Grids\/([^/]+)\//)?.[1]).filter(Boolean))];
+  for (const g of grids) if (g !== '1') extraGrids++;
+  let store = new SceneStore();
+  if (grids.includes('1')) {
+    const { bricks, linear, ctx } = extractBricks(files);
+    store = new SceneStore(bricks.length);
+    store.flagFields = ctx.flagFields.map((f) => FLAG_NAMES.id(f));
+    bricks.forEach((pb, i) => {
+      if (!supportedAsset(pb.asset, pb.size !== null)) {
+        const k = pb.asset || 'unknown';
+        skipped++; skippedTypes[k] = (skippedTypes[k] || 0) + 1; unsupported.push({ ...pb, seq: i });
+        return;
+      }
+      const id = store.alloc();
+      putPlain(store, id, { ...pb, seq: i }, linear[i]!);
+      const dir = (pb.orient >> 2) % 6;
+      if (dir < 4) sideways++;
+    });
+    store.drain();
+  }
+  return { store, report: { skipped, skippedTypes, sideways, extraGrids }, unsupported };
+}
+
 /**
  * The files of the save the scene came from: the template "Save .brz" rebuilds grid 1 into
  * (everything else is copied as is). Null until a save is opened.
@@ -118,6 +148,10 @@ export let loadedUnsupported: SeqBrick[] = [];
 
 export let lastLoad: LoadReport | null = null;
 
+/** The save files each scene store was loaded from (components / wires checks); none for the startup scene. */
+const storeFiles = new WeakMap<SceneStore, FileMap>();
+export const filesOf = (s: SceneStore): FileMap | null => storeFiles.get(s) ?? null;
+
 /** Read a .brz and make it the scene, framed around its first brick. One undo step. */
 export function loadSave(buf: ArrayBuffer | Uint8Array, name: string): LoadReport {
   const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
@@ -131,28 +165,32 @@ export function loadSave(buf: ArrayBuffer | Uint8Array, name: string): LoadRepor
  */
 export function loadFiles(files: FileMap, name: string, brz: Uint8Array | null = null, gridNote: string | null = null, complete: (() => Promise<FileMap>) | null = null): LoadReport {
   for (const f of S.hooks.beforeLoad) f();
-  const { bricks: out, report, unsupported } = bricksFromFiles(files);
-  if (!out.length) throw new Error('no supported bricks in this save');
+  const { store, report, unsupported } = storeFromFiles(files);
+  if (!store.count) throw new Error('no supported bricks in this save');
   histEnd();
   const prevScene = sceneSnap();
-  S.bricks.length = 0; for (const b of out) S.bricks.push(b);
-  S.histOrigin = [0, 0, 0];                    // a new scene starts its own frame
-  instAll();
-  selectBrick(0);
+  S.scene = store;
+  S.origin = [0, 0, 0];                        // a new scene: the camera's frame starts at the world origin
+  selectBrick(store.first());
   // frame the whole save around the focused brick
-  const { lo, hi, bricks } = S;
-  const sl = [Infinity, Infinity, Infinity], sh = [-Infinity, -Infinity, -Infinity];   // no spread: big saves overflow the stack
-  for (const b of bricks) for (let i = 0; i < 3; i++) { sl[i] = Math.min(sl[i], b.lo[i]); sh[i] = Math.max(sh[i], b.hi[i]); }
-  const c = [0, 1, 2].map((i) => (lo[i] + hi[i]) / 2), r = [0, 1, 2].map((i) => Math.max(c[i] - sl[i], sh[i] - c[i]));
+  const { lo, hi } = S;
+  const sl = [Infinity, Infinity, Infinity], sh = [-Infinity, -Infinity, -Infinity], bx = new Array<number>(6);
+  for (const id of store.ids()) {
+    store.box(id, bx);
+    for (let i = 0; i < 3; i++) { sl[i] = Math.min(sl[i]!, bx[i]!); sh[i] = Math.max(sh[i]!, bx[i + 3]!); }
+  }
+  for (let i = 0; i < 3; i++) { sl[i] = +(sl[i]! * BRZ_UNIT).toFixed(3); sh[i] = +(sh[i]! * BRZ_UNIT).toFixed(3); }
+  const c = [0, 1, 2].map((i) => (lo[i] + hi[i]) / 2), r = [0, 1, 2].map((i) => Math.max(c[i] - sl[i]!, sh[i]! - c[i]));
   S.zoomMul = Math.min(ZOOM_MAX, Math.max(1, fitHalf(c.map((v, i) => v - r[i]), c.map((v, i) => v + r[i])) / fitHalf(lo, hi)));
   histPush({ kind: 'scene', label: 'load save', before: prevScene, after: sceneSnap() });
-  lastLoad = { name, drawn: out.length, ...report };
+  lastLoad = { name, drawn: store.count, ...report };
   loadedFiles = files; completeFiles = complete; loadedName = name; loadedBrz = brz; loadedUnsupported = unsupported;
+  storeFiles.set(store, files);
   const { skipped, skippedTypes, sideways, extraGrids } = report;
   const notes = [skipped && `${skipped} unsupported skipped (${Object.entries(skippedTypes).map(([k, n]) => `${k.replace(/^(PB|BP|B)_(Default)?/, '')} ${n}`).join(', ')})`,
     sideways && `${sideways} sideways`,
     extraGrids && (gridNote ?? `${extraGrids} moving grid(s) not shown yet`)].filter(Boolean);
-  setStatus(`${name}: ${out.length} brick${out.length === 1 ? '' : 's'}${notes.length ? ' · ' + notes.join(' · ') : ''}`);
+  setStatus(`${name}: ${store.count} brick${store.count === 1 ? '' : 's'}${notes.length ? ' · ' + notes.join(' · ') : ''}`);
   for (const f of S.hooks.loaded) f();
   return lastLoad;
 }

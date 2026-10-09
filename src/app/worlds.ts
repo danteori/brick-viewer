@@ -21,14 +21,14 @@ import { flattenTree } from '../format/stale.ts';
 import { fileMapView, type SaveView } from '../format/saveview.ts';
 import { writeBrz, type FileMap } from '../format/brz.ts';
 import { buildWorldModel, buildWorldModelLazy, type WorldModel } from '../scene/grids.ts';
-import { placedGridBricks } from '../scene/worldgrids.ts';
+import { placedGridStore } from '../scene/worldgrids.ts';
 import { loadFiles } from '../scene/load.ts';
-import { setExtraBricks } from '../render/extras.ts';
+import { setExtraStores } from '../render/extras.ts';
 import { openers } from '../ui/panels/file.ts';
 import { initAudio, playClick } from '../ui/audio.ts';
 import { setStatus } from '../ui/status.ts';
 import { $ } from '../ui/dom.ts';
-import type { Brick } from '../scene/brick.ts';
+import { SceneStore } from '../scene/store.ts';
 
 /** One state of a world, ready for the scene. */
 interface WorldState {
@@ -154,24 +154,24 @@ export function initWorlds(): void {
       .finally(() => { rev.disabled = false; });
   });
   // any other save replaces the world: hide its revision list and dynamic grids
-  S.hooks.beforeLoad.push(() => { setExtraBricks([], null); });
+  S.hooks.beforeLoad.push(() => { setExtraStores([], null); });
   S.hooks.loaded.push(() => { if (!loading) { revBox.hidden = true; world?.close(); world = null; } });
 }
 
 /** Loads a world as of a revision (null = live): grid 1 as the scene, dynamic grids read-only. */
 async function loadRevision(w: OpenWorld, revisionId: number | null, name: string): Promise<void> {
   const { files, model, complete, skipped: staleFiles } = await w.state(revisionId);
-  const extras: Brick[] = [];
+  const extras = new SceneStore();
   let placed = 0, snapped = 0, skipped = 0, failed = 0;
   for (const g of model.grids) {
     if (g.kind !== 'dynamic') continue;
-    let p: ReturnType<typeof placedGridBricks>;
-    try { p = placedGridBricks(fileMapView(files), g); }
+    let p: ReturnType<typeof placedGridStore>;
+    try { p = placedGridStore(fileMapView(files), g, extras); }
     catch (err) { failed++; console.warn(`grid ${g.id} not shown`, err); continue; }
-    if (p.bricks.length) placed++;
+    if (p.placed) placed++;
     if (p.snapped) snapped++;
     skipped += p.skipped;
-    for (const b of p.bricks) extras.push(b);
+
   }
   const others = model.grids.filter((g) => g.id !== 1).length;
   const note = [`${placed} of ${others} moving grid(s) shown (read-only)`, snapped && `${snapped} turned to the nearest quarter turn`, skipped && `${skipped} of their bricks unsupported`,
@@ -179,7 +179,8 @@ async function loadRevision(w: OpenWorld, revisionId: number | null, name: strin
   const label = revisionId === null ? name : `${name} @ revision ${revisionId}`;
   loading = true;
   try { loadFiles(files, label, writeBrz(files), note, complete); } finally { loading = false; }
-  setExtraBricks(extras, S.bricks[0] ?? null);
+  extras.drain();
+  setExtraStores(extras.count ? [{ store: extras, origin: [0, 0, 0] }] : [], S.scene);
 }
 
 /** Which reader opened the current world (tests and the status line). */
