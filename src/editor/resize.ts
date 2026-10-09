@@ -7,7 +7,9 @@
 
 import { S, type AxisDir } from '../app/state.ts';
 import { MAX, MICROB, BRICK, THRESH, TOL } from '../core/units.ts';
-import { brickType, fixedSize, lockedType, sizeRule, type V3 } from '../scene/brick.ts';
+import { brickType, cloneBrick, fixedSize, lockedType, sizeRule, type V3 } from '../scene/brick.ts';
+import { focusChangeHits, freeGrowth } from '../scene/collision.ts';
+import { setStatus } from '../ui/status.ts';
 import { farOf, fitHalf, PITCH_MAX, PITCH_MIN, snapToIso, studPx, toView, updateDirs, ZOOM_MAX, ZOOM_MIN } from '../render/camera.ts';
 import { viewOf } from '../core/math.ts';
 import { histBegin, histEnd } from '../scene/history.ts';
@@ -34,12 +36,31 @@ export function proposedBox(): [V3, V3] {
   return [l, h];
 }
 
+/** The last refused resize (collision): the HUD shows it in red for a moment. */
+export const resizeBlock = { t: -1e9, reason: '' };
+export const BLOCK_SHOW_MS = 1500;
+function refuse(reason: string, partly = false): void {
+  resizeBlock.t = performance.now(); resizeBlock.reason = reason;
+  setStatus(partly ? `Resize stopped: ${reason}` : `Can't resize: ${reason}`);
+}
+
+/**
+ * The largest pending growth on axis i in (from .. want] that doesn't run into another brick of the
+ * same grid; flags the refusal when it stops short.
+ */
+function growFree(i: number, from: number, want: number): number {
+  if (want <= Math.max(0, from)) return want;              // shrinking never collides
+  const ok = freeGrowth(S.lo, S.hi, i, S.ns[i], S.STEPS[i], Math.max(0, from), want);
+  if (ok < want) refuse('overlaps a brick', ok > Math.max(0, from));
+  return Math.max(from, ok);
+}
+
 export function step(q: { i: number; d: number }): void {
   const i = q.i;
   if (S.pendAxis !== i) { S.pendAxis = i; S.pendUnits = 0; }
   const was = S.pendUnits;
-  // keep the proposed size within 1 unit .. MAX
-  S.pendUnits = Math.max(minUnits(i) - units(i), Math.min(maxUnits(i) - units(i), S.pendUnits + q.d * S.ns[i]));
+  // keep the proposed size within 1 unit .. MAX, and stop at the last size that doesn't overlap a brick
+  S.pendUnits = growFree(i, was, Math.max(minUnits(i) - units(i), Math.min(maxUnits(i) - units(i), S.pendUnits + q.d * S.ns[i])));
   if (S.pendUnits !== was) { S.grab[i] = 1; S.lastAxis = i; playResize(); }   // no tick when clamped
   S.lockAxis = S.pendUnits ? i : -1;            // back at the default: unlocked again
   if (!S.pendUnits) S.pendAxis = -1;
@@ -69,9 +90,11 @@ export function pinned(): [number, number] {
 export function setSize(i: number, n: number): void {
   const b = S.bricks[S.sel];
   if (!(n > 0) || !b || fixedSize(b) || isFixedAxis(i)) return;   // empty scene, a fixed-size round or a fixed axis
-  const was = units(i);
+  const was = units(i), want = Math.max(minUnits(i), Math.min(maxUnits(i), n));
+  const to = was + growFree(i, 0, want - was);           // a typed size stops at the last one that fits
+  if (to === was && want > was) return;
   histBegin('size');
-  setNear(i, Math.max(minUnits(i), Math.min(maxUnits(i), n))); S.lastAxis = i; recenter();
+  setNear(i, to); S.lastAxis = i; recenter();
   histEnd();
   if (units(i) !== was) playResize();
 }
@@ -114,6 +137,7 @@ export function selectBrick(i: number): void {
 export function setMode(mode: string): void {
   const b = S.bricks[S.sel], m = mode === 'micro';
   if (!b || mode === brickType(b) || lockedType(b)) return;
+  const prev = cloneBrick(b), prevLo = S.lo.slice(), prevHi = S.hi.slice();
   histBegin('type');
   if (b.shape === 'ramp') { delete b.shape; delete b.run; delete b.lip; }
   if (b.shape === 'crest' || b.shape === 'crestEnd') { delete b.shape; delete b.run; delete b.closed; }
@@ -128,6 +152,17 @@ export function setMode(mode: string): void {
   for (let i = 0; i < 3; i++) {
     const n = Math.max(1, Math.min(maxUnits(i), Math.round((S.hi[i] - S.lo[i]) / S.STEPS[i] + 1e-9)));   // halves round up
     setNear(i, n);
+  }
+  if (focusChangeHits(prevLo, prevHi, S.lo, S.hi)) {      // micro -> brick rounding grew into a brick: refuse
+    const lo = b.lo, hi = b.hi;                           // S.lo / S.hi are these arrays: keep them
+    Object.assign(b, prev); b.lo = lo; b.hi = hi; lo.splice(0, 3, ...prevLo); hi.splice(0, 3, ...prevHi);
+    for (const k of Object.keys(b) as (keyof typeof b)[]) if (!(k in prev)) delete b[k];
+    S.micro = !!b.micro; S.RULE = sizeRule(b); S.STEPS = S.RULE.steps.slice() as V3;
+    S.START = (S.micro ? MICROB : BRICK).start.slice() as V3;
+    setModeButtons(brickType(b));
+    histEnd(); updateMenuUnits();
+    refuse('overlaps a brick');
+    return;
   }
   recenter();
   S.pendAxis = -1; S.pendUnits = 0; S.lockAxis = -1; S.lastAxis = -1; S.dragDir = null;

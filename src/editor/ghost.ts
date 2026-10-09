@@ -6,7 +6,8 @@
 import { S } from '../app/state.ts';
 import { MICRO, PLATE, STEP, r3 } from '../core/units.ts';
 import { cloneBrick, sizeRule, turnOrient, type Brick, type V3 } from '../scene/brick.ts';
-import { boxesHit, pickRay } from '../scene/spatial.ts';
+import { pickRay } from '../scene/spatial.ts';
+import { itemHits } from '../scene/collision.ts';
 import { farOf } from '../render/camera.ts';
 import { inst } from '../render/instances.ts';
 import { G as Gfx, drawBody, setBox } from '../render/draw.ts';
@@ -27,6 +28,12 @@ export interface Ghost {
   mouse: [number, number] | null;
   over: boolean;
   visited: boolean;
+  /**
+   * Paste: items that would overlap a brick of their grid are dropped (skip[j]) and the rest placed;
+   * the pose is refused only when none fits. Otherwise any overlap refuses the whole ghost.
+   */
+  drop: boolean;
+  skip: boolean[];
 }
 
 export const ed = {
@@ -55,10 +62,10 @@ export function itemName(t: Brick): string {
 }
 export const ghostName = (items: readonly Brick[]): string => (items.length === 1 ? itemName(items[0]) : `${items.length} bricks`);
 
-export function startPlacing(items: Brick[], label: string, mode: 'drag' | 'click', from: HTMLElement | null): void {
+export function startPlacing(items: Brick[], label: string, mode: 'drag' | 'click', from: HTMLElement | null, opts: { drop?: boolean } = {}): void {
   if (S.held) return;
   endPlacing();
-  ed.ghost = { items: cloneBrick(items), label, mode, from, dz: 0, pose: null, valid: false, reason: '', mouse: ed.lastMouse, over: ed.lastOver, visited: false };
+  ed.ghost = { items: cloneBrick(items), label, mode, from, dz: 0, pose: null, valid: false, reason: '', mouse: ed.lastMouse, over: ed.lastOver, visited: false, drop: !!opts.drop, skip: [] };
   document.body.classList.add('placing'); if (from) from.classList.add('on');
   initAudio();
   setStatus(`Placing ${ghostName(ed.ghost.items)}: ${mode === 'drag' ? 'release' : 'click'} in the scene to place, Esc cancels`);
@@ -125,7 +132,7 @@ function groundZ(): number {
 /** pose the ghost onto the face under the cursor, else the ground */
 export function poseGhost(): void {
   const G = ed.ghost!;
-  G.pose = null; G.valid = false; G.reason = '';
+  G.pose = null; G.valid = false; G.reason = ''; G.skip = [];
   if (!G.mouse || !G.over) return;
   const r = cursorRay(G.mouse[0], G.mouse[1]);
   if (!r) return;
@@ -149,7 +156,9 @@ export function poseGhost(): void {
   p[2] = r3(p[2] + G.dz * st[2]);
   G.pose = p;
   if (p[2] < gz - 1e-4) { G.reason = 'below the ground'; return; }
-  if (boxesHit(p, G.items)) { G.reason = 'overlaps a brick'; return; }
+  // same-grid overlap: a paste drops the items that collide, any other placement is refused
+  G.skip = G.items.map((t) => itemHits(p, t));
+  if (G.drop ? G.skip.every(Boolean) : G.skip.some(Boolean)) { G.reason = 'overlaps a brick'; return; }
   G.valid = true;
 }
 
@@ -175,11 +184,14 @@ function drawGhost(): void {
   gl.blendColor(0, 0, 0, G.valid ? 0.6 : 0.35); gl.blendFunc(gl.CONSTANT_ALPHA, gl.ONE_MINUS_CONSTANT_ALPHA);
   G.items.forEach((t, j) => body(t, boxes[j]));
   gl.uniform1f(u.uEdge, 1); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-  if (!G.valid) { gl.uniform4f(u.uLine, 1, 0.12, 0.08, 0.5); G.items.forEach((t, j) => body(t, boxes[j])); }
+  const red = (j: number): boolean => !G.valid || !!G.skip[j];     // blocked, or a pasted brick that will be dropped
+  gl.uniform4f(u.uLine, 1, 0.12, 0.08, 0.5); G.items.forEach((t, j) => { if (red(j)) body(t, boxes[j]); });
   gl.disable(gl.DEPTH_TEST);
-  if (G.valid) gl.uniform4f(u.uLine, 1, 1, 1, 0.85); else gl.uniform4f(u.uLine, 1, 0.3, 0.25, 0.95);
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxEB);
-  for (const [l, h] of boxes) { setBox(l, h); gl.drawElements(gl.LINES, BOX_EDGE_COUNT, gl.UNSIGNED_SHORT, 0); }
+  boxes.forEach(([l, h], j) => {
+    if (red(j)) gl.uniform4f(u.uLine, 1, 0.3, 0.25, 0.95); else gl.uniform4f(u.uLine, 1, 1, 1, 0.85);
+    setBox(l, h); gl.drawElements(gl.LINES, BOX_EDGE_COUNT, gl.UNSIGNED_SHORT, 0);
+  });
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxIB);
   gl.enable(gl.DEPTH_TEST); gl.depthMask(true); gl.depthFunc(gl.LESS); gl.disable(gl.BLEND);
   gl.uniform4f(u.uLine, 0.05, 0.05, 0.08, 1);

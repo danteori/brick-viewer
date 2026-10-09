@@ -51,4 +51,7 @@ export function copyFocused(): void {
   setStatus(`Copied ${itemName(s)}` + (clip.mode === 'brick' ? ' · Ctrl+V to paste' : ' · Ctrl+V uploads: switch it to Paste brick under Open save'));
 }
 
-export const startPaste = (): void => { if (clip.items) startPlacing(clip.items, 'paste brick', 'click', null); };
+/** Paste the clipboard through the ghost: bricks that would overlap a brick of their grid are dropped. */
+export const startPaste = (): void => {
+  if (clip.items) startPlacing(clip.items, clip.items.length === 1 ? 'paste brick' : 'paste bricks', 'click', null, { drop: true });
+};

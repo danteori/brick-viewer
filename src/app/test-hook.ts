@@ -9,7 +9,8 @@ import { loadSave } from '../scene/load.ts';
 import { snapBrick } from '../scene/history.ts';
 import { setPreset } from '../ui/panels/file.ts';
 import { statusText } from '../ui/status.ts';
-import { clip } from '../editor/clipboard.ts';
+import { clip, startPaste } from '../editor/clipboard.ts';
+import type { Brick } from '../scene/brick.ts';
 import { ed } from '../editor/ghost.ts';
 
 export interface BrickTest {
@@ -27,6 +28,8 @@ export interface BrickTest {
   focusBox(): { lo: number[]; hi: number[] };
   /** brick k's faces in the current frame */
   brickBox(k: number): { lo: number[]; hi: number[] };
+  /** put bricks on the clipboard (lo / hi relative to the group's low corner) and start pasting them */
+  paste(items: Brick[]): void;
 }
 
 export function installTestHook(canvas: HTMLCanvasElement): void {
@@ -86,6 +89,7 @@ export function installTestHook(canvas: HTMLCanvasElement): void {
     },
     focusBox: () => ({ lo: S.lo.slice(), hi: S.hi.slice() }),
     brickBox: (k) => ({ lo: S.bricks[k].lo.slice(), hi: S.bricks[k].hi.slice() }),
+    paste(items) { clip.items = items; startPaste(); },
     /** the scene as frame-independent records, plus the focus and the editor state */
     snapshot() {
       return {

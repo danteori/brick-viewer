@@ -46,18 +46,21 @@ export function placeGhost(): boolean {
   if (!G.valid) { setStatus(`Can't place ${ghostName(G.items)} here: ${G.reason}`); return false; }
   histEnd();
   const p = G.pose, selBefore = S.sel, base = S.bricks.length, keep = S.cam.half;
-  for (const t of G.items) {
+  const placed = G.items.filter((_, j) => !G.skip[j]), skipped = G.items.length - placed.length;   // a paste drops overlapping bricks
+  for (const t of placed) {
     const b = cloneBrick(t);
     b.lo = t.lo.map((v, i) => r3(v + p[i])) as V3; b.hi = t.hi.map((v, i) => r3(v + p[i])) as V3;
     S.bricks.push(b);
   }
-  const adds = G.items.map((_, j): [number, Brick] => [base + j, snapBrick(base + j)]);
-  histPush({ kind: 'list', label: G.label, adds, removes: [], selBefore, selAfter: base });
+  const adds = placed.map((_, j): [number, Brick] => [base + j, snapBrick(base + j)]);
+  histPush({ kind: 'list', label: G.label, adds, removes: [], selBefore, selAfter: base });   // one undo step
   instAll();
   focusKeepZoom(base, keep);
   ed.lastPlaceT = performance.now();
   initAudio(); playClick();
-  setStatus(`Placed ${ghostName(G.items)}`);
+  setStatus(G.drop
+    ? `Pasted ${G.items.length === 1 ? ghostName(placed) : `${placed.length} brick${placed.length === 1 ? '' : 's'}`}${skipped ? ` (${skipped} skipped: overlapping)` : ''}`
+    : `Placed ${ghostName(G.items)}`);
   return true;
 }
 

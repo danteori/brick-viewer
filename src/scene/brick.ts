@@ -38,6 +38,8 @@ export interface Brick {
   o?: number;
   /** sideways bricks: the stud axis code (+-2 world X, +-3 world Y) */
   side?: number;
+  /** the save grid this brick is in (unset = the main static grid, '1'); only same-grid bricks collide */
+  grid?: string;
 }
 
 /**

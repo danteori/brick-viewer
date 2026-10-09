@@ -2,6 +2,12 @@
 // viewer and the new app, and both must end every step with the same brick list (frame-independent
 // records), focus, clipboard and paste mode. Uses only the startup brick and the catalogue, so it
 // needs no private saves.
+//
+// Intended differences (expectedApp below turns the legacy result into the app's expected one):
+// - E-22 collision: legacy lets a brick be resized into another; the app stops the face at the last
+//   size that doesn't overlap a brick of the same grid ('grow into neighbour').
+// - E-22 paste: the app reports a paste as "Pasted ..." (it may drop overlapping bricks), legacy as
+//   "Placed ...".
 
 import { expect, test, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
@@ -185,7 +191,33 @@ async function run(page: Page): Promise<{ step: string; snap: unknown }[]> {
   await snap('undo x3');
   await page.keyboard.press('Control+y');
   await snap('redo');
+
+  // type a Y size far past the brick on the focus's +Y side: legacy overlaps it, the app stops there
+  await page.locator('#menu .mrow input').nth(1).click();
+  await page.keyboard.type('30');
+  await page.keyboard.press('Enter');
+  await snap('grow into neighbour');
   return out;
+}
+
+interface Snap { bricks: { lo: number[]; hi: number[]; grid?: string }[]; sel: number; status: string }
+
+/** The app's expected snapshot after `step`, from legacy's (prev: legacy's snapshot one step before). */
+function expectedApp(step: string, legacy: unknown, prev: unknown): unknown {
+  const s = structuredClone(legacy) as Snap;
+  if (step === 'paste') s.status = s.status.replace(/^Placed /, 'Pasted ');
+  if (step === 'grow into neighbour') {
+    // the +Y face grows in studs until it touches the nearest same-grid brick ahead of it
+    const p = prev as Snap, f = p.bricks[p.sel], over = (a: number, b: number, i: number): boolean => Math.max(f.lo[i], a) < Math.min(f.hi[i], b) - 1e-9;
+    const ahead = p.bricks.filter((b, k) => k !== p.sel && (b.grid ?? '1') === (f.grid ?? '1') && over(b.lo[0], b.hi[0], 0) && over(b.lo[2], b.hi[2], 2) && b.lo[1] >= f.hi[1] - 1e-9);
+    const limit = Math.min(...ahead.map((b) => b.lo[1]));
+    expect(s.bricks[s.sel].hi[1], 'legacy grew the brick into its neighbour').toBeGreaterThan(limit);
+    expect(s.bricks[s.sel].lo[1]).toBe(f.lo[1]);
+    const n = Math.floor((limit - f.hi[1]) / 0.2 + 1e-9);
+    s.bricks[s.sel].hi[1] = +(f.hi[1] + n * 0.2).toFixed(3);
+    s.status = n > 0 ? 'Resize stopped: overlaps a brick' : "Can't resize: overlaps a brick";
+  }
+  return s;
 }
 
 test('interaction script gives the same brick lists in legacy and the new app', async ({ browser }) => {
@@ -209,7 +241,9 @@ test('interaction script gives the same brick lists in legacy and the new app', 
     console.log(`${r.step.padEnd(18)} ${s.bricks.length} bricks, focus ${s.sel}, held ${s.held}, ghost ${s.ghost}, active ${s.active}: ${s.status}`);
   }
   expect(app.map((r) => r.step)).toEqual(legacy.map((r) => r.step));
-  for (let i = 0; i < legacy.length; i++) expect(app[i].snap, `after "${legacy[i].step}"`).toEqual(legacy[i].snap);
+  for (let i = 0; i < legacy.length; i++) {
+    expect(app[i].snap, `after "${legacy[i].step}"`).toEqual(expectedApp(legacy[i].step, legacy[i].snap, legacy[i - 1]?.snap));
+  }
   // the script really edited the scene
   const counts = legacy.map((r) => (r.snap as { bricks: unknown[] }).bricks.length);
   const size = (i: number, a: number): number => {
