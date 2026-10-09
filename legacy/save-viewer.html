@@ -220,15 +220,18 @@ SOFTWARE.
   </div>
 </section>
 <script>
-// --- Brick shapes: rounds / cones (B_*) and Ramp Crest / Crest End (PB_*). A verbatim copy of
-// prototypes/shapes.js (keep the two in sync), inlined so this file stays self-contained. Defines
+// --- Brick shapes: every procedural and fixed shape the viewer draws beyond plain boxes. A verbatim
+// copy of prototypes/shapes.js (keep the two in sync), inlined so this file stays self-contained. Defines
 // window.BrickShapes; used by shapeBuffer() and the loader in the script below.
-// Brickadia brick shapes the viewer doesn't draw yet: rounds / cones (fixed B_* meshes), Ramp Crest
-// and Ramp Crest End (procedural PB_* meshes). Framework-agnostic: pure functions that return typed
+// Brickadia brick shapes the viewer doesn't draw yet: rounds / cones (fixed B_* meshes), Ramp Crest,
+// Ramp Crest End and the micro family (PB_DefaultMicro* wedges / corners / rounds, PB_DefaultPole). Framework-agnostic: pure functions that return typed
 // arrays, no WebGL calls, so the code can be pasted into save-viewer.html later.
 //
-// Approximations only, from the user's specs, screenshots and saves (no game files were extracted).
-// Every guess sits behind a named constant below; the open ones are listed in OPEN_QUESTIONS.
+// Procedural only (no game meshes or textures are embedded or extracted). The numbers below were
+// MEASURED from the game's own player-facing glTF export (Bricks.ExportModel, CL15729) of our test
+// save, used as a private reference (references/exports/EXPORT_ANALYSIS.md; check with
+// tools/compare_export.py). Values the export can't show sit behind named constants and are listed
+// in OPEN_QUESTIONS.
 //
 // --- Convention (same as rampBuffer in save-viewer.html) ---
 // * Positions are in the UNIT BOX (-0.5..0.5 on every axis), GL axes: x = world X, y = world Z (up),
@@ -276,36 +279,42 @@ const PART = {
   SLOPE: 4,        // ramp-style sloped face (same faces as flags = 1)
   PLAIN_TOP: 5,    // a flat upward face that must NOT get studs (only the optional flat crest peak)
   ROUND_LEDGE: 6,  // the downward ring between the stud cylinder and the body: plain, radial bevel on its outer edge
+  // Codes used by the export-measured generators (specialMesh / rampMesh, micro shapes). They name the
+  // game's export material part of each face (EXPORT_ANALYSIS.md "Parts"):
+  FACET: 7,        // Bevel material: flat or curved face with only the edge bevel (no studs, no underside, no bump)
+  STUDS: 8,        // Stud material: the stud pattern in the face's own plane, any direction (Studded has 5 such faces)
+  INLET: 9,        // InletBorder / InletCenter: the brick underside pattern, in the face's own plane
+  RECESS: 10,      // InletCenter material used as a dark recess (spike-plate pits, aerodynamic arrows): no pattern
 };
 
-// --- Rounds (assumptions are marked A1..; see OPEN_QUESTIONS) ---
-const ROUND_SEGMENTS = 40;          // facets around a 1x1 round (smooth normals hide them)
-const ROUND_SEGMENTS_2X2 = 48;      // facets around a 2x2 round
-const ROUND_SEGMENTS_4X4 = 64;      // facets around a 4x4 round
-const ROUND_STUD_DIAMETER = 0.78;   // bottom stud cylinder across, fraction of the footprint (rounds_shot6: ~199 px on 256 px/stud)
-const ROUND_STUD_HEIGHT = MICRO;    // bottom stud cylinder height: 1 micro (user spec); NOT doubled on 2x2 (A2)
-// Cone top diameter is per type (ROUND_TYPES[..].top, in studs): 0.6 on the 1x1 (rounds_shot6),
-// 1.0 on the 2x2 (rounds2x2_shot9/10: top ~0.5 of the 2-stud base).
-// The stud texture on the cone's top: 1.0 = the normal-size stud (flat top 0.5 stud) cut by the 0.6
-// circle, as rounds_shot7.png shows (flat square ~213 px inside a ~302 px top on a ~430 px base).
-// 0.6 would squeeze a whole stud pattern into the circle instead.
+// --- Rounds (B_* fixed meshes; measured from the export, EXPORT_ANALYSIS.md "Rounds") ---
+const ROUND_SEGMENTS = 32;          // facets around EVERY round and cone (1x1, 2x2 and 4x4 alike), smooth normals
+const ROUND_SEGMENTS_2X2 = 32;      // kept for API compatibility: same as ROUND_SEGMENTS
+const ROUND_SEGMENTS_4X4 = 32;
+const ROUND_STUD_DIAMETER = 0.8;    // 1x1 types' bottom stud cylinder: radius 4 units on a 5-unit body (0.8 x footprint)
+const ROUND_STUD_HEIGHT = MICRO;    // ... 2 units tall on B_1x1_Round / B_1x1_Cone; B_1x1F_Round uses 2.5 (ROUND_TYPES .stud)
+// Cone top diameter is per type (ROUND_TYPES[..].top, in studs): 0.6 on the 1x1, 1.0 on the 2x2 (both exact
+// in the export). The stud texture on the cone's top keeps the normal stud size, clipped by the circle
+// (the export's stud UVs run 0.15..0.85 across the 1x1 cone's 0.6-stud top).
 const CONE_TOP_STUD_SCALE = 1.0;
-// Round bottoms (rounds_shot8 / rounds2x2_shot11): a round rim wall following the stud cylinder's
+// Round bottoms (in-game shots of round bricks): a round rim wall following the stud cylinder's
 // circle, then the recess with one socket square per stud cell (at the cell's centre) and skeleton
 // lines through the sockets (the viewer's underside pattern shifted half a cell). Wall width in
 // studs, ~36 px against a ~465 px (0.78 stud) cylinder on the 1x1.
 const ROUND_UNDER_RIM = 0.06;
-// n = footprint in studs, h = full height in Brickadia units, top = cone top diameter in studs.
-// Round tops show an n x n stud grid clipped by the circle (rounds2x2_shot10); cone tops show a
-// single stud cell clipped by their small circle.
+// n = footprint in studs, h = full height in Brickadia units, top = cone top diameter in studs,
+// stud = bottom stud cylinder height in units (0 = none; radius ROUND_STUD_DIAMETER x body radius),
+// base = height of a straight cylinder at the bottom of a cone body before it starts to narrow.
+// Round tops show an n x n stud grid clipped by the circle; cone tops a single stud cell clipped by
+// their small circle. Every value here is exact in the export (EXPORT_ANALYSIS.md "Rounds").
 const ROUND_TYPES = {
-  B_1x1F_Round: { n: 1, h: 4,  cone: false },             // half (5,5,2) in rounds-and-cone.brz; rounds_shot6/7/8
-  B_1x1_Round:  { n: 1, h: 12, cone: false },             // half (5,5,6)
-  B_1x1_Cone:   { n: 1, h: 12, cone: true, top: 0.6 },    // half (5,5,6)
-  B_2x2F_Round: { n: 2, h: 4,  cone: false },             // rounds2x2_shot9/10/11: plate height, 2x2 studs
-  B_2x2_Round:  { n: 2, h: 12, cone: false },             // brick height, 2x2 studs
-  B_2x2_Cone:   { n: 2, h: 24, cone: true, top: 1.0 },    // ~2 bricks tall (shot9: 220 px tall on a 181 px / 2-stud base = 24.3 units), half (10,10,12)
-  B_4x4_Round:  { n: 4, h: 12, cone: false },             // brick height, 4x4 studs (shot9/10)
+  B_1x1F_Round: { n: 1, h: 4,  cone: false, stud: 2.5 },          // half (5,5,2): stud cylinder -2..0.5, body 0.5..2
+  B_1x1_Round:  { n: 1, h: 12, cone: false, stud: 2 },            // half (5,5,6)
+  B_1x1_Cone:   { n: 1, h: 12, cone: true, top: 0.6, stud: 2 },   // half (5,5,6)
+  B_2x2F_Round: { n: 2, h: 4,  cone: false, stud: 0 },            // plain cylinder r 10
+  B_2x2_Round:  { n: 2, h: 12, cone: false, stud: 0 },            // plain cylinder r 10
+  B_2x2_Cone:   { n: 2, h: 24, cone: true, top: 1.0, stud: 0, base: 2 },   // half (10,10,12): r 10 cylinder 2 units, then frustum to r 5
+  B_4x4_Round:  { n: 4, h: 12, cone: false, stud: 0 },            // plain cylinder r 20
 };
 
 // --- Ramp Crest / Crest End ---
@@ -316,15 +325,47 @@ const CREST_PEAK_FLAT = 0;          // A6: width of a flat strip at the peak (vi
 // width to an apex at the open end. Identical for every size seen so far (width 1 stud, run 2 studs).
 const CREST_END_PITCH = 'match';
 
+// --- Micro family (PB_DefaultMicro*, PB_DefaultPole): read from in-game shots of a
+// micro-brick test grid (private reference notes) ---
+// Facets around a FULL circle for the pole, half round and quarter round depend on the size (export,
+// EXPORT_ANALYSIS.md "Micro rounds"): n = min(36, 8 + 8*ceil(R/2)) with R the arc's larger semi-axis in
+// micros (pole max(hx,hy); half round max(2hx,hy); quarter round max(2hx,2hy); half-extents in units =
+// micros here). So 16 / 24 / 32 / 36; the half round uses n/2 of them, the quarter round n/4, evenly in the
+// ellipse's parameter angle, smooth normals. MICRO_ROUND_SEGMENTS is only the fallback for an unknown size.
+const MICRO_ROUND_SEGMENTS = 32;
+const MICRO_ROUND_MAX = 36;
+function microRoundSegments(R) { return Math.min(MICRO_ROUND_MAX, 8 + 8 * Math.ceil(R / 2)); }
+// Micro slope faces use the plain Bevel material in the export (no Bumpy pebble texture), with the edge
+// bevel on the axis-aligned edges of each face's UV box. They are PART.FACET with flags = 0.
+const MICRO_SLOPE_TEXTURE = false;
+// Local shape per asset. Every shape spans the full local box (-hx..hx, -hy..hy, -hz..hz).
+const MICRO_TYPES = {
+  PB_DefaultMicroBrick: 'box',
+  PB_DefaultMicroWedge: 'wedge',
+  PB_DefaultMicroRamp: 'ramp',
+  PB_DefaultMicroWedgeCorner: 'corner',
+  PB_DefaultMicroWedgeInnerCorner: 'innerCorner',
+  PB_DefaultMicroWedgeOuterCorner: 'outerCorner',
+  PB_DefaultMicroWedgeTriangleCorner: 'triangleCorner',
+  PB_DefaultMicroWedgeHalfInnerCorner: 'halfInnerCorner',
+  PB_DefaultMicroWedgeHalfInnerCornerInverted: 'halfInnerCornerInverted',
+  PB_DefaultMicroWedgeHalfOuterCorner: 'halfOuterCorner',
+  PB_DefaultMicroRoundHalf: 'roundHalf',
+  PB_DefaultMicroRoundCorner: 'roundCorner',
+  PB_DefaultPole: 'pole',
+};
+
+// Settled by the glTF export (CL15729): M1 (micro round facets: microRoundSegments), M2 (micro slopes
+// are plain Bevel faces), M3 (no bevel geometry anywhere: the bevel is a normal map; diagonal edges
+// get none), M4 (1-micro sizes are the same shapes scaled), A2/A4c/A4d (rounds: ROUND_TYPES), A5/A6
+// (crest lip 2 units, sharp ridge), A8 (crest-end closed side = local -Y). What the export can't show:
 const OPEN_QUESTIONS = [
-  'A2: the 2x2 / 4x4 bottom stud cylinder is 0.78 x footprint across (1.56 / 3.12 studs) and still 1 micro tall; the 2x2 cone has one too (not visible in the shots).',
-  'A4c: the round rim wall under 2x2 / 4x4 rounds keeps the 1x1 width (0.06 stud).',
-  'A4d: B_2x2_Cone is 24 units tall (measured 24.3 from rounds2x2_shot9) with a 1.0-stud top; its half would be (10,10,12). Saves give no size for B_* bricks, so this is a constant.',
-  'A5: Ramp Crest / Crest End have a 1-micro vertical lip on every low edge (like the ramp).',
-  'A6: the crest peak is a sharp ridge (CREST_PEAK_FLAT = 0), as it looks in ramp-crests_a/b.webp.',
-  'A7: Crest End end face uses the side slopes\' pitch (hip roof) when the brick is wider than half its run.',
-  'A8: Crest End orientation: closed end at world -Y / +X / +Y / -X for rotations 0 / 1 / 2 / 3. Rotations 1 and 3 read off ramp-crest-end.webp; 0 and 2 inferred.',
-  'A9: the bottom of crests / crest ends gets the normal brick underside texture (unverified, like the ramp).',
+  'A7: Crest End end face: every crest end exported has width = half its run, so "match" (hip pitch) and "width" give the same mesh. Needs a crest end wider than half its run.',
+  'A9: crest / crest-end / 2x2-4x4 round bottoms were culled in the export (they sat on a floor); the ramp, wedge and corner bottoms use the normal underside (InletBorder/InletCenter), the 1x1 round bottoms a plain face.',
+  'X1: Arch / ArchInverted heights lower than radius + 4 units (an arch flatter than a semicircle) were not in the export; archMesh squashes the arc to an ellipse then (guess).',
+  'X2: Baguette is an organic loaf (562 triangles, scored every stud); baguetteMesh is a smooth stand-in, about 0.5 unit off.',
+  'X3: SpikePlate / LatticeThin / Spike / PicketFence repeat per 10-unit stud cell; sizes that are not whole studs were not in the export.',
+  'X4: the aerodynamic surfaces were only seen at (10,20,1) / (10,5,10); the arrow and taper are fixed-size in units here.',
 ];
 
 // --- Builder: collects triangles in real (viewer-unit) coordinates around the box centre ---
@@ -373,44 +414,56 @@ Builder.prototype.finish = function (size, extra) {
 // --- Rounds ---
 // name: one of ROUND_TYPES; up: +1 upright, -1 upside down. Returns the mesh plus `size` (world
 // [X,Y,Z] in viewer units, for uScale) and `half` (Brickadia half-extents, for placing the brick).
-// Bottom to top: stud cylinder (ROUND_STUD_DIAMETER, 1 micro), the downward ledge ring, the body
-// (cylinder, or a frustum for cones), the top cap.
+// Bottom to top: on the 1x1 types a stud cylinder (ROUND_STUD_DIAMETER, T.stud units) and the downward
+// ledge ring; the body (cylinder, or a frustum for cones, with an optional straight T.base first);
+// the top cap.
 function roundMesh(name, up = 1) {
   const T = ROUND_TYPES[name];
   if (!T) throw new Error('unknown round ' + name);
-  const N = T.n, H = T.h * UNIT, seg = N > 2 ? ROUND_SEGMENTS_4X4 : N > 1 ? ROUND_SEGMENTS_2X2 : ROUND_SEGMENTS;
+  const N = T.n, H = T.h * UNIT, seg = ROUND_SEGMENTS;
   const rb = 0.5 * N * STUD;                                  // body radius at the bottom
   const rt = T.cone ? 0.5 * T.top * STUD : rb;                // body radius at the top
-  const rs = rb * ROUND_STUD_DIAMETER;                        // stud cylinder radius
-  const hs = Math.min(ROUND_STUD_HEIGHT, H * 0.5);
+  const hasStud = (T.stud || 0) > 0;
+  const rs = hasStud ? rb * ROUND_STUD_DIAMETER : rb;         // bottom disc radius
+  const hs = hasStud ? Math.min(T.stud * UNIT, H * 0.75) : 0;
   const y0 = -H / 2, y1 = y0 + hs, y2 = H / 2;
+  const yb = Math.min(y2, y1 + (T.base || 0) * UNIT);         // top of the straight part of the body
   const B = new Builder(up);
   const ring = (r, y, a) => [r * Math.cos(a), y, r * Math.sin(a)];
   const capOf = (x, z, R, s, n = N) => [x / STUD / s, z / STUD / s, R / STUD / s, n];
   const un = N + 1;                                           // underside grid: sockets at every cell centre
   const tn = T.cone ? 1 : N;                                  // top: stud cells across
   const ts = T.cone ? CONE_TOP_STUD_SCALE : 1;                // stud pattern scale on the top
-  const hb = y2 - y1, side = [hb, rb - rt];                   // frustum side normal (radial, up) before normalising
+  const hb = y2 - yb, side = [hb, rb - rt];                   // frustum side normal (radial, up) before normalising
   const sl = Math.hypot(side[0], side[1]);
+  const down = [0, -1, 0];
   for (let i = 0; i < seg; i++) {
     const a0 = 2 * Math.PI * i / seg, a1 = 2 * Math.PI * (i + 1) / seg;
     const r0 = [Math.cos(a0), 0, Math.sin(a0)], r1 = [Math.cos(a1), 0, Math.sin(a1)];
-    // stud cylinder side (smooth)
-    B.tri(ring(rs, y0, a0), ring(rs, y0, a1), ring(rs, y1, a1), [r0, r1, r1], 0, PART.ROUND_SIDE);
-    B.tri(ring(rs, y0, a0), ring(rs, y1, a1), ring(rs, y1, a0), [r0, r1, r0], 0, PART.ROUND_SIDE);
-    // bottom disc (underside)
-    const down = [0, -1, 0], C0 = [0, y0, 0];
+    // bottom disc: underside pattern from `caps`. The export gives it the plain Bevel material, but the
+    // in-game shots of round bricks show a rim + sockets there, so the game's own
+    // renderer wins; see EXPORT_ANALYSIS.md "Rounds".
     const p0 = ring(rs, y0, a0), p1 = ring(rs, y0, a1);
-    B.tri(C0, p0, p1, down, 0, PART.ROUND_BOTTOM, [capOf(0, 0, rs, 1, un), capOf(p0[0], p0[2], rs, 1, un), capOf(p1[0], p1[2], rs, 1, un)]);
-    // ledge ring facing down, between the stud cylinder and the body
-    const l0 = ring(rs, y1, a0), l1 = ring(rs, y1, a1), o0 = ring(rb, y1, a0), o1 = ring(rb, y1, a1);
-    const lc = p => capOf(p[0], p[2], rb, 1);
-    B.tri(l0, o0, o1, down, 0, PART.ROUND_LEDGE, [lc(l0), lc(o0), lc(o1)]);
-    B.tri(l0, o1, l1, down, 0, PART.ROUND_LEDGE, [lc(l0), lc(o1), lc(l1)]);
-    // body side (smooth; tilted for the cone)
-    const n0 = [r0[0]*side[0]/sl, side[1]/sl, r0[2]*side[0]/sl], n1 = [r1[0]*side[0]/sl, side[1]/sl, r1[2]*side[0]/sl];
-    B.tri(ring(rb, y1, a0), ring(rb, y1, a1), ring(rt, y2, a1), [n0, n1, n1], 0, PART.ROUND_SIDE);
-    B.tri(ring(rb, y1, a0), ring(rt, y2, a1), ring(rt, y2, a0), [n0, n1, n0], 0, PART.ROUND_SIDE);
+    B.tri([0, y0, 0], p0, p1, down, 0, PART.ROUND_BOTTOM, [capOf(0, 0, rs, 1, un), capOf(p0[0], p0[2], rs, 1, un), capOf(p1[0], p1[2], rs, 1, un)]);
+    if (hasStud) {
+      // stud cylinder side (smooth)
+      B.tri(ring(rs, y0, a0), ring(rs, y0, a1), ring(rs, y1, a1), [r0, r1, r1], 0, PART.ROUND_SIDE);
+      B.tri(ring(rs, y0, a0), ring(rs, y1, a1), ring(rs, y1, a0), [r0, r1, r0], 0, PART.ROUND_SIDE);
+      // ledge ring facing down, between the stud cylinder and the body
+      const l0 = ring(rs, y1, a0), l1 = ring(rs, y1, a1), o0 = ring(rb, y1, a0), o1 = ring(rb, y1, a1);
+      const lc = p => capOf(p[0], p[2], rb, 1);
+      B.tri(l0, o0, o1, down, 0, PART.ROUND_LEDGE, [lc(l0), lc(o0), lc(o1)]);
+      B.tri(l0, o1, l1, down, 0, PART.ROUND_LEDGE, [lc(l0), lc(o1), lc(l1)]);
+    }
+    if (yb > y1) {                                            // straight part of the body
+      B.tri(ring(rb, y1, a0), ring(rb, y1, a1), ring(rb, yb, a1), [r0, r1, r1], 0, PART.ROUND_SIDE);
+      B.tri(ring(rb, y1, a0), ring(rb, yb, a1), ring(rb, yb, a0), [r0, r1, r0], 0, PART.ROUND_SIDE);
+    }
+    if (y2 > yb) {                                            // body side (smooth; tilted for the cone)
+      const n0 = [r0[0]*side[0]/sl, side[1]/sl, r0[2]*side[0]/sl], n1 = [r1[0]*side[0]/sl, side[1]/sl, r1[2]*side[0]/sl];
+      B.tri(ring(rb, yb, a0), ring(rb, yb, a1), ring(rt, y2, a1), [n0, n1, n1], 0, PART.ROUND_SIDE);
+      B.tri(ring(rb, yb, a0), ring(rt, y2, a1), ring(rt, y2, a0), [n0, n1, n0], 0, PART.ROUND_SIDE);
+    }
     // top cap (studs)
     const t0 = ring(rt, y2, a0), t1 = ring(rt, y2, a1);
     B.tri([0, y2, 0], t0, t1, [0, 1, 0], 0, PART.ROUND_TOP, [capOf(0, 0, rt, ts, tn), capOf(t0[0], t0[2], rt, ts, tn), capOf(t1[0], t1[2], rt, ts, tn)]);
@@ -484,6 +537,672 @@ function crestEndMesh(size, run = 0, closed = -1, up = 1) {
   return B.finish(size);
 }
 
+// --- Orientation byte -> rotation (same rule as tools/orient.js, verified in ORIENT_TEST.md) ---
+// o = dir << 2 | rot. Returns M as 3 rows, M[i][j] = world component i of local axis j (save axes:
+// X, Y, Z up). dir sends local +Z to +X -X +Y -Y +Z -Z; each rot step turns local +X onto local +Y.
+function brickOrient(o) {
+  const X = [1, 0, 0], Y = [0, 1, 0], Z = [0, 0, 1], n = v => v.map(c => -c);
+  const D = [[Z, n(Y), X], [Z, Y, n(X)], [Z, X, Y], [Z, n(X), n(Y)], [X, Y, Z], [n(X), Y, n(Z)]][(o >> 2) % 6];
+  const cols = [[D[0], D[1]], [D[1], n(D[0])], [n(D[0]), n(D[1])], [n(D[1]), D[0]]][o & 3];
+  const c = [cols[0], cols[1], D[2]];
+  return [0, 1, 2].map(i => [c[0][i], c[1][i], c[2][i]]);
+}
+
+// --- Micro family meshes ---
+// Every shape is described in LOCAL normalised coordinates (each axis -1..1 = -half..+half) at
+// orientation 16. Corner names below: (-X,-Y) is the local corner nearest -X and -Y.
+//   box            plain box
+//   wedge          vertical triangular prism: footprint = right triangle with the right angle at (-X,-Y),
+//                  corner (+X,+Y) cut off; the hypotenuse face is VERTICAL (normal +X+Y); full height.
+//   ramp           triangle in the X-Z plane extruded along Y: full height at -X, slope down to the
+//                  bottom edge at +X (normal +X up). No lip, no crest.
+//   corner         pyramid: full rectangular base, apex above (-X,-Y) at the top; vertical triangles
+//                  on -X and -Y, slopes facing +X and +Y meeting along the diagonal (-X,-Y)-(+X,+Y).
+//   innerCorner    box whose top is two slopes (facing +X and +Y) meeting in a valley from (-X,-Y,top)
+//                  down to (+X,+Y,bottom); full walls on -X and -Y, triangles on +X and +Y.
+//   outerCorner    box with the (+X,+Y,top) corner cut off by the plane through (+X,-Y,top),
+//                  (-X,+Y,top), (+X,+Y,bottom): flat top triangle + one slope triangle.
+//   triangleCorner tetrahedron: footprint triangle as the wedge, apex above (-X,-Y).
+//   halfInnerCorner          tetrahedron: footprint triangle as the wedge, apex above (-X,+Y);
+//                            -X triangle and hypotenuse triangle vertical, slope faces -Y (and up).
+//   halfInnerCornerInverted  its mirror image (local X <-> Y): apex above (+X,-Y); slope faces -X.
+//   halfOuterCorner  footprint triangle as the wedge; vertical rectangle on the hypotenuse, high at
+//                    both acute corners, low (zero height) at (-X,-Y): one slope facing -X-Y.
+//   roundHalf      half elliptic cylinder along Z: flat face at -X, curved side from -Y through +X to +Y
+//                  (semi-axes 2*hx along X, hy along Y).
+//   roundCorner    quarter elliptic cylinder along Z: flat faces -X and -Y, arc centred on the (-X,-Y)
+//                  edge with semi-axes 2*hx, 2*hy.
+//   pole           elliptic cylinder along Z filling the box (X != Y gives an ellipse).
+// Every shape above matches the export exactly (EXPORT_ANALYSIS.md "Micro family"). Planar faces that
+// are not axis-aligned are PART.FACET with flags = 0 (the export's plain Bevel material, no slope bump);
+// curved sides are PART.ROUND_SIDE with smooth normals; flat axis-aligned faces are PART.PLAIN.
+const MICRO_SHAPES = (function () {
+  const P = (x, y, z) => [x, y, z];
+  const b = (x, y) => P(x, y, -1), t = (x, y) => P(x, y, 1);
+  const tri = [[-1, -1], [1, -1], [-1, 1]];                       // the footprint triangle
+  const F = (pts, out, slope) => ({ pts, out, slope: !!slope });
+  const box = [
+    F([b(-1,-1), b(1,-1), b(1,1), b(-1,1)], [0,0,-1]), F([t(-1,-1), t(1,-1), t(1,1), t(-1,1)], [0,0,1]),
+    F([b(-1,-1), b(-1,1), t(-1,1), t(-1,-1)], [-1,0,0]), F([b(1,-1), b(1,1), t(1,1), t(1,-1)], [1,0,0]),
+    F([b(-1,-1), b(1,-1), t(1,-1), t(-1,-1)], [0,-1,0]), F([b(-1,1), b(1,1), t(1,1), t(-1,1)], [0,1,0]),
+  ];
+  return {
+    box,
+    wedge: [
+      F(tri.map(([x, y]) => b(x, y)), [0,0,-1]), F(tri.map(([x, y]) => t(x, y)), [0,0,1]),
+      F([b(-1,-1), b(-1,1), t(-1,1), t(-1,-1)], [-1,0,0]), F([b(-1,-1), b(1,-1), t(1,-1), t(-1,-1)], [0,-1,0]),
+      F([b(1,-1), b(-1,1), t(-1,1), t(1,-1)], [1,1,0], true),
+    ],
+    ramp: [
+      F([b(-1,-1), b(1,-1), b(1,1), b(-1,1)], [0,0,-1]),
+      F([b(-1,-1), b(-1,1), t(-1,1), t(-1,-1)], [-1,0,0]),
+      F([b(-1,-1), b(1,-1), t(-1,-1)], [0,-1,0]), F([b(-1,1), b(1,1), t(-1,1)], [0,1,0]),
+      F([b(1,-1), b(1,1), t(-1,1), t(-1,-1)], [1,0,1], true),
+    ],
+    corner: [
+      F([b(-1,-1), b(1,-1), b(1,1), b(-1,1)], [0,0,-1]),
+      F([b(-1,-1), b(-1,1), t(-1,-1)], [-1,0,0]), F([b(-1,-1), b(1,-1), t(-1,-1)], [0,-1,0]),
+      F([t(-1,-1), b(1,-1), b(1,1)], [1,0,1], true), F([t(-1,-1), b(-1,1), b(1,1)], [0,1,1], true),
+    ],
+    innerCorner: [
+      F([b(-1,-1), b(1,-1), b(1,1), b(-1,1)], [0,0,-1]),
+      F([b(-1,-1), b(-1,1), t(-1,1), t(-1,-1)], [-1,0,0]), F([b(-1,-1), b(1,-1), t(1,-1), t(-1,-1)], [0,-1,0]),
+      F([b(1,-1), b(1,1), t(1,-1)], [1,0,0]), F([b(-1,1), b(1,1), t(-1,1)], [0,1,0]),
+      F([t(-1,-1), t(-1,1), b(1,1)], [1,0,1], true), F([t(-1,-1), t(1,-1), b(1,1)], [0,1,1], true),
+    ],
+    outerCorner: [
+      F([b(-1,-1), b(1,-1), b(1,1), b(-1,1)], [0,0,-1]),
+      F([b(-1,-1), b(-1,1), t(-1,1), t(-1,-1)], [-1,0,0]), F([b(-1,-1), b(1,-1), t(1,-1), t(-1,-1)], [0,-1,0]),
+      F([b(1,-1), b(1,1), t(1,-1)], [1,0,0]), F([b(-1,1), b(1,1), t(-1,1)], [0,1,0]),
+      F([t(-1,-1), t(1,-1), t(-1,1)], [0,0,1]),
+      F([t(1,-1), t(-1,1), b(1,1)], [1,1,1], true),
+    ],
+    triangleCorner: [
+      F(tri.map(([x, y]) => b(x, y)), [0,0,-1]),
+      F([b(-1,-1), b(-1,1), t(-1,-1)], [-1,0,0]), F([b(-1,-1), b(1,-1), t(-1,-1)], [0,-1,0]),
+      F([b(1,-1), b(-1,1), t(-1,-1)], [1,1,1], true),
+    ],
+    halfInnerCorner: [
+      F(tri.map(([x, y]) => b(x, y)), [0,0,-1]),
+      F([b(-1,-1), b(-1,1), t(-1,1)], [-1,0,0]),
+      F([b(1,-1), b(-1,1), t(-1,1)], [1,1,0], true),
+      F([b(-1,-1), b(1,-1), t(-1,1)], [0,-1,1], true),
+    ],
+    halfInnerCornerInverted: [
+      F(tri.map(([x, y]) => b(x, y)), [0,0,-1]),
+      F([b(-1,-1), b(1,-1), t(1,-1)], [0,-1,0]),
+      F([b(1,-1), b(-1,1), t(1,-1)], [1,1,0], true),
+      F([b(-1,-1), b(-1,1), t(1,-1)], [-1,0,1], true),
+    ],
+    halfOuterCorner: [
+      F(tri.map(([x, y]) => b(x, y)), [0,0,-1]),
+      F([b(-1,-1), b(-1,1), t(-1,1)], [-1,0,0]), F([b(-1,-1), b(1,-1), t(1,-1)], [0,-1,0]),
+      F([b(1,-1), b(-1,1), t(-1,1), t(1,-1)], [1,1,0], true),
+      F([b(-1,-1), t(1,-1), t(-1,1)], [-1,-1,1], true),
+    ],
+  };
+})();
+// Curved shapes: an elliptic arc in the local X-Y plane, extruded over Z.
+// c = centre (normalised), a / b = semi-axes (normalised), t0..t1 = arc angles, frac = share of a
+// full circle (sets the facet count with microRoundSegments). Partial arcs get flat side faces closing
+// back to the centre. The caps are fans from the centre, as in the export.
+const MICRO_ARCS = {
+  roundHalf:   { c: [-1, 0],  a: 2, b: 1, t0: -Math.PI / 2, t1: Math.PI / 2, frac: 0.5 },
+  roundCorner: { c: [-1, -1], a: 2, b: 2, t0: 0, t1: Math.PI / 2, frac: 0.25 },
+  pole:        { c: [0, 0],   a: 1, b: 1, t0: 0, t1: 2 * Math.PI, frac: 1 },
+};
+function isMicro(name) { return Object.prototype.hasOwnProperty.call(MICRO_TYPES, name); }
+// asset: a MICRO_TYPES name (or a shape key such as 'wedge'); half: local half-extents [X, Y, Z] in
+// Brickadia units (= micros for this family); o: orientation byte (all 24 work; 16 = upright rot 0).
+// Returns the mesh in the unit box of its WORLD bounds, plus size (world [X,Y,Z] in viewer units, for
+// uScale), worldHalf (world half-extents in Brickadia units) and shape.
+function microMesh(asset, half, o = 16) {
+  const shape = MICRO_TYPES[asset] || asset;
+  const M = brickOrient(o);
+  const L = half.map(h => h * UNIT);                                          // local half-extents, viewer units
+  const toWorld = p => [0, 1, 2].map(i => M[i][0]*p[0]*L[0] + M[i][1]*p[1]*L[1] + M[i][2]*p[2]*L[2]);
+  const dirWorld = d => [0, 1, 2].map(i => M[i][0]*d[0] + M[i][1]*d[1] + M[i][2]*d[2]);
+  const gl = w => [w[0], w[2], w[1]];                                         // save axes -> GL (x = X, y = Z, z = Y)
+  const B = new Builder(1);
+  const face = (pts, out, flag, part) => {
+    const w = pts.map(p => gl(toWorld(p)));
+    let n = [0, 0, 0];
+    for (let i = 1; i + 1 < w.length; i++) { const c = cross(sub(w[i], w[0]), sub(w[i+1], w[0])); n = [n[0]+c[0], n[1]+c[1], n[2]+c[2]]; }
+    n = norm(n);
+    if (dot(n, gl(dirWorld(out))) < 0) n = [-n[0], -n[1], -n[2]];
+    for (let i = 1; i + 1 < w.length; i++) B.tri(w[0], w[i], w[i+1], n, flag, part);
+  };
+  if (MICRO_SHAPES[shape]) {
+    for (const f of MICRO_SHAPES[shape]) face(f.pts, f.out, 0, f.slope ? PART.FACET : PART.PLAIN);
+  } else if (MICRO_ARCS[shape]) {
+    const A = MICRO_ARCS[shape];
+    const R = Math.max(A.a * half[0], A.b * half[1]);                       // larger semi-axis, micros
+    const seg = Math.max(2, Math.round((half[0] > 0 ? microRoundSegments(R) : MICRO_ROUND_SEGMENTS) * A.frac));
+    const pt = (t, z) => [A.c[0] + A.a * Math.cos(t), A.c[1] + A.b * Math.sin(t), z];
+    // smooth normal of the ellipse in REAL units: (cos t / (a*hx), sin t / (b*hy))
+    const nrm = t => gl(dirWorld(norm([Math.cos(t) / (A.a * L[0]), Math.sin(t) / (A.b * L[1]), 0])));
+    const ts = [];
+    for (let i = 0; i <= seg; i++) ts.push(A.t0 + (A.t1 - A.t0) * i / seg);
+    for (let i = 0; i < seg; i++) {
+      const p00 = gl(toWorld(pt(ts[i], -1))), p10 = gl(toWorld(pt(ts[i+1], -1)));
+      const p01 = gl(toWorld(pt(ts[i], 1))), p11 = gl(toWorld(pt(ts[i+1], 1)));
+      const n0 = nrm(ts[i]), n1 = nrm(ts[i+1]);
+      B.tri(p00, p10, p11, [n0, n1, n1], 0, PART.ROUND_SIDE);
+      B.tri(p00, p11, p01, [n0, n1, n0], 0, PART.ROUND_SIDE);
+    }
+    for (const z of [-1, 1]) {                                                // the flat caps (fan from the centre)
+      const C = [A.c[0], A.c[1], z];
+      for (let i = 0; i < seg; i++) face([C, pt(ts[i], z), pt(ts[i+1], z)], [0, 0, z], 0, PART.PLAIN);
+    }
+    if (A.frac < 1) {                                                         // flat sides back to the centre
+      const e0 = pt(A.t0, 0), e1 = pt(A.t1, 0);
+      if (shape === 'roundHalf') face([[e0[0], e0[1], -1], [e1[0], e1[1], -1], [e1[0], e1[1], 1], [e0[0], e0[1], 1]], [-1, 0, 0], 0, PART.PLAIN);
+      else {
+        face([[-1, -1, -1], [e0[0], e0[1], -1], [e0[0], e0[1], 1], [-1, -1, 1]], [0, -1, 0], 0, PART.PLAIN);
+        face([[-1, -1, -1], [e1[0], e1[1], -1], [e1[0], e1[1], 1], [-1, -1, 1]], [-1, 0, 0], 0, PART.PLAIN);
+      }
+    }
+  } else throw new Error('unknown micro shape ' + asset);
+  const wh = [0, 1, 2].map(i => Math.abs(M[i][0])*half[0] + Math.abs(M[i][1])*half[1] + Math.abs(M[i][2])*half[2]);
+  const size = wh.map(h => 2 * h * UNIT);
+  return B.finish(size, { size, worldHalf: wh, shape });
+}
+
+// --- Stud-scale special shapes, ramps and crests in the brick's LOCAL frame ---
+// Measured from the game's glTF export (EXPORT_ANALYSIS.md "Special shapes"); procedural, no game data.
+// Every generator below writes polygons in LOCAL Brickadia units around the brick centre (local +Z =
+// the stud side, local +X = the ramp lip side, as tools/orient.js), h = local half-extents [X, Y, Z].
+// localMesh() then turns them by the orientation byte exactly like microMesh, so all 24 orientations
+// work. Part codes say which export material the face had: STUDS (Stud), INLET (InletBorder/Center),
+// SLOPE + flags 1 (Bumpy), FACET (Bevel), RECESS (InletCenter used as a dark pit), PLAIN_TOP (a flat
+// top with the Bevel material, e.g. SideWedgeTile).
+const RAMP_CREST = 10;              // flat studded crest of every ramp-family brick: 1 stud (10 units) deep
+const RAMP_LIP = 2;                 // vertical lip at a slope's low edge: 2 units (1 micro), also on wedges and crests
+const ARCH_LEG = 10;                // arch legs: 1 stud along Y at each end
+const ARCH_CROWN = 4;               // material above (Arch) / below (ArchInverted) the arc's apex: 1 plate
+const archSegments = r => Math.round(14 + 0.4 * r);         // facets over the half circle: r 5/10/15/20 -> 16/18/20/22
+const CAP_SEGMENTS = 10;            // RoundedCap: facets over its half-ellipse top
+const CAP_ARC = 1.25;               // RoundedCap: vertical semi-axis = 1.25 x half height (straight walls below)
+const PLATE_SEGMENTS = 20;          // BP_RoundPlate: facets around
+// BP_RoundPlate profile [radius as a fraction of the half size, z in units at a 2-unit half height],
+// counter-clockwise in (r, z): bottom centre -> rim -> recessed top centre
+const ROUND_PLATE_PROFILE = [[0, -2], [0.5595, -2], [0.6, -1.6], [0.6, -1.25], [0.9607, -0.348], [1, 0.15], [1, 1.6], [0.9607, 1.902], [0.6, 1.0], [0, 1.0]];
+// BP_SquarePlate rings [inset from the edge (units), corner chamfer (units), z (units)], same order
+const SQUARE_PLATE_RINGS = [[4.4, 0, -2], [4, 0.452, -1.6], [4, 0.452, -1.25], [0.39, 0.4, -0.438], [0, 0.4, 0.05], [0, 0.4, 1.6], [0.388, 0.557, 1.903], [4, 0.557, 1.0]];
+// BP_SpikePlate pit per stud cell: diamond rim tips, chamfer octagon (a, e), its drop, bottom square, depth below the top
+const SPIKE_PIT = { rim: 4.172, a: 3.54, e: 0.158, drop: 0.094, bottom: 0.158, depth: 2.751 };
+const LATTICE_HOLE = 3.276;         // BP_LatticeThin: diamond holes |x|+|y| < 3.276 around every stud-cell centre and corner
+// PB_PicketFence (heights from the bottom, units): base, two rails, pickets with pointed tops
+const FENCE = { base: 4, rails: [[8.236, 11.229], [16.236, 19.229]], railY: 1.17, picketHalf: 3.387, picketY: 1.674, shoulder: 20.617 };
+// PB_Spike per stud cell: octagonal spire, levels [z, tip distance r, chamfer c]: the foot in units from the
+// bottom, the spire as a fraction t of the height above the 2-unit foot
+const SPIKE = { foot: [[0, 3.536, 0], [0.5, 3.889, 0.354], [2, 3.889, 0.354]], spire: [[0.008, 3.889, 0.354], [0.0903, 3.73, 0.361], [0.9975, 0.362, 0.362]] };
+// PB_AerodynamicSurface(Vertical): slab 1.3 units thick tapering to an edge over the last 4 units of +X;
+// the vertical one stands on a 4-unit base; a +X arrow (shaft and head, +-1 unit thick) in the middle
+const AERO = { t: 0.65, taper: 4, base: 4, shaft: [-2.5, 0.5], shaftW: 0.45, head: [0.5, 2.5], headW: 1.5, at: 1 };
+// PB_Baguette stand-in: a loaf, dips to BAGUETTE_DIP of the height at every interior stud line
+const BAGUETTE_DIP = 0.76, BAGUETTE_SEG = 12;
+
+function LocalBuilder() { this.f = []; }
+// flat polygon (convex, or a fan valid from pts[0]); out = any vector on the outer side
+LocalBuilder.prototype.poly = function (pts, out, part, flag = 0) { if (pts.length >= 3) this.f.push({ pts, out, part, flag }); return this; };
+// polygon with per-vertex normals (smooth surfaces), normals in local real units
+LocalBuilder.prototype.smooth = function (pts, nrms, part, flag = 0) { this.f.push({ pts, nrms, part, flag }); return this; };
+// axis-aligned box [lo, hi]; parts: top / bottom (local +Z / -Z) / side, or px nx py ny; skip = names to leave out
+LocalBuilder.prototype.box = function (lo, hi, parts = {}, skip = '') {
+  const [x0, y0, z0] = lo, [x1, y1, z1] = hi, side = parts.side ?? PART.FACET, sk = skip.split(' ');
+  const F = {
+    top: [[[x0,y0,z1], [x1,y0,z1], [x1,y1,z1], [x0,y1,z1]], [0,0,1], parts.top ?? PART.FACET],
+    bottom: [[[x0,y0,z0], [x1,y0,z0], [x1,y1,z0], [x0,y1,z0]], [0,0,-1], parts.bottom ?? PART.FACET],
+    px: [[[x1,y0,z0], [x1,y1,z0], [x1,y1,z1], [x1,y0,z1]], [1,0,0], parts.px ?? side],
+    nx: [[[x0,y0,z0], [x0,y1,z0], [x0,y1,z1], [x0,y0,z1]], [-1,0,0], parts.nx ?? side],
+    py: [[[x0,y1,z0], [x1,y1,z0], [x1,y1,z1], [x0,y1,z1]], [0,1,0], parts.py ?? side],
+    ny: [[[x0,y0,z0], [x1,y0,z0], [x1,y0,z1], [x0,y0,z1]], [0,-1,0], parts.ny ?? side],
+  };
+  for (const k in F) if (!sk.includes(k)) this.poly(...F[k]);
+  return this;
+};
+// Mirror in local Z (the *Inverted types), swapping the studded and underside faces.
+LocalBuilder.prototype.invert = function () {
+  for (const F of this.f) {
+    F.pts = F.pts.map(p => [p[0], p[1], -p[2]]);
+    if (F.out) F.out = [F.out[0], F.out[1], -F.out[2]];
+    if (F.nrms) F.nrms = F.nrms.map(n => [n[0], n[1], -n[2]]);
+    if (F.part === PART.INLET) F.part = PART.STUDS; else if (F.part === PART.STUDS) F.part = PART.INLET;
+  }
+  return this;
+};
+// local polygons -> oriented mesh in the unit box of the WORLD bounds (same conventions as microMesh)
+function localMesh(L, half, o, extra) {
+  const M = brickOrient(o);
+  const toW = p => [0, 1, 2].map(i => (M[i][0]*p[0] + M[i][1]*p[1] + M[i][2]*p[2]) * UNIT);
+  const dW = d => [0, 1, 2].map(i => M[i][0]*d[0] + M[i][1]*d[1] + M[i][2]*d[2]);
+  const gl = w => [w[0], w[2], w[1]];
+  const B = new Builder(1);
+  for (const F of L.f) {
+    const w = F.pts.map(p => gl(toW(p)));
+    if (F.nrms) {
+      const ns = F.nrms.map(n => gl(norm(dW(n))));
+      for (let i = 1; i + 1 < w.length; i++) B.tri(w[0], w[i], w[i+1], [ns[0], ns[i], ns[i+1]], F.flag, F.part);
+      continue;
+    }
+    let n = [0, 0, 0];                                        // Newell normal
+    for (let i = 0; i < w.length; i++) {
+      const a = w[i], b = w[(i + 1) % w.length];
+      n[0] += (a[1] - b[1]) * (a[2] + b[2]); n[1] += (a[2] - b[2]) * (a[0] + b[0]); n[2] += (a[0] - b[0]) * (a[1] + b[1]);
+    }
+    if (Math.hypot(n[0], n[1], n[2]) < 1e-14) continue;
+    n = norm(n);
+    if (dot(n, gl(dW(F.out))) < 0) n = [-n[0], -n[1], -n[2]];
+    for (let i = 1; i + 1 < w.length; i++) B.tri(w[0], w[i], w[i+1], n, F.flag, F.part);
+  }
+  const wh = [0, 1, 2].map(i => Math.abs(M[i][0])*half[0] + Math.abs(M[i][1])*half[1] + Math.abs(M[i][2])*half[2]);
+  const size = wh.map(v => 2 * v * UNIT);
+  return B.finish(size, Object.assign({ size, worldHalf: wh }, extra || {}));
+}
+// a side profile (X-Z, counter-clockwise seen from +Y... any winding) extruded over Y: both end caps and
+// one quad per profile edge; parts / flags per edge
+function extrudeXZ(L, prof, y0, y1, parts, flags) {
+  L.poly(prof.map(([x, z]) => [x, y0, z]), [0, -1, 0], PART.FACET);
+  L.poly(prof.map(([x, z]) => [x, y1, z]), [0, 1, 0], PART.FACET);
+  const c = prof.reduce((s, p) => [s[0] + p[0] / prof.length, s[1] + p[1] / prof.length], [0, 0]);
+  for (let i = 0; i < prof.length; i++) {
+    const a = prof[i], b = prof[(i + 1) % prof.length];
+    if (Math.hypot(b[0] - a[0], b[1] - a[1]) < 1e-9) continue;
+    const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    L.poly([[a[0], y0, a[1]], [b[0], y0, b[1]], [b[0], y1, b[1]], [a[0], y1, a[1]]], [mid[0] - c[0], 0, mid[1] - c[1]], parts[i], flags ? flags[i] : 0);
+  }
+}
+// a closed ring of rings (revolved / offset profile): rings[k] are equal-length point loops, outward hint per band
+function bandStrip(L, rings, outOf, part) {
+  for (let k = 0; k + 1 < rings.length; k++) {
+    const A = rings[k], Bv = rings[k + 1], n = A.length;
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      L.poly([A[i], A[j], Bv[j], Bv[i]], outOf(k, A[i], A[j], Bv[j], Bv[i]), part);
+    }
+  }
+}
+
+// PB_DefaultRamp / PB_DefaultWedge (no crest, plain slope) / PB_DefaultRampInverted (mirrored in Z).
+// Profile over local X: studded crest RAMP_CREST deep at -X, slope down to a RAMP_LIP lip at +X.
+function rampFaces(h, kind) {
+  const [hx, hy, hz] = h, L = new LocalBuilder();
+  const c = kind === 'wedge' ? 0 : Math.min(RAMP_CREST, 2 * hx), m = Math.min(RAMP_LIP, 2 * hz);
+  const zl = -hz + m, xc = -hx + c, bump = kind !== 'wedge';
+  const prof = [[-hx, -hz], [hx, -hz], [hx, zl], [xc, hz], [-hx, hz]];   // edges: bottom, lip, slope, crest top, back
+  extrudeXZ(L, prof, -hy, hy, [PART.INLET, PART.FACET, bump ? PART.SLOPE : PART.FACET, PART.STUDS, PART.FACET], [0, 0, bump ? 1 : 0, 0, 0]);
+  if (kind === 'inverted') L.invert();                        // full studded top; the crest is now the flat bottom
+  return L;
+}
+// PB_DefaultRampCorner (outer corner) / ...Inverted: studded crest square at (-X,-Y), slopes down to
+// lips on +X and +Y, meeting on the diagonal from the crest's inner corner to (+X,+Y).
+function rampCornerFaces(h, inverted) {
+  const [hx, hy, hz] = h, L = new LocalBuilder();
+  const zl = -hz + Math.min(RAMP_LIP, 2 * hz);
+  const xc = -hx + Math.min(RAMP_CREST, 2 * hx), yc = -hy + Math.min(RAMP_CREST, 2 * hy);
+  L.poly([[-hx,-hy,-hz], [hx,-hy,-hz], [hx,hy,-hz], [-hx,hy,-hz]], [0,0,-1], PART.INLET);
+  L.poly([[-hx,-hy,hz], [xc,-hy,hz], [xc,yc,hz], [-hx,yc,hz]], [0,0,1], PART.STUDS);
+  L.poly([[xc,-hy,hz], [hx,-hy,zl], [hx,hy,zl], [xc,yc,hz]], [1,0,1], PART.SLOPE, 1);
+  L.poly([[-hx,yc,hz], [xc,yc,hz], [hx,hy,zl], [-hx,hy,zl]], [0,1,1], PART.SLOPE, 1);
+  L.poly([[-hx,-hy,-hz], [-hx,-hy,hz], [-hx,yc,hz], [-hx,hy,zl], [-hx,hy,-hz]], [-1,0,0], PART.FACET);
+  L.poly([[-hx,-hy,-hz], [-hx,-hy,hz], [xc,-hy,hz], [hx,-hy,zl], [hx,-hy,-hz]], [0,-1,0], PART.FACET);
+  L.poly([[hx,-hy,-hz], [hx,hy,-hz], [hx,hy,zl], [hx,-hy,zl]], [1,0,0], PART.FACET);
+  L.poly([[-hx,hy,-hz], [hx,hy,-hz], [hx,hy,zl], [-hx,hy,zl]], [0,1,0], PART.FACET);
+  return inverted ? L.invert() : L;
+}
+// PB_DefaultRampInnerCorner / ...Inverted: studded L-shaped top (all but the (+X,+Y) part beyond the crest
+// lines), two slope triangles meeting in a valley that runs down to the lip corner at (+X,+Y).
+function rampInnerCornerFaces(h, inverted) {
+  const [hx, hy, hz] = h, L = new LocalBuilder();
+  const zl = -hz + Math.min(RAMP_LIP, 2 * hz);
+  const xc = -hx + Math.min(RAMP_CREST, 2 * hx), yc = -hy + Math.min(RAMP_CREST, 2 * hy);
+  L.poly([[-hx,-hy,-hz], [hx,-hy,-hz], [hx,hy,-hz], [-hx,hy,-hz]], [0,0,-1], PART.INLET);
+  L.poly([[-hx,-hy,hz], [hx,-hy,hz], [hx,yc,hz], [-hx,yc,hz]], [0,0,1], PART.STUDS);     // L top: the strip along -Y ...
+  L.poly([[-hx,yc,hz], [xc,yc,hz], [xc,hy,hz], [-hx,hy,hz]], [0,0,1], PART.STUDS);       // ... and the one along -X
+  L.poly([[xc,yc,hz], [hx,hy,zl], [xc,hy,hz]], [1,0,1], PART.SLOPE, 1);
+  L.poly([[xc,yc,hz], [hx,yc,hz], [hx,hy,zl]], [0,1,1], PART.SLOPE, 1);
+  L.poly([[-hx,-hy,-hz], [-hx,hy,-hz], [-hx,hy,hz], [-hx,-hy,hz]], [-1,0,0], PART.FACET);
+  L.poly([[-hx,-hy,-hz], [hx,-hy,-hz], [hx,-hy,hz], [-hx,-hy,hz]], [0,-1,0], PART.FACET);
+  L.poly([[hx,-hy,-hz], [hx,-hy,hz], [hx,yc,hz], [hx,hy,zl], [hx,hy,-hz]], [1,0,0], PART.FACET);
+  L.poly([[-hx,hy,-hz], [-hx,hy,hz], [xc,hy,hz], [hx,hy,zl], [hx,hy,-hz]], [0,1,0], PART.FACET);
+  return inverted ? L.invert() : L;
+}
+// PB_DefaultRampCrestCorner: an L-shaped ridge from the middle of the -Y edge to the centre, then to the
+// middle of the +X edge; four bumpy slopes down to RAMP_LIP lips on all four sides (a valley toward
+// (-X,+Y), a hip toward (+X,-Y)).
+function crestCornerFaces(h) {
+  const [hx, hy, hz] = h, L = new LocalBuilder();
+  const zl = -hz + Math.min(RAMP_LIP, 2 * hz);
+  L.poly([[-hx,-hy,-hz], [hx,-hy,-hz], [hx,hy,-hz], [-hx,hy,-hz]], [0,0,-1], PART.INLET);
+  L.poly([[-hx,-hy,zl], [-hx,hy,zl], [0,0,hz], [0,-hy,hz]], [-1,0,1], PART.SLOPE, 1);
+  L.poly([[0,-hy,hz], [0,0,hz], [hx,-hy,zl]], [1,0,1], PART.SLOPE, 1);
+  L.poly([[-hx,hy,zl], [hx,hy,zl], [hx,0,hz], [0,0,hz]], [0,1,1], PART.SLOPE, 1);
+  L.poly([[0,0,hz], [hx,0,hz], [hx,-hy,zl]], [0,-1,1], PART.SLOPE, 1);
+  L.poly([[-hx,-hy,-hz], [-hx,hy,-hz], [-hx,hy,zl], [-hx,-hy,zl]], [-1,0,0], PART.FACET);
+  L.poly([[-hx,hy,-hz], [hx,hy,-hz], [hx,hy,zl], [-hx,hy,zl]], [0,1,0], PART.FACET);
+  L.poly([[hx,-hy,-hz], [hx,-hy,zl], [hx,0,hz], [hx,hy,zl], [hx,hy,-hz]], [1,0,0], PART.FACET);
+  L.poly([[-hx,-hy,-hz], [-hx,-hy,zl], [0,-hy,hz], [hx,-hy,zl], [hx,-hy,-hz]], [0,-1,0], PART.FACET);
+  return L;
+}
+// PB_DefaultRampCrest, local frame: run along local X, sharp ridge at x = 0, lips at both ends.
+function crestFaces(h) {
+  const [hx, hy, hz] = h, L = new LocalBuilder();
+  const zl = -hz + Math.min(RAMP_LIP, 2 * hz);
+  extrudeXZ(L, [[-hx, -hz], [hx, -hz], [hx, zl], [0, hz], [-hx, zl]], -hy, hy, [PART.INLET, PART.FACET, PART.SLOPE, PART.SLOPE, PART.FACET], [0, 0, 1, 1, 0]);
+  return L;
+}
+// PB_DefaultRampCrestEnd, local frame: the crest closed at local -Y by a hip face (CREST_END_PITCH).
+function crestEndFaces(h) {
+  const [hx, hy, hz] = h, L = new LocalBuilder();
+  const zl = -hz + Math.min(RAMP_LIP, 2 * hz), R = 2 * hx, W = 2 * hy;
+  const ER = CREST_END_PITCH === 'width' ? W : Math.min(R / 2, W), ya = -hy + ER;
+  L.poly([[-hx,-hy,-hz], [hx,-hy,-hz], [hx,hy,-hz], [-hx,hy,-hz]], [0,0,-1], PART.INLET);
+  L.poly([[-hx,hy,-hz], [hx,hy,-hz], [hx,hy,zl], [0,hy,hz], [-hx,hy,zl]], [0,1,0], PART.FACET);   // open end
+  L.poly([[-hx,-hy,-hz], [-hx,hy,-hz], [-hx,hy,zl], [-hx,-hy,zl]], [-1,0,0], PART.FACET);
+  L.poly([[hx,-hy,-hz], [hx,hy,-hz], [hx,hy,zl], [hx,-hy,zl]], [1,0,0], PART.FACET);
+  L.poly([[-hx,-hy,-hz], [hx,-hy,-hz], [hx,-hy,zl], [-hx,-hy,zl]], [0,-1,0], PART.FACET);
+  L.poly([[-hx,-hy,zl], [-hx,hy,zl], [0,hy,hz], [0,ya,hz]], [-1,0,1], PART.SLOPE, 1);
+  L.poly([[hx,-hy,zl], [hx,hy,zl], [0,hy,hz], [0,ya,hz]], [1,0,1], PART.SLOPE, 1);
+  L.poly([[-hx,-hy,zl], [hx,-hy,zl], [0,ya,hz]], [0,-1,1], PART.SLOPE, 1);
+  return L;
+}
+// PB_DefaultSideWedge(Tile): vertical prism on the footprint triangle (-X,-Y) (+X,-Y) (-X,+Y); studded top
+// (the Tile variant: a plain Bevel top), underside below.
+function sideWedgeFaces(h, tile) {
+  const [hx, hy, hz] = h, L = new LocalBuilder();
+  const tri = [[-hx, -hy], [hx, -hy], [-hx, hy]];
+  L.poly(tri.map(([x, y]) => [x, y, -hz]), [0,0,-1], PART.INLET);
+  L.poly(tri.map(([x, y]) => [x, y, hz]), [0,0,1], tile ? PART.PLAIN_TOP : PART.STUDS);
+  L.poly([[-hx,-hy,-hz], [hx,-hy,-hz], [hx,-hy,hz], [-hx,-hy,hz]], [0,-1,0], PART.FACET);
+  L.poly([[-hx,-hy,-hz], [-hx,hy,-hz], [-hx,hy,hz], [-hx,-hy,hz]], [-1,0,0], PART.FACET);
+  L.poly([[hx,-hy,-hz], [-hx,hy,-hz], [-hx,hy,hz], [hx,-hy,hz]], [hy,hx,0], PART.FACET);
+  return L;
+}
+// PB_DefaultArch / ArchInverted: spans local Y; legs ARCH_LEG long at both ends; a semicircular opening of
+// radius r = hy - ARCH_LEG whose apex is ARCH_CROWN below the top, straight walls below the arc's centre.
+// The inverted one is mirrored in Z (a U open at the top): studs on the leg tops, a full underside.
+function archFaces(h, inverted) {
+  const [hx, hy, hz] = h, L = new LocalBuilder();
+  const r = Math.max(0, hy - ARCH_LEG), b = Math.max(0, Math.min(r, 2 * hz - ARCH_CROWN));   // b < r: squashed (X1)
+  const zc = hz - ARCH_CROWN - b, n = archSegments(r);
+  const arc = [];                                              // from (-r, zc) over the apex to (r, zc)
+  for (let i = 0; i <= n; i++) { const t = Math.PI * (1 - i / n); arc.push([r * Math.cos(t), zc + b * Math.sin(t)]); }
+  L.poly([[-hx,-hy,hz], [hx,-hy,hz], [hx,hy,hz], [-hx,hy,hz]], [0,0,1], PART.STUDS);
+  for (const s of [-1, 1]) {
+    const y0 = s * hy, y1 = s * r, ylo = Math.min(y0, y1), yhi = Math.max(y0, y1);
+    L.poly([[-hx,ylo,-hz], [hx,ylo,-hz], [hx,yhi,-hz], [-hx,yhi,-hz]], [0,0,-1], PART.INLET);   // leg bottom
+    L.poly([[-hx,y0,-hz], [hx,y0,-hz], [hx,y0,hz], [-hx,y0,hz]], [0,s,0], PART.FACET);           // end face
+    if (zc > -hz) L.poly([[-hx,y1,-hz], [hx,y1,-hz], [hx,y1,zc], [-hx,y1,zc]], [0,-s,0], PART.FACET);   // inner wall
+    for (const x of [-hx, hx]) L.poly([[x,ylo,-hz], [x,yhi,-hz], [x,yhi,hz], [x,ylo,hz]], [Math.sign(x),0,0], PART.FACET);   // leg sides
+  }
+  for (let i = 0; i < n; i++) {
+    const [ya, za] = arc[i], [yb, zb] = arc[i + 1];
+    const na = norm([0, -ya / ((r || 1) * (r || 1)), -(za - zc) / ((b || 1) * (b || 1))]), nb = norm([0, -yb / ((r || 1) * (r || 1)), -(zb - zc) / ((b || 1) * (b || 1))]);
+    L.smooth([[-hx,ya,za], [hx,ya,za], [hx,yb,zb], [-hx,yb,zb]], [na, na, nb, nb], PART.FACET);   // the arc (smooth, facing its centre)
+    for (const x of [-hx, hx]) L.poly([[x,ya,za], [x,yb,zb], [x,yb,hz], [x,ya,hz]], [Math.sign(x),0,0], PART.FACET);   // side above the arc
+  }
+  return inverted ? L.invert() : L;
+}
+// PB_DefaultStudded: a box with studs on the top and the four sides (10-unit pitch), the underside below.
+function studdedFaces(h) {
+  const [hx, hy, hz] = h;
+  return new LocalBuilder().box([-hx, -hy, -hz], [hx, hy, hz], { top: PART.STUDS, bottom: PART.INLET, side: PART.STUDS });
+}
+// PB_RoundedCap: extruded along local X; straight walls up to zc, then a half-ellipse (a = hy,
+// b = CAP_ARC * hz) to the top; underside below.
+function roundedCapFaces(h) {
+  const [hx, hy, hz] = h, L = new LocalBuilder();
+  const b = Math.min(CAP_ARC * hz, 2 * hz), zc = hz - b;
+  const prof = [[hy, -hz]];
+  for (let i = 0; i <= CAP_SEGMENTS; i++) { const t = Math.PI * i / CAP_SEGMENTS; prof.push([hy * Math.cos(t), zc + b * Math.sin(t)]); }
+  prof.push([-hy, -hz]);
+  L.poly(prof.map(([y, z]) => [-hx, y, z]), [-1,0,0], PART.FACET);
+  L.poly(prof.map(([y, z]) => [hx, y, z]), [1,0,0], PART.FACET);
+  L.poly([[-hx,-hy,-hz], [hx,-hy,-hz], [hx,hy,-hz], [-hx,hy,-hz]], [0,0,-1], PART.INLET);
+  for (const s of [-1, 1]) L.poly([[-hx,s*hy,-hz], [hx,s*hy,-hz], [hx,s*hy,zc], [-hx,s*hy,zc]], [0,s,0], PART.FACET);
+  for (let i = 0; i < CAP_SEGMENTS; i++) {
+    const ta = Math.PI * i / CAP_SEGMENTS, tb = Math.PI * (i + 1) / CAP_SEGMENTS;
+    const na = norm([0, Math.cos(ta) / hy, Math.sin(ta) / b]), nb = norm([0, Math.cos(tb) / hy, Math.sin(tb) / b]);
+    L.smooth([[-hx, hy*Math.cos(ta), zc + b*Math.sin(ta)], [hx, hy*Math.cos(ta), zc + b*Math.sin(ta)],
+              [hx, hy*Math.cos(tb), zc + b*Math.sin(tb)], [-hx, hy*Math.cos(tb), zc + b*Math.sin(tb)]], [na, na, nb, nb], PART.FACET);
+  }
+  return L;
+}
+// BP_RoundPlate: ROUND_PLATE_PROFILE revolved (PLATE_SEGMENTS facets), radius scaled to the hx x hy
+// ellipse. BP_SquarePlate: SQUARE_PLATE_RINGS as chamfered rectangles inset from the edge. No studs and
+// no underside (the export gives every face the Bevel material).
+function plateFaces(h, square) {
+  const [hx, hy, hz] = h, L = new LocalBuilder(), zs = hz / 2;
+  let rings, prof;
+  if (!square) {
+    prof = ROUND_PLATE_PROFILE;
+    rings = prof.map(([r, z]) => {
+      const pts = [];
+      for (let i = 0; i < PLATE_SEGMENTS; i++) { const a = 2 * Math.PI * i / PLATE_SEGMENTS; pts.push([r * hx * Math.cos(a), r * hy * Math.sin(a), z * zs]); }
+      return pts;
+    });
+  } else {
+    const ring = ([d, k, z]) => {
+      const x = hx - d, y = hy - d;
+      return [[x, -y + k], [x, y - k], [x - k, y], [-x + k, y], [-x, y - k], [-x, -y + k], [-x + k, -y], [x - k, -y]].map(([a, b]) => [a, b, z * zs]);
+    };
+    const R = SQUARE_PLATE_RINGS;
+    rings = [ring([0, 0, R[0][2]]).map(p => [0, 0, p[2]]), ...R.map(ring), ring([0, 0, R[R.length - 1][2]]).map(p => [0, 0, p[2]])];
+    prof = [[0, R[0][2]], ...R.map(([d, , z]) => [1 - d / 10, z]), [0, R[R.length - 1][2]]];   // (r, z) for the outward hints
+  }
+  // outward hint from the profile's direction (counter-clockwise in (r, z)): edge (dr, dz) -> (dz, -dr)
+  bandStrip(L, rings, (k, a, b) => {
+    const dr = prof[k + 1][0] - prof[k][0], dz = prof[k + 1][1] - prof[k][1];
+    const m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], l = Math.hypot(m[0], m[1]) || 1;
+    return [dz * m[0] / l, dz * m[1] / l, -dr];
+  }, PART.FACET);
+  return L;
+}
+// BP_SpikePlate: a plate with one funnel pit per stud cell (diamond rim, a small octagon chamfer, a tiny
+// square bottom). The pits are RECESS (the export's InletCenter material); underside below.
+function spikePlateFaces(h) {
+  const [hx, hy, hz] = h, L = new LocalBuilder(), P = SPIKE_PIT;
+  L.box([-hx, -hy, -hz], [hx, hy, hz], { bottom: PART.INLET }, 'top');
+  const zr = hz, zo = hz - P.drop, zb = hz - P.depth;
+  for (let cx = -hx + 5; cx < hx - 1e-9; cx += 10) for (let cy = -hy + 5; cy < hy - 1e-9; cy += 10) {
+    const c = (x, y, z) => [cx + x, cy + y, z];
+    const tip = [c(P.rim, 0, zr), c(0, P.rim, zr), c(-P.rim, 0, zr), c(0, -P.rim, zr)];
+    const cor = [c(5, 5, zr), c(-5, 5, zr), c(-5, -5, zr), c(5, -5, zr)];         // cor[i] lies between tip[i] and tip[i+1]
+    for (let i = 0; i < 4; i++) {
+      L.poly([tip[i], cor[i], tip[(i + 1) % 4]], [0,0,1], PART.FACET);
+      L.poly([cor[(i + 3) % 4], cor[i], tip[i]], [0,0,1], PART.FACET);
+    }
+    const a = P.a, e = P.e, q = P.bottom;
+    // octagon: two points next to each tip, in order around (+X tip first)
+    const oct = [c(a,-e,zo), c(a,e,zo), c(e,a,zo), c(-e,a,zo), c(-a,e,zo), c(-a,-e,zo), c(-e,-a,zo), c(e,-a,zo)];
+    const bot = [c(q,q,zb), c(-q,q,zb), c(-q,-q,zb), c(q,-q,zb)];                 // bot[i]: the quadrant after tip i
+    for (let i = 0; i < 4; i++) {
+      const t0 = tip[i], t1 = tip[(i + 1) % 4], o0 = oct[2*i], o1 = oct[2*i + 1], o2 = oct[(2*i + 2) % 8];
+      const inward = [cx - t0[0], cy - t0[1], 0];
+      L.poly([o0, t0, o1], [-inward[0], -inward[1], 1].map((v, k) => k < 2 ? -v : v), PART.FACET);   // chamfer at the tip
+      L.poly([o1, t0, t1, o2], [cx - (t0[0] + t1[0]) / 2, cy - (t0[1] + t1[1]) / 2, 1], PART.FACET); // chamfer along the side
+      L.poly([o0, o1, bot[i], bot[(i + 3) % 4]], [cx - t0[0], cy - t0[1], 1], PART.RECESS);          // funnel below the tip
+      L.poly([o1, o2, bot[i]], [cx - (t0[0] + t1[0]) / 2, cy - (t0[1] + t1[1]) / 2, 1], PART.RECESS); // funnel below the side
+    }
+    L.poly(bot, [0,0,1], PART.RECESS);
+  }
+  return L;
+}
+// BP_LatticeThin: a slab with diamond holes |x|+|y| < LATTICE_HOLE around every stud-cell centre and
+// every cell corner, leaving diagonal bars. Built per cell as an octagonal ring (cell square with the
+// corners cut) around the centre diamond; outer walls only on the brick's boundary.
+function latticeFaces(h) {
+  const [hx, hy, hz] = h, L = new LocalBuilder(), d = LATTICE_HOLE, k = 5 - d;   // k: half of the solid edge middle
+  for (let cx = -hx + 5; cx < hx - 1e-9; cx += 10) for (let cy = -hy + 5; cy < hy - 1e-9; cy += 10) {
+    const c = (x, y, z) => [cx + x, cy + y, z];
+    // outer octagon (corners cut by the corner holes) and inner diamond, counter-clockwise from +X
+    const outer = [[5, -k], [5, k], [k, 5], [-k, 5], [-5, k], [-5, -k], [-k, -5], [k, -5]];
+    const inner = [[d, 0], [d, 0], [0, d], [0, d], [-d, 0], [-d, 0], [0, -d], [0, -d]];
+    for (const z of [-hz, hz]) for (let i = 0; i < 8; i++) {
+      const j = (i + 1) % 8;
+      L.poly([c(...outer[i], z), c(...outer[j], z), c(...inner[j], z), c(...inner[i], z)], [0, 0, Math.sign(z)], PART.FACET);
+    }
+    for (let i = 0; i < 8; i += 2) {                         // hole walls (the diamond's four sides face the centre)
+      const a = inner[i + 1], b = inner[(i + 2) % 8];
+      L.poly([c(...a, -hz), c(...b, -hz), c(...b, hz), c(...a, hz)], [-(a[0] + b[0]), -(a[1] + b[1]), 0], PART.FACET);
+    }
+    for (let i = 1; i < 8; i += 2) {                         // corner-hole walls (the cut corners face outward)
+      const a = outer[i], b = outer[(i + 1) % 8];
+      L.poly([c(...a, -hz), c(...b, -hz), c(...b, hz), c(...a, hz)], [a[0] + b[0], a[1] + b[1], 0], PART.FACET);
+    }
+    for (let i = 0; i < 8; i += 2) {                         // cell-edge middles: walls only on the brick's boundary
+      const A = outer[i], B = outer[i + 1];
+      const ex = cx + (A[0] + B[0]) / 2, ey = cy + (A[1] + B[1]) / 2;
+      if (Math.abs(Math.abs(ex) - hx) > 1e-6 && Math.abs(Math.abs(ey) - hy) > 1e-6) continue;
+      L.poly([c(...A, -hz), c(...B, -hz), c(...B, hz), c(...A, hz)], [A[0] + B[0], A[1] + B[1], 0], PART.FACET);
+    }
+  }
+  return L;
+}
+// PB_PicketFence (runs along local X): a full-footprint base FENCE.base tall (underside below), two
+// rails, and one picket per stud with a pointed top reaching the full height.
+function fenceFaces(h) {
+  const [hx, hy, hz] = h, L = new LocalBuilder(), z0 = -hz, F = FENCE, zb = z0 + F.base;
+  const w = F.picketHalf, t = F.picketY, zs = z0 + F.shoulder, zt = hz;
+  const cs = []; for (let cx = -hx + 5; cx < hx - 1e-9; cx += 10) cs.push(cx);
+  L.box([-hx, -hy, z0], [hx, hy, zb], { bottom: PART.INLET });
+  // rails: segments between the pickets (the export leaves the parts inside the pickets out, but keeps
+  // the base's top face under them)
+  const gaps = [-hx, ...cs.flatMap(c => [c - w, c + w]), hx];
+  for (const [ra, rb] of F.rails) for (let k = 0; k + 1 < gaps.length; k += 2) {
+    const [a, b] = [gaps[k], gaps[k + 1]];
+    if (b - a < 1e-9) continue;
+    L.box([a, -F.railY, z0 + ra], [b, F.railY, z0 + rb], {}, (a > -hx + 1e-9 ? 'nx ' : '') + (b < hx - 1e-9 ? 'px' : ''));
+  }
+  // pickets: one per stud, pointed top reaching the full height
+  for (const cx of cs) {
+    L.box([cx - w, -t, zb], [cx + w, t, zs], {}, 'top bottom');
+    for (const y of [-t, t]) L.poly([[cx - w, y, zs], [cx + w, y, zs], [cx, y, zt]], [0, y, 0], PART.FACET);
+    for (const s of [-1, 1]) L.poly([[cx + s*w, -t, zs], [cx + s*w, t, zs], [cx, t, zt], [cx, -t, zt]], [s * (zt - zs), 0, w], PART.FACET);
+  }
+  return L;
+}
+// PB_Spike: one octagonal spire per stud cell (SPIKE levels), a plain bottom.
+function spikeFaces(h) {
+  const [hx, hy, hz] = h, L = new LocalBuilder(), z0 = -hz, H = 2 * hz;
+  const levels = [...SPIKE.foot.map(([z, r, c]) => [z0 + z, r, c]), ...SPIKE.spire.map(([t, r, c]) => [z0 + 2 + t * (H - 2), r, c])];
+  const oct = (r, c) => [[r, -c], [r, c], [c, r], [-c, r], [-r, c], [-r, -c], [-c, -r], [c, -r]];
+  for (let cx = -hx + 5; cx < hx - 1e-9; cx += 10) for (let cy = -hy + 5; cy < hy - 1e-9; cy += 10) {
+    const rings = levels.map(([z, r, c]) => oct(r, c).map(([x, y]) => [cx + x, cy + y, z]));
+    L.poly(rings[0].slice().reverse(), [0, 0, -1], PART.FACET);
+    bandStrip(L, rings, (k, a, b) => [(a[0] + b[0]) / 2 - cx, (a[1] + b[1]) / 2 - cy, 0.1], PART.FACET);
+    L.poly(rings[rings.length - 1], [0, 0, 1], PART.FACET);
+  }
+  return L;
+}
+// PB_Baguette stand-in (X2): a loaf along local X with rounded ends and a dip at every interior stud
+// line; flat bottom. The export's loaf is an organic mesh; this stays within about 0.5 unit of it.
+function baguetteFaces(h) {
+  const [hx, hy, hz] = h, L = new LocalBuilder(), nx = Math.max(8, Math.round(hx * 1.6)), na = BAGUETTE_SEG;
+  const xs = []; for (let i = 0; i <= nx; i++) xs.push(-hx + 2 * hx * i / nx);
+  const endR = Math.min(hy, hx);
+  const width = x => { const e = Math.abs(x) - (hx - endR); return e <= 0 ? hy : hy * Math.sqrt(Math.max(0, 1 - (e / endR) ** 2)); };
+  const top = x => {                                          // dips at interior stud lines (x = multiples of 10 from the end)
+    const u = ((x + hx) % 10 + 10) % 10, dip = Math.cos(Math.PI * Math.min(u, 10 - u) / 5);
+    const interior = Math.abs(x) < hx - 5;
+    return interior ? 1 - (1 - BAGUETTE_DIP) * Math.max(0, dip) ** 4 : 1;
+  };
+  const sect = x => {                                         // half-ellipse over a flat bottom, scaled by width / top
+    const w = width(x), t = top(x) * (w / hy) ** 0.5, pts = [];
+    for (let j = 0; j <= na; j++) { const a = Math.PI * j / na; pts.push([x, w * Math.cos(a), -hz + 2 * hz * t * Math.sin(a)]); }
+    return pts;
+  };
+  const S = xs.map(sect);
+  for (let i = 0; i < nx; i++) for (let j = 0; j < na; j++) {
+    const q = [S[i][j], S[i + 1][j], S[i + 1][j + 1], S[i][j + 1]];
+    const a = Math.PI * (j + 0.5) / na;
+    L.poly(q, [0, Math.cos(a), Math.sin(a)], PART.FACET);
+  }
+  for (let i = 0; i < nx; i++) L.poly([S[i][0], S[i][na], S[i + 1][na], S[i + 1][0]], [0, 0, -1], PART.FACET);
+  return L;
+}
+// PB_AerodynamicSurface: a 1.3-unit slab tapering to an edge at +X, with a +X arrow (RECESS) through it.
+// PB_AerodynamicSurfaceVertical: the same fin standing in the X-Z plane on a 4-unit base.
+function aeroFaces(h, vertical) {
+  const [hx, hy, hz] = h, L = new LocalBuilder(), A = AERO, t = A.t, xt = hx - A.taper;
+  // airfoil profile across the thickness axis: (x, s) with s the thickness coordinate
+  const prof = [[-hx, -t], [xt, -t], [hx, 0], [xt, t], [-hx, t]];
+  const arrowPts = [[A.shaft[0], -A.shaftW], [A.shaft[1], -A.shaftW], [A.head[0], -A.headW], [A.head[1], 0], [A.head[0], A.headW], [A.shaft[1], A.shaftW], [A.shaft[0], A.shaftW]];
+  if (!vertical) {
+    extrudeXZ(L, prof, -hy, hy, [PART.FACET, PART.FACET, PART.FACET, PART.FACET, PART.FACET]);
+    arrowPrism(L, arrowPts.map(([x, y]) => [x, y]), -A.at, A.at, 'z');
+  } else {
+    const zb = -hz + A.base, zm = (zb + hz) / 2;
+    L.box([-hx, -hy, -hz], [hx, hy, zb], { bottom: PART.INLET });
+    // the fin: profile in X-Y (thickness along Y), extruded over Z from zb to hz
+    const pXY = prof.map(([x, s]) => [x, s]);
+    L.poly(pXY.map(([x, y]) => [x, y, hz]), [0, 0, 1], PART.FACET);
+    for (let i = 0; i < pXY.length; i++) {
+      const a = pXY[i], b = pXY[(i + 1) % pXY.length];
+      // the profile runs counter-clockwise in X-Y, so (dy, -dx) points out of the fin
+      L.poly([[a[0], a[1], zb], [b[0], b[1], zb], [b[0], b[1], hz], [a[0], a[1], hz]], [b[1] - a[1], a[0] - b[0], 0], PART.FACET);
+    }
+    arrowPrism(L, arrowPts.map(([x, s]) => [x, zm + s]), -A.at, A.at, 'y');
+  }
+  return L;
+}
+// a flat arrow outline (x, v) extruded through the slab: axis 'z' -> v = local Y, thickness along Z;
+// axis 'y' -> v = local Z, thickness along Y. Split into the shaft quad and the head triangle.
+function arrowPrism(L, pts, t0, t1, axis) {
+  const P = (x, v, s) => axis === 'z' ? [x, v, s] : [x, s, v];
+  const out = (x, v, s) => axis === 'z' ? [x, v, s] : [x, s, v];
+  const shaft = [pts[0], pts[1], pts[5], pts[6]], head = [pts[2], pts[3], pts[4]];
+  for (const poly of [shaft, head]) {
+    L.poly(poly.map(([x, v]) => P(x, v, t1)), out(0, 0, 1), PART.RECESS);
+    L.poly(poly.map(([x, v]) => P(x, v, t0)), out(0, 0, -1), PART.RECESS);
+  }
+  // side walls only where the arrow stands proud of the slab (|s| > AERO.t); inside the slab they'd be hidden
+  const ring = pts, cx = ring.reduce((s, p) => s + p[0], 0) / ring.length, cv = ring.reduce((s, p) => s + p[1], 0) / ring.length;
+  for (const [s0, s1] of [[t0, -AERO.t], [AERO.t, t1]]) for (let i = 0; i < ring.length; i++) {
+    const a = ring[i], b = ring[(i + 1) % ring.length];
+    const m = [(a[0] + b[0]) / 2 - cx, (a[1] + b[1]) / 2 - cv];
+    L.poly([P(a[0], a[1], s0), P(b[0], b[1], s0), P(b[0], b[1], s1), P(a[0], a[1], s1)], out(m[0], m[1], 0), PART.RECESS);
+  }
+}
+
+// asset -> local-frame generator
+const SPECIAL_TYPES = {
+  PB_DefaultRamp: h => rampFaces(h, 'ramp'),
+  PB_DefaultRampInverted: h => rampFaces(h, 'inverted'),
+  PB_DefaultWedge: h => rampFaces(h, 'wedge'),
+  PB_DefaultRampCorner: h => rampCornerFaces(h, false),
+  PB_DefaultRampCornerInverted: h => rampCornerFaces(h, true),
+  PB_DefaultRampInnerCorner: h => rampInnerCornerFaces(h, false),
+  PB_DefaultRampInnerCornerInverted: h => rampInnerCornerFaces(h, true),
+  PB_DefaultRampCrestCorner: crestCornerFaces,
+  PB_DefaultRampCrest: crestFaces,
+  PB_DefaultRampCrestEnd: crestEndFaces,
+  PB_DefaultSideWedge: h => sideWedgeFaces(h, false),
+  PB_DefaultSideWedgeTile: h => sideWedgeFaces(h, true),
+  PB_DefaultArch: h => archFaces(h, false),
+  PB_DefaultArchInverted: h => archFaces(h, true),
+  PB_DefaultStudded: studdedFaces,
+  PB_RoundedCap: roundedCapFaces,
+  BP_RoundPlate: h => plateFaces(h, false),
+  BP_SquarePlate: h => plateFaces(h, true),
+  BP_SpikePlate: spikePlateFaces,
+  BP_LatticeThin: latticeFaces,
+  PB_PicketFence: fenceFaces,
+  PB_Spike: spikeFaces,
+  PB_Baguette: baguetteFaces,
+  PB_AerodynamicSurface: h => aeroFaces(h, false),
+  PB_AerodynamicSurfaceVertical: h => aeroFaces(h, true),
+};
+function isSpecial(name) { return Object.prototype.hasOwnProperty.call(SPECIAL_TYPES, name); }
+// asset: a SPECIAL_TYPES name; half: local half-extents [X, Y, Z] in Brickadia units; o: orientation byte.
+// Returns the mesh in the unit box of its world bounds plus size (viewer units, for uScale) and worldHalf.
+function specialMesh(asset, half, o = 16) {
+  const gen = SPECIAL_TYPES[asset];
+  if (!gen) throw new Error('unknown special shape ' + asset);
+  return localMesh(gen(half.slice()), half, o, { asset });
+}
+
 // A plain unit box (36 vertices, PART.PLAIN), for side-by-side comparisons.
 function boxMesh() {
   const B = new Builder(1), s = 0.5, c = [0, 0, 0];
@@ -526,7 +1245,11 @@ const api = {
   STUD, UNIT, MICRO, PLATE, PART, ROUND_TYPES, OPEN_QUESTIONS,
   ROUND_SEGMENTS, ROUND_SEGMENTS_2X2, ROUND_SEGMENTS_4X4, ROUND_UNDER_RIM, ROUND_STUD_DIAMETER, ROUND_STUD_HEIGHT, CONE_TOP_STUD_SCALE,
   CREST_LIP, CREST_PEAK_FLAT, CREST_END_PITCH,
+  MICRO_TYPES, MICRO_ROUND_SEGMENTS, MICRO_SLOPE_TEXTURE,
   roundMesh, crestMesh, crestEndMesh, boxMesh, crestDir, crestEndDir, isRound, interleave,
+  microMesh, isMicro, brickOrient, microRoundSegments,
+  SPECIAL_TYPES, RAMP_CREST, RAMP_LIP, ARCH_LEG, ARCH_CROWN, CAP_SEGMENTS, PLATE_SEGMENTS,
+  specialMesh, isSpecial, localMesh, LocalBuilder,
 };
 if (typeof module !== 'undefined' && module.exports) module.exports = api;
 root.BrickShapes = api;
@@ -537,6 +1260,23 @@ const canvas = document.getElementById('c');
 const gl = canvas.getContext('webgl', { antialias: true });
 const hud = document.getElementById('hud');
 
+// Shading constants, put into the fragment shader as it is compiled. Measured from the game's glTF
+// export (references/exports/EXPORT_ANALYSIS.md section 8); one named constant each, so any that looks
+// worse than in-game can be switched back here.
+const SHADE = {
+  TOP: 0.5,          // stud flat top, fraction of the cell (export 0.49)
+  SLOPE: 1.0,        // stud side slope: 1.0 = 45 degrees as in the export (was 0.5, 26.6 degrees)
+  ROUND: 0.01,       // stud crease rounding, studs (export ~0.009; was 0.015)
+  BEVEL_EDGE: 0.85,  // the edge bevel tilt fades in over the outer 15% of its band: a hard 45 degree chamfer (was 0.75)
+  BUMPS: 28,         // ramp-family slope bumps per stud (export ~50 cycles; was 16)
+  BUMP_STRENGTH: 0.25,  // slope bump strength (was 0.16). The export's ~7 degree mean tilt (~0.1 here) was nearly
+                        // invisible next to an in-game ramp close-up; 0.25 matches that shot's relief better
+  RIM: 0.30,         // underside rim incl. its chamfers (was 0.28)
+  SKEL: 0.20,        // underside rib width (was 0.18)
+  SOCKET: 0.60, SOCKET_T: 0.10,   // socket ring outer size / wall (was 0.58 / 0.08)
+  SOCKET_CH: 0.02,   // socket wall chamfers (was the edge bevel width)
+};
+const glf = v => { const s = String(+v); return /[.e]/.test(s) ? s : s + '.0'; };   // a GLSL float literal
 const vs = `
 attribute vec3 aPos; attribute vec3 aNrm;
 attribute float aSlope;                     // 1 on a ramp's sloped face (array only enabled for ramps; else 0)
@@ -548,13 +1288,20 @@ varying float vPart; varying vec4 vCap;
 // constants set with vertexAttrib*.
 attribute vec3 iCenter; attribute vec3 iScale;   // box centre and full size
 attribute vec3 iColor;                      // save colour (display sRGB 0..1)
-attribute vec4 iFlags;                      // studs on top (0/1), stud underside (0/1), up (+1 / -1), smooth tile top (0/1)
+// studs (0/1), stud underside (0/1), stud axis, smooth tile top (0/1). The stud axis is the side the
+// studs face, in GL axes: +1 / -1 = up / down (GL y), +2 / -2 = +X / -X (GL x), +3 / -3 = +Y / -Y (GL z).
+attribute vec4 iFlags;
 uniform mat4 uMVP;
 uniform vec3 uShift;                        // instance buffers keep the frame they were uploaded in; this is the recentring since (0 for single draws)
 uniform float uStudFade;                    // studs / underside faded out when a stud is only a few px
-uniform float uBevelMax;                    // the fixed bevel width (BEVEL)
+uniform float uBevelMax;                    // the bevel width on a 20-unit face (BEVEL)
+uniform float uBevelFit;                    // 1: per-axis width W(L) from the export; 0: fixed width, capped at 40% of the half size
 varying vec3 vN; varying vec3 vW; varying vec3 vL; varying float vSlope;
-varying vec3 vHalf; varying vec3 vBase; varying vec4 vFlags; varying float vBevel;
+varying vec3 vHalf; varying vec3 vBase; varying vec4 vFlags; varying vec3 vBevel;
+varying vec2 vBevelK;                       // (uBevelMax, uBevelFit) for the fragment shader (no shared uniforms: their precisions may differ)
+// Bevel band width for a face L viewer units long along an axis (EXPORT_ANALYSIS.md section 5):
+// W(L) = 0.43 / (0.957 + 0.86 / L) Brickadia units, which is uBevelMax at L = 20 units.
+float bevelW(float L){ return uBevelMax / (0.957 + 0.86 / max(L / 0.02, 0.5)); }
 void main(){
   vN = aNrm; vSlope = aSlope;
   vPart = aPart; vCap = aCap;
@@ -562,9 +1309,10 @@ void main(){
   vW = p;
   vL = aPos * iScale;                       // position relative to the box centre (bevel)
   vHalf = iScale * 0.5;
-  // thin shaded bevel on the body's edges; on very small microbricks it's capped at 40% of the
-  // smallest half-size so opposite edges' bevels never meet in the middle of a face
-  vBevel = min(uBevelMax, 0.4*min(vHalf.x, min(vHalf.y, vHalf.z)));
+  // the shaded bevel on the body's edges, per axis (each axis of a face is independent)
+  vec3 fixedW = vec3(min(uBevelMax, 0.4*min(vHalf.x, min(vHalf.y, vHalf.z))));
+  vBevel = mix(fixedW, vec3(bevelW(iScale.x), bevelW(iScale.y), bevelW(iScale.z)), uBevelFit);
+  vBevelK = vec2(uBevelMax, uBevelFit);
   vBase = iColor;
   vFlags = vec4(iFlags.x*uStudFade, iFlags.y*uStudFade, iFlags.z, iFlags.w);
   gl_Position = uMVP * vec4(p, 1.0);
@@ -578,30 +1326,31 @@ precision mediump float;
 varying vec3 vN; varying vec3 vW; varying vec3 vL; uniform float uEdge;
 varying vec3 vBase;                         // save colour (display sRGB 0..1)
 uniform vec4 uLine; uniform vec3 uFadeC; uniform float uFadeR;   // line color; grid fade center/radius (0 = no fade)
-varying vec3 vHalf; varying float vBevel;   // box half-size; bevel width in world units
+varying vec3 vHalf; varying vec3 vBevel;    // box half-size; bevel width per axis, in world units
 // vFlags: x = stud strength (0 = none), y = underside hole texture strength (0 = none: microbricks),
-// z = +1 studs on top (upright) / -1 upside down (studs below, underside on top), w = 1 smooth tile
-// (the stud face has no texture and no bevel)
+// z = the stud axis (+-1 GL y, +-2 GL x, +-3 GL z; see iFlags), w = 1 smooth tile (the stud face has
+// no texture and no bevel)
 varying vec4 vFlags;
-// Stud shape (from "resizable (2).html"): a low square frustum whose base fills the whole
-// 0.2-unit stud cell, with a flat top half that width (matches the reference render: ~70px
-// top in a ~143px cell) and sides at a 1:2 slope.
-const float PITCH = 0.2, TOP = 0.5, SLOPE = 0.5;
-const float ROUND = 0.015;                  // crease rounding, in stud widths ("ever so slight")
+// Stud shape: a square frustum whose base fills the whole 0.2-unit stud cell, with a flat top
+// TOP x the cell. The constants come from SHADE in the script (EXPORT_ANALYSIS.md section 8).
+const float PITCH = 0.2, TOP = ${glf(SHADE.TOP)}, SLOPE = ${glf(SHADE.SLOPE)};
+const float ROUND = ${glf(SHADE.ROUND)};    // crease rounding, in stud widths
+const float BEVEL_EDGE = ${glf(SHADE.BEVEL_EDGE)};   // the bevel's tilt fades in over the inner (1 - this) of its band
 uniform vec3 uEye;                          // direction toward the camera (world/GL space), for the rim glint
 uniform vec3 uLight;                        // light direction (world/GL space); turns with the camera yaw
 varying float vSlope;                       // ramp slope face (a per-vertex flag: a shallow slope's normal
                                             // is too close to vertical to tell it from a top face)
 uniform float uBump;                        // slope texture strength, already faded out when sub-pixel
-const float BUMPS = 16.0;                   // slope texture bumps per stud (eyeballed from the close-ups)
-// underside layout, in studs (measured from in-game top-down shots of 2x2 and 4x4 undersides)
-const float RIM = 0.28;                     // rim width around the outer edge (incl. its edge bevel)
-const float SKEL = 0.18;                    // skeleton line width (~65% of the rim)
-const float SOCKET = 0.58, SOCKET_T = 0.08; // socket ring outer size / wall thickness
+const float BUMPS = ${glf(SHADE.BUMPS)};    // slope texture bumps per stud (ramp-family slopes only)
+// underside layout, in studs (the export's InletBorder / InletCenter maps)
+const float RIM = ${glf(SHADE.RIM)};        // rim width around the outer edge (incl. its edge chamfers)
+const float SKEL = ${glf(SHADE.SKEL)};      // skeleton (rib) width
+const float SOCKET = ${glf(SHADE.SOCKET)}, SOCKET_T = ${glf(SHADE.SOCKET_T)};   // socket ring outer size / wall thickness
 // how much light reaches each recessed part (multiplies all lighting, in linear, before the
 // tone curve; fitted to the in-game underside close-up)
 const float VOID = 0.18, SKEL_SHADE = 0.62, SOCKET_HOLE = 0.1;
 const float VIGNETTE = 0.25;                // each recess cell darkens this much toward its corners
+const float RECESS_SHADE = VOID;            // RECESS faces (spike-plate pits, aero arrows): the underside's recess material
 // Lighting (a preset, see LIGHTING in the script) then Unreal's stock filmic tonemapper, as in
 // references/calibration/JOINT.md: sRGB -> AP1, expand gamut 1.0, blue correction 0.6, glow and
 // red modifier, pre-desaturate .96, FilmToneMap (slope .88, toe .55, shoulder .26, black clip 0,
@@ -689,44 +1438,98 @@ float worley(vec2 p){                       // distance to the nearest jittered 
   return d;
 }
 float bumpHeight(vec2 p){ float w = worley(p); return (1.0 - w*w)*0.75 + vnoise(p*0.6)*0.25; }
-// --- Rounds / cones (from prototypes/shapes-preview.html). vPart: 0 plain (the box logic below),
-// 1 round top cap, 2 round bottom, 3 curved side, 6 the downward ledge ring. vCap = (u, v, R, n):
-// position on the cap from the round's axis in stud cells, the cap's clip radius, and the pattern
-// size (see shapes.js).
+// --- Parts. vPart is a BrickShapes.PART code: 0 plain (the box logic: studs and underside on the
+// faces along the stud axis), 1 round top cap, 2 round bottom, 3 curved side, 4 ramp slope, 5 plain
+// top (bevel only), 6 the round's downward ledge ring, 7 FACET (bevel only), 8 STUDS (studs in the
+// face's own plane, any direction), 9 INLET (the underside pattern in the face's own plane), 10 RECESS
+// (dark, no pattern). vCap on rounds = (u, v, R, n): the cap position in stud cells (unused now: the
+// shader takes it from vL, so rounds work in any orientation), the cap's clip radius and the pattern
+// size. On the other shape meshes vCap = (u0, v0, u1, v1), the face's own rectangle in its plane in
+// unit-box coords (faceRects() in the script), or zeros for a slanted face.
 varying float vPart; varying vec4 vCap;
+varying vec2 vBevelK;                       // (BEVEL, 1 = per-axis W(L)), from the vertex shader
 const float ROUND_RIM = 0.06;               // the round rim wall under rounds, in studs (ROUND_UNDER_RIM)
-vec3 studNormalAt(vec2 c, float s, float up){
+const float SOCKET_CH = ${glf(SHADE.SOCKET_CH)};   // chamfer on both edges of a socket ring wall, in studs
+float bevelWf(float L){ return vBevelK.x / (0.957 + 0.86 / max(L / 0.02, 0.5)); }
+// A face's frame from its normal: eA its axis (GL), eU / eV the two in-plane axes in increasing GL
+// order (x, y, z). faceRects() in the script uses the same order.
+void faceFrame(vec3 nG, out vec3 eA, out vec3 eU, out vec3 eV){
+  vec3 a = abs(nG);
+  if (a.x >= a.y && a.x >= a.z) { eA = vec3(1.0, 0.0, 0.0); eU = vec3(0.0, 1.0, 0.0); eV = vec3(0.0, 0.0, 1.0); }
+  else if (a.y >= a.z) { eA = vec3(0.0, 1.0, 0.0); eU = vec3(1.0, 0.0, 0.0); eV = vec3(0.0, 0.0, 1.0); }
+  else { eA = vec3(0.0, 0.0, 1.0); eU = vec3(1.0, 0.0, 0.0); eV = vec3(0.0, 1.0, 0.0); }
+}
+vec3 axisDir(float code){                   // the stud axis code (vFlags.z) as a GL direction
+  float a = abs(code), s = code < 0.0 ? -1.0 : 1.0;
+  return s * (a < 1.5 ? vec3(0.0, 1.0, 0.0) : a < 2.5 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 0.0, 1.0));
+}
+// stud normal at cell coord c on a face with frame (eA, eU, eV); sA = which side of eA it faces,
+// s = stud strength
+vec3 studNormal(vec2 c, float s, vec3 eA, float sA, vec3 eU, vec3 eV){
   const float E = 0.002;
   float gx = (studHeight(c + vec2(E, 0.0)) - studHeight(c - vec2(E, 0.0))) / (2.0*E);
   float gz = (studHeight(c + vec2(0.0, E)) - studHeight(c - vec2(0.0, E))) / (2.0*E);
-  return normalize(vec3(-gx*s, up, -gz*s));
+  return normalize(eA*sA - (eU*gx + eV*gz)*s);
 }
-// The underside pattern with the rim following a circle: q / sz as in the box underside, eCirc =
-// distance in from the circle (studs), inward = the direction toward the axis.
-float roundUnderside(vec2 q, vec2 sz, float eCirc, vec2 inward, out vec2 tilt){
-  float e = eCirc;
+// Socket rings and skeleton, shared by both underside patterns. q = 0..sz across the face in studs
+// (the grid corners are the socket centres); returns the light factor with the ring / rib parts set
+// and the socket chamfer tilt in tilt.
+float sockets(vec2 q, vec2 sz, float rim, out vec2 tilt){
   const float AA = 0.012;
-  float rim = 1.0 - smoothstep(ROUND_RIM - AA, ROUND_RIM + AA, e);
-  float bw = vBevel / PITCH;
-  float rimBevel = smoothstep(ROUND_RIM - bw - AA, ROUND_RIM - bw + AA, e) * rim;
-  vec2 g = abs(q - floor(q + 0.5));
-  vec2 interior = step(0.5, q) * step(0.5, sz - q);
+  vec2 g = abs(q - floor(q + 0.5));                     // distance to the nearest grid line
+  vec2 interior = step(0.5, q) * step(0.5, sz - q);     // that grid line isn't the outer edge
   float skel = max((1.0 - smoothstep(SKEL*0.5 - AA, SKEL*0.5 + AA, g.x)) * interior.x,
                    (1.0 - smoothstep(SKEL*0.5 - AA, SKEL*0.5 + AA, g.y)) * interior.y);
+  // socket ring around interior grid corners (only when both sides are > 1 stud)
   float m = max(g.x, g.y), has = interior.x * interior.y * step(1.5, min(sz.x, sz.y));
   float ringOut = 1.0 - smoothstep(SOCKET*0.5 - AA, SOCKET*0.5 + AA, m);
   float ringIn  = 1.0 - smoothstep(SOCKET*0.5 - SOCKET_T - AA, SOCKET*0.5 - SOCKET_T + AA, m);
   float socket = (ringOut - ringIn) * has, socketHole = ringIn * has;
+  // recess light: VOID, with a soft vignette per stud cell (brightest in the middle, darker
+  // toward the cell's walls and corners, as in-game)
   vec2 cc = fract(q) - 0.5;
   float voidLight = VOID * (1.0 - VIGNETTE * dot(cc, cc) * 2.0);
   float s = mix(voidLight, SKEL_SHADE, skel);
   s = mix(s, 1.0, socket); s = mix(s, SOCKET_HOLE, socketHole);
   s = mix(s, 1.0, rim);
-  vec2 d2 = q - floor(q + 0.5);
+  // both edges of each socket ring wall are chamfered (outer edge down outward, inner edge down
+  // into the hole)
+  vec2 d2 = q - floor(q + 0.5);                         // offset from the nearest grid corner
   vec2 outward = abs(d2.x) > abs(d2.y) ? vec2(sign(d2.x), 0.0) : vec2(0.0, sign(d2.y));
-  float sOut = smoothstep(SOCKET*0.5 - bw - AA, SOCKET*0.5 - bw + AA, m) * ringOut * has * (1.0 - rim);
-  float sIn = (1.0 - smoothstep(SOCKET*0.5 - SOCKET_T + bw - AA, SOCKET*0.5 - SOCKET_T + bw + AA, m)) * socket * (1.0 - rim);
-  tilt = inward * rimBevel + outward * sOut - outward * sIn;
+  float sOut = smoothstep(SOCKET*0.5 - SOCKET_CH - AA, SOCKET*0.5 - SOCKET_CH + AA, m) * ringOut * has * (1.0 - rim);
+  float sIn = (1.0 - smoothstep(SOCKET*0.5 - SOCKET_T + SOCKET_CH - AA, SOCKET*0.5 - SOCKET_T + SOCKET_CH + AA, m)) * socket * (1.0 - rim);
+  tilt = outward * sOut - outward * sIn;
+  return s;
+}
+// Underside of stud bricks (shading only), per the export's InletBorder / InletCenter maps and the
+// in-game reference: a RIM round the outer edge (body colour) whose inner edge is chamfered down into
+// the recess; inside it the dark recess (VOID); a skeleton along the interior stud-cell boundaries;
+// a square SOCKET ring on every interior grid corner (only when both sides are over 1 stud, so 1-wide
+// bottoms show just the rim, recess and ribs). q = 0..sz across the face, in studs.
+float underside(vec2 q, vec2 sz, out vec2 tilt){
+  const float AA = 0.012;
+  float e = min(min(q.x, sz.x - q.x), min(q.y, sz.y - q.y));   // distance to the outer edge
+  float rim = 1.0 - smoothstep(RIM - AA, RIM + AA, e);
+  float bw = vBevelK.x / PITCH;
+  float rimBevel = smoothstep(RIM - bw - AA, RIM - bw + AA, e) * rim;   // inner edge of the rim
+  vec2 st;
+  float s = sockets(q, sz, rim, st);
+  vec2 toIn = vec2(0.0);
+  if (e == q.x) toIn = vec2(1.0, 0.0); else if (e == sz.x - q.x) toIn = vec2(-1.0, 0.0);
+  else if (e == q.y) toIn = vec2(0.0, 1.0); else toIn = vec2(0.0, -1.0);
+  tilt = toIn * rimBevel + st;
+  return s;
+}
+// The underside with the rim following a circle (round bottoms): eCirc = distance in from the circle
+// (studs), inward = the direction toward the axis.
+float roundUnderside(vec2 q, vec2 sz, float eCirc, vec2 inward, out vec2 tilt){
+  const float AA = 0.012;
+  float rim = 1.0 - smoothstep(ROUND_RIM - AA, ROUND_RIM + AA, eCirc);
+  float bw = vBevelK.x / PITCH;
+  float rimBevel = smoothstep(ROUND_RIM - bw - AA, ROUND_RIM - bw + AA, eCirc) * rim;
+  vec2 st;
+  float s = sockets(q, sz, rim, st);
+  tilt = inward * rimBevel + st;
   return s;
 }
 void main(){
@@ -735,122 +1538,101 @@ void main(){
     if (uFadeR > 0.0) a *= 1.0 - smoothstep(uFadeR*0.35, uFadeR, length(vW.xz - uFadeC.xz));
     gl_FragColor = vec4(uLine.rgb, a); return;
   }
-  vec3 n = normalize(vN);
-  bool slope = vSlope > 0.5;                       // ramp slope: no studs, no underside, no bevel
+  vec3 nG = normalize(vN);                         // the face's own (flat or smooth) normal
+  vec3 n = nG;
+  bool slope = vSlope > 0.5;                       // ramp-family slope: no studs, no underside, no bevel
   if (slope && uBump > 0.0) {
     // Slope texture: bump-map the noise height field. Coordinates are box-local (vL), so the
     // pattern doesn't swim when the focus moves (that recentres the world), and in world units
     // along the slope, so long ramps don't stretch it. Slightly elongated across the slope.
-    vec3 w = abs(n.x) > abs(n.z) ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);   // the ramp's width axis
-    vec3 t = normalize(cross(n, w));                                            // up/down the slope
+    vec3 an = abs(nG);                                                          // the ramp's width axis: the one the slope
+    vec3 w = an.z <= an.x && an.z <= an.y ? vec3(0.0, 0.0, 1.0) : an.x <= an.y ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);   // normal leans least toward
+    vec3 t = normalize(cross(nG, w));                                           // up/down the slope
+    w = normalize(cross(t, nG));
     vec2 p = vec2(dot(vL, w)*0.8, dot(vL, t)) * (BUMPS/PITCH);
     const float E = 0.15;
     float gw = bumpHeight(p + vec2(E, 0.0)) - bumpHeight(p - vec2(E, 0.0));
     float gt = bumpHeight(p + vec2(0.0, E)) - bumpHeight(p - vec2(0.0, E));
     n = normalize(n - uBump*(gw*w + gt*t)/(2.0*E));
   }
-  float uStuds = vFlags.x, uUnder = vFlags.y, uUp = vFlags.z, uSmooth = vFlags.w;
+  float uStuds = vFlags.x, uUnder = vFlags.y, uSmooth = vFlags.w;
+  vec3 sd = axisDir(vFlags.z);                     // which way the studs face (the box logic)
   float part = floor(vPart + 0.5);
   bool plain = part == 0.0;                        // boxes, ramps, crests: the box logic below
   bool roundTop = part == 1.0, roundBot = part == 2.0, roundSide = part == 3.0, ledge = part == 6.0;
-  bool studTop = plain && n.y*uUp > 0.5 && uStuds > 0.0 && !slope;   // the stud face (the bottom when upside down)
+  bool facet = part == 7.0 || part == 5.0, studsPart = part == 8.0, inlet = part == 9.0, recess = part == 10.0;
+  vec3 eA, eU, eV;
+  faceFrame(nG, eA, eU, eV);
+  float sA = dot(nG, eA) < 0.0 ? -1.0 : 1.0;
+  bool aligned = abs(dot(nG, eA)) > 0.999;         // an axis-aligned face (only those get a face rectangle)
+  vec2 q = vec2(dot(vL, eU), dot(vL, eV));         // position in the face plane, from the box centre
+  vec2 hb = vec2(dot(vHalf, eU), dot(vHalf, eV));  // the box's half size in that plane
+  bool hasRect = !(roundTop || roundBot || ledge) && aligned && vCap.z > vCap.x;
+  vec4 rect = hasRect ? vCap * vec4(2.0*hb, 2.0*hb) : vec4(-hb, hb);   // the face's rectangle, world units
+  float face = dot(nG, sd);                        // +1 on the stud face, -1 on the underside (box logic)
+  bool studTop = !slope && uStuds > 0.0 && ((plain && face > 0.5) || (studsPart && aligned));
   if (studTop) {
-    // Fake studs (shading only, the top face stays flat): in each stud cell, the middle square
-    // is the stud's flat top; around it four sloped sides, each tilting the normal out away from
-    // the stud's centre (an inverted chamfer per side). Neighbouring studs meet in a valley at
-    // the cell borders. uStuds fades them out when the cells get too small on screen.
-    // The normal comes from the slope of studHeight (finite differences), so the rounded
-    // creases pick up thin highlights / shadows like the in-game studs.
-    // cells counted from the box's low corner (box-local, so frame-independent)
-    vec2 c = fract((vL.xz + vHalf.xz) / PITCH) - 0.5;        // -0.5..0.5 within the cell
-    const float E = 0.002;
-    float gx = (studHeight(c + vec2(E, 0.0)) - studHeight(c - vec2(E, 0.0))) / (2.0*E);
-    float gz = (studHeight(c + vec2(0.0, E)) - studHeight(c - vec2(0.0, E))) / (2.0*E);
-    n = normalize(vec3(-gx*uStuds, uUp, -gz*uStuds));
+    // Fake studs (shading only, the face stays flat): in each stud cell, counted from the face's low
+    // corner, the middle square is the stud's flat top with four sloped sides around it, and
+    // neighbouring studs meet in a valley at the cell borders. uStuds fades them out when the cells
+    // get too small on screen. The normal comes from the slope of studHeight (finite differences),
+    // so the rounded creases pick up thin highlights / shadows like the in-game studs.
+    n = studNormal(fract((q - rect.xy) / PITCH) - 0.5, uStuds, eA, sA, eU, eV);
   }
   if (roundTop && uStuds > 0.0) {
-    // round / cone top: the stud pattern in cap cells (an n x n grid, or one cell on cones),
-    // clipped by the cap's circle (the mesh edge)
+    // round / cone top: the stud pattern in cap cells (an n x n grid, or one cell on cones), centred
+    // on the round's axis and clipped by the cap's circle (the mesh edge)
     studTop = true;
-    n = studNormalAt(fract(vCap.xy + vCap.w*0.5) - 0.5, uStuds, uUp);
+    n = studNormal(fract(q / PITCH + vCap.w*0.5) - 0.5, uStuds, eA, sA, eU, eV);
   }
   float shade = 1.0;
   if ((roundBot && uUnder > 0.0) || ledge) {
     // round bottom: one socket per stud cell inside a round rim wall; then a radial bevel on the
     // outer edge (of the bottom disc, and of the ledge ring)
-    float r = length(vCap.xy);
+    vec2 qc = q / PITCH;
+    float r = length(qc);
     if (roundBot) {
       vec2 tilt;
-      float s = roundUnderside(vCap.xy + vCap.w*0.5, vec2(vCap.w), vCap.z - r, -vCap.xy / max(r, 1e-4), tilt);
+      float s = roundUnderside(qc + vCap.w*0.5, vec2(vCap.w), vCap.z - r, -qc / max(r, 1e-4), tilt);
       shade = mix(1.0, s, uUnder);
-      n = normalize(n + vec3(tilt.x, 0.0, tilt.y) * uUnder);
+      n = normalize(n + (eU*tilt.x + eV*tilt.y) * uUnder);
     }
-    float k = 1.0 - smoothstep(vBevel*0.75, vBevel, (vCap.z - r)*PITCH);
-    n = normalize(n + k * vec3(vCap.x, 0.0, vCap.y) / max(r, 1e-4));
+    float k = 1.0 - smoothstep(vBevelK.x*0.75, vBevelK.x, (vCap.z - r)*PITCH);
+    n = normalize(n + k * (eU*qc.x + eV*qc.y) / max(r, 1e-4));
   }
-  if (plain && n.y*uUp < -0.5 && uUnder > 0.0 && !slope) {
-    // Underside of stud bricks (shading only), per the in-game reference:
-    //  - a RIM around the brick's outer edge (body colour), with a bevel on its inner edge
-    //    sloping down into the recess;
-    //  - inside it, the dark recess (VOID);
-    //  - a "skeleton" along the interior stud-cell boundaries, SKEL wide, a medium shade, drawn
-    //    under the rim;
-    //  - a square SOCKET ring (body colour, dark centre) on every interior grid corner. That
-    //    only exists when both sides are over 1 stud, and never touches the rim.
-    // Everything is in stud units, measured from the brick's corner.
-    vec2 sz = 2.0*vHalf.xz / PITCH;                       // brick size in studs
-    vec2 q = (vL.xz + vHalf.xz) / PITCH;                  // 0..sz across the face
-    float e = min(min(q.x, sz.x - q.x), min(q.y, sz.y - q.y));   // distance to the outer edge
-    const float AA = 0.012;
-    float rim = 1.0 - smoothstep(RIM - AA, RIM + AA, e);
-    float bw = vBevel / PITCH;
-    float rimBevel = smoothstep(RIM - bw - AA, RIM - bw + AA, e) * rim;   // inner edge of the rim
-    // skeleton: distance to the nearest interior cell boundary on either axis
-    vec2 g = abs(q - floor(q + 0.5));                     // distance to the nearest grid line
-    vec2 interior = step(0.5, q) * step(0.5, sz - q);     // that grid line isn't the outer edge
-    float skel = max((1.0 - smoothstep(SKEL*0.5 - AA, SKEL*0.5 + AA, g.x)) * interior.x,
-                     (1.0 - smoothstep(SKEL*0.5 - AA, SKEL*0.5 + AA, g.y)) * interior.y);
-    // socket ring around interior grid corners (only when both sides are > 1 stud)
-    float m = max(g.x, g.y), has = interior.x * interior.y * step(1.5, min(sz.x, sz.y));
-    float ringOut = 1.0 - smoothstep(SOCKET*0.5 - AA, SOCKET*0.5 + AA, m);
-    float ringIn  = 1.0 - smoothstep(SOCKET*0.5 - SOCKET_T - AA, SOCKET*0.5 - SOCKET_T + AA, m);
-    float socket = (ringOut - ringIn) * has, socketHole = ringIn * has;
-    // recess light: VOID, with a soft vignette per stud cell (brightest in the middle, darker
-    // toward the cell's walls and corners, as in-game)
-    vec2 cc = fract(q) - 0.5;                             // -0.5..0.5 within the stud cell
-    float voidLight = VOID * (1.0 - VIGNETTE * dot(cc, cc) * 2.0);
-    // shading: recess, skeleton, socket ring (full light), socket centre (deeper), rim on top
-    float s = mix(voidLight, SKEL_SHADE, skel);
-    s = mix(s, 1.0, socket); s = mix(s, SOCKET_HOLE, socketHole);
-    s = mix(s, 1.0, rim);
+  bool under = !slope && uUnder > 0.0 && ((plain && face < -0.5) || (inlet && aligned));
+  if (under) {
+    // the underside pattern across the face's rectangle (the whole box face for a box)
+    vec2 tilt;
+    float s = underside((q - rect.xy) / PITCH, (rect.zw - rect.xy) / PITCH, tilt);
     shade = mix(1.0, s, uUnder);
-    // bevels, all bw wide: the rim's inner edge (down into the recess), and both edges of each
-    // socket ring (outer edge down outward, inner edge down into the socket's hole)
-    vec2 toIn = vec2(0.0);
-    if (e == q.x) toIn = vec2(1.0, 0.0); else if (e == sz.x - q.x) toIn = vec2(-1.0, 0.0);
-    else if (e == q.y) toIn = vec2(0.0, 1.0); else toIn = vec2(0.0, -1.0);
-    vec2 d2 = q - floor(q + 0.5);                         // offset from the nearest grid corner
-    vec2 outward = abs(d2.x) > abs(d2.y) ? vec2(sign(d2.x), 0.0) : vec2(0.0, sign(d2.y));
-    float sOut = smoothstep(SOCKET*0.5 - bw - AA, SOCKET*0.5 - bw + AA, m) * ringOut * has * (1.0 - rim);
-    float sIn = (1.0 - smoothstep(SOCKET*0.5 - SOCKET_T + bw - AA, SOCKET*0.5 - SOCKET_T + bw + AA, m)) * socket * (1.0 - rim);
-    vec2 tilt = toIn * rimBevel + outward * sOut - outward * sIn;
-    n = normalize(n + vec3(tilt.x, 0.0, tilt.y) * uUnder);
+    n = normalize(n + (eU*tilt.x + eV*tilt.y) * uUnder);
   }
-  bool smoothTop = uSmooth > 0.5 && n.y*uUp > 0.5;   // a tile's top: seamless, so no bevel either
-  if (vBevel > 0.0 && !studTop && !smoothTop && !slope && (plain || roundSide)) {   // the edge bevel sits "under" the studs on top
-    // Fake chamfer (shading only, geometry untouched): within vBevel of a face edge, tilt the
-    // normal out toward that edge, reaching 45 degrees at the edge itself. Corners tilt on both
-    // axes. The face's own axis is excluded so only its in-plane edges count.
-    vec3 dist = vHalf - abs(vL);
-    vec3 own = step(0.5, abs(n));
-    vec3 k = (1.0 - smoothstep(vBevel*0.75, vBevel, dist)) * (1.0 - own);
-    n = normalize(n + k * sign(vL));
+  if (recess) shade = RECESS_SHADE;
+  bool smoothTop = plain && uSmooth > 0.5 && face > 0.5;   // a smooth tile's top: seamless, so no bevel either
+  if (!studTop && !smoothTop && !slope && (plain || roundSide || facet || inlet)) {   // the edge bevel sits "under" the studs
+    // Fake chamfer (shading only, geometry untouched): within the bevel band of a face edge, tilt
+    // the normal out toward that edge, 45 degrees across the band. Corners tilt on both axes. A face
+    // with its own rectangle bevels that rectangle's edges (its diagonal edges get none, like the
+    // export); otherwise the box's edges count, leaving out the face's own axis.
+    if (hasRect) {
+      vec2 len = rect.zw - rect.xy;
+      vec2 bw = mix(vec2(min(vBevelK.x, 0.2*min(len.x, len.y))), vec2(bevelWf(len.x), bevelWf(len.y)), vBevelK.y);
+      vec2 k0 = 1.0 - smoothstep(bw*BEVEL_EDGE, bw, q - rect.xy);
+      vec2 k1 = 1.0 - smoothstep(bw*BEVEL_EDGE, bw, rect.zw - q);
+      n = normalize(n + eU*(k1.x - k0.x) + eV*(k1.y - k0.y));
+    } else {
+      vec3 dist = vHalf - abs(vL);
+      vec3 own = step(0.5, abs(nG));
+      vec3 k = (1.0 - smoothstep(vBevel*BEVEL_EDGE, vBevel, dist)) * (1.0 - own);
+      n = normalize(n + k * sign(vL));
+    }
   }
   vec3 L = normalize(uLight);
   float d = max(dot(n, L), 0.0);
   // soft glint on the shaded detail only (stud sides / rounded rims / edge bevels): wherever the
   // normal is bent away from the flat face, so plain faces keep their colour
-  float bent = smoothstep(0.0, 0.02, 1.0 - dot(n, normalize(vN)));
+  float bent = smoothstep(0.0, 0.02, 1.0 - dot(n, nG));
   float spec = pow(max(dot(n, normalize(L + uEye)), 0.0), 28.0) * 0.32 * bent;
   // albedo = sRGB-decoded save colour, x light, + the floor, all dimmed by shade in recesses;
   // then exposure -> Unreal's stock filmic tonemapper (sRGB-encoded out)
@@ -902,7 +1684,7 @@ const uMVP = gl.getUniformLocation(prog,'uMVP'), uShift = gl.getUniformLocation(
       uEdge = gl.getUniformLocation(prog,'uEdge'),
       uLine = gl.getUniformLocation(prog,'uLine'), uFadeC = gl.getUniformLocation(prog,'uFadeC'),
       uFadeR = gl.getUniformLocation(prog,'uFadeR'),
-      uStudFade = gl.getUniformLocation(prog,'uStudFade'), uBevelMax = gl.getUniformLocation(prog,'uBevelMax'),
+      uStudFade = gl.getUniformLocation(prog,'uStudFade'), uBevelMax = gl.getUniformLocation(prog,'uBevelMax'), uBevelFit = gl.getUniformLocation(prog,'uBevelFit'),
       uEye = gl.getUniformLocation(prog,'uEye'), uLight = gl.getUniformLocation(prog,'uLight'),
       uSun = gl.getUniformLocation(prog,'uSun'), uSky = gl.getUniformLocation(prog,'uSky'),
       uFloor = gl.getUniformLocation(prog,'uFloor'), uExposure = gl.getUniformLocation(prog,'uExposure');
@@ -912,11 +1694,31 @@ function setBox(l, h){
   gl.vertexAttrib3f(LOC.iScale, h[0]-l[0], h[2]-l[2], h[1]-l[1]);
   gl.vertexAttrib3f(LOC.iCenter, (l[0]+h[0])/2, (l[2]+h[2])/2, (l[1]+h[1])/2);
 }
-// [studs on top, stud underside, up, smooth top]: stud bricks only (tiles included: they share the
-// underside); plain + smooth tiles have no studs; a smooth tile has no top bevel (a plain tile keeps it)
+// [studs, stud underside, stud axis, smooth top]: stud bricks only (tiles included: they share the
+// underside); plain + smooth tiles have no studs; a smooth tile has no top bevel (a plain tile keeps it).
+// The stud axis (the shader's iFlags.z) is the way the brick's local +Z points: +1 / -1 upright /
+// upside down, and for sideways bricks b.side = +-2 (world +-X) or +-3 (world +-Y). Shape meshes with
+// their own part codes (STUDS / INLET faces) don't use it.
+const studAxis = b => b.up ? b.up : (b.side || 1);
 function brickFlags(b){
-  const s = b.micro || !b.up ? 0 : 1, top = topStyle(b);
-  return [top !== 'studs' ? 0 : s, s, b.up || 1, top === 'smooth' && !b.micro ? 1 : 0];
+  const s = b.micro ? 0 : 1, top = topStyle(b);
+  return [top !== 'studs' ? 0 : s, s, studAxis(b), top === 'smooth' && !b.micro ? 1 : 0];
+}
+// The stud-axis code of an orientation byte's local +Z (tools/orient.js): world Z -> +-1, X -> +-2, Y -> +-3.
+function sideCode(o){
+  const M = BrickShapes.brickOrient(o), z = [M[0][2], M[1][2], M[2][2]], a = z.findIndex(c => c);
+  return z[a] * [2, 3, 1][a];
+}
+// The orientation byte after a quarter turn about world Z, (x, y) -> (-y, x) (the editor's R).
+function turnOrient(o){
+  const M = BrickShapes.brickOrient(o), T = [M[1].map(c => -c), M[0].slice(), M[2].slice()];
+  for (let k = 0; k < 24; k++) { const N = BrickShapes.brickOrient(k); if (N.every((r, i) => r.every((c, j) => c === T[i][j]))) return k; }
+  return o;
+}
+// local half-extents (Brickadia units) of a brick at orientation o whose world size is size (viewer units)
+function localHalf(o, size){
+  const M = BrickShapes.brickOrient(o), w = size.map(v => v/2/BRZ_UNIT);
+  return [0, 1, 2].map(j => Math.round((Math.abs(M[0][j])*w[0] + Math.abs(M[1][j])*w[1] + Math.abs(M[2][j])*w[2])*1000)/1000);
 }
 function setBrick(b, l, h){
   setBox(l, h);
@@ -990,13 +1792,82 @@ function cachedShape(key, make, extras){
   return buf;
 }
 const shapeCount = buf => shapeMeshInfo.get(buf)?.count ?? RAMP_VERTS;
-// the mesh buffer for a shaped brick b (b.shape set) of world size [X,Y,Z]
+// the mesh buffer for a shaped brick b (b.shape set) of world size [X,Y,Z]. The export-measured local
+// shapes (shape 'special': BrickShapes.specialMesh, 'micro': microMesh) take the brick's orientation
+// byte b.o and its local half-extents, so any of the 24 orientations draws; their faces get their
+// rectangles (faceRects) for the STUDS / INLET patterns and the per-face bevel. Rounds use their
+// upright mesh turned by b.o when sideways.
 function shapeBuffer(b, size){
   const up = b.up || 1, k = size.map(v => v.toFixed(3)).join();
+  if (b.shape === 'special' || b.shape === 'micro') {
+    const s = localHalf(b.o, size), o = b.o;
+    return cachedShape(`${b.shape}|${b.asset}|${s.join()}|${o}`,
+      () => faceRects(b.shape === 'micro' ? BrickShapes.microMesh(b.asset, s, o) : BrickShapes.specialMesh(b.asset, s, o)), true);
+  }
   if (b.shape === 'crest') return cachedShape(`crest|${k}|${b.run}|${up}`, () => BrickShapes.crestMesh(size, b.run, up), false);
   if (b.shape === 'crestEnd') return cachedShape(`end|${k}|${b.run}|${b.closed}|${up}`, () => BrickShapes.crestEndMesh(size, b.run, b.closed, up), false);
+  if (b.shape === 'round' && !b.up && b.o != null) return cachedShape(`round|${b.round}|o${b.o}`, () => orientMesh(BrickShapes.roundMesh(b.round, 1), b.o), true);
   if (b.shape === 'round') return cachedShape(`round|${b.round}|${up}`, () => BrickShapes.roundMesh(b.round, up), true);
   return rampBuffer(size, b.run, b.lip, up);
+}
+// Each flat, axis-aligned face of a shape mesh gets its rectangle in the face plane as its cap attribute
+// (u0, v0, u1, v1) in unit-box coords, u / v the face's two other GL axes in x, y, z order (the
+// shader's faceFrame). A face is a run of consecutive triangles with the same part and plane, as the
+// generators emit them (a fan per polygon). Slanted and curved faces keep zeros (the box bevel).
+function faceRects(mesh){
+  const P = mesh.positions, N = mesh.normals, K = mesh.parts, C = mesh.caps, T = mesh.count/3;
+  const axisOf = t => {                            // aligned axis of triangle t (all three normals), else -1
+    for (let a = 0; a < 3; a++) {
+      let ok = true;
+      for (let v = 3*t; v < 3*t + 3 && ok; v++) ok = Math.abs(N[3*v + a]) > 0.999;
+      if (ok) return a;
+    }
+    return -1;
+  };
+  // 1. polygons: runs of consecutive triangles on one plane with one part, with their rectangles
+  const polys = [];
+  for (let t = 0; t < T; t++) {
+    const a = axisOf(t), v = 3*t;
+    if (a < 0) continue;
+    const key = `${a}|${K[v]}|${Math.sign(N[3*v + a])}|${Math.round(P[3*v + a]*1e5)}`, last = polys[polys.length - 1];
+    const g = last && last.key === key && last.t1 === t ? last : (polys.push({ key, a, t0: t, t1: t, r: [Infinity, Infinity, -Infinity, -Infinity] }), polys[polys.length - 1]);
+    const [u, w] = [[1, 2], [0, 2], [0, 1]][a];
+    for (let k = v; k < v + 3; k++) {
+      g.r[0] = Math.min(g.r[0], P[3*k + u]); g.r[1] = Math.min(g.r[1], P[3*k + w]);
+      g.r[2] = Math.max(g.r[2], P[3*k + u]); g.r[3] = Math.max(g.r[3], P[3*k + w]);
+    }
+    g.t1 = t + 1;
+  }
+  // 2. one face = the polygons on a plane whose rectangles touch (a face cut into strips, like an
+  // arch's side, gets one rectangle; separate faces on a plane, like an arch's two leg bottoms, don't)
+  const E = 1e-5, touch = (p, q) => p[0] <= q[2] + E && q[0] <= p[2] + E && p[1] <= q[3] + E && q[1] <= p[3] + E;
+  const byKey = new Map();
+  for (const g of polys) (byKey.get(g.key) || byKey.set(g.key, []).get(g.key)).push(g);
+  for (const list of byKey.values()) {
+    const par = list.map((_, i) => i), find = i => par[i] === i ? i : (par[i] = find(par[i]));
+    for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) if (touch(list[i].r, list[j].r)) par[find(i)] = find(j);
+    const rects = new Map();
+    list.forEach((g, i) => {
+      const k = find(i), r = rects.get(k) || [Infinity, Infinity, -Infinity, -Infinity];
+      rects.set(k, [Math.min(r[0], g.r[0]), Math.min(r[1], g.r[1]), Math.max(r[2], g.r[2]), Math.max(r[3], g.r[3])]);
+    });
+    list.forEach((g, i) => { const r = rects.get(find(i)); for (let v = 3*g.t0; v < 3*g.t1; v++) C.set(r, 4*v); });
+  }
+  return mesh;
+}
+// An upright mesh (unit box of its world size m.size, local = world) turned by orientation byte o.
+function orientMesh(m, o){
+  const M = BrickShapes.brickOrient(o), S = m.size;
+  const rot = v => [0, 1, 2].map(i => M[i][0]*v[0] + M[i][1]*v[1] + M[i][2]*v[2]);
+  const size = [0, 1, 2].map(i => Math.abs(M[i][0])*S[0] + Math.abs(M[i][1])*S[1] + Math.abs(M[i][2])*S[2]);
+  const P = new Float32Array(m.positions.length), N = new Float32Array(m.normals.length);
+  for (let v = 0; v < m.count; v++) {
+    const p = m.positions, n = m.normals, o3 = 3*v;
+    const w = rot([p[o3]*S[0], p[o3+2]*S[1], p[o3+1]*S[2]]), d = rot([n[o3], n[o3+2], n[o3+1]]);   // GL -> save axes, turned
+    P[o3] = w[0]/size[0]; P[o3+1] = w[2]/size[2]; P[o3+2] = w[1]/size[1];
+    N[o3] = d[0]; N[o3+1] = d[2]; N[o3+2] = d[1];
+  }
+  return Object.assign({}, m, { positions: P, normals: N, size });
 }
 // Round / cone half-extents in Brickadia units (B_* bricks have no size in the save), from the generator.
 const roundHalfs = new Map();
@@ -1069,9 +1940,12 @@ const PLATE = STEP*4/10;
 // Microbrick mode: every axis steps in micros. With a stud 5 units wide and a plate 2 units
 // tall, one micro (1 unit) is STEP/5 = PLATE/2, the same length on all three axes.
 const MICRO = STEP/5;
-// Bevels: one fixed width in world space on every surface (brick edges, the underside rim and
-// sockets), ~0.038 stud as measured in-game; it doesn't scale with the brick's size.
-const BEVEL = STEP*0.038;
+const BRZ_UNIT = STEP/10;                   // Brickadia units -> viewer units (a stud is 10 units)
+// Bevels: a hard 45 degree chamfer band on face edges. The export (EXPORT_ANALYSIS.md section 5) gives
+// 0.43 units (0.043 stud) on a 20-unit face, narrowing on short faces: W(L) = 0.43 / (0.957 + 0.86/L)
+// units per face axis, so 0.37 on a plate side and 0.31 on a 2-unit micro face. BEVEL_FIT = false
+// goes back to one fixed width capped at 40% of the smallest half size (the old look, then 0.038 stud).
+const BEVEL = STEP*0.043, BEVEL_FIT = true;
 // Lighting presets from the joint fit (references/calibration/JOINT.md, section c), through the
 // same pipeline as the game: albedo (sRGB-decoded save colour) x (sky + sun x N.L) + floor ->
 // exposure -> Unreal's stock filmic tonemapper. sun / sky / floor are RGB, scene-linear.
@@ -1103,23 +1977,76 @@ let sel = 0;
 // frame-independent, so undo snapshots don't care how often the world was recentred since.
 let histOrigin = [0, 0, 0];
 let lo = bricks[0].lo, hi = bricks[0].hi;           // the focused brick's target faces [X,Y,Z]
-const units = i => Math.round((hi[i]-lo[i])/STEPS[i]);          // studs for X/Y, plates for Z (micros in micro mode)
-const maxUnits = i => Math.round(MAX/STEPS[i]);
-// smallest size per axis: 1 unit, except a ramp's run, which is at least 2 studs (crest + slope)
-// (Ramp Crests / Crest Ends keep the 1-unit minimum: saves have crests 1 stud long and 1 plate tall.)
-const minUnits = i => bricks[sel]?.shape === 'ramp' && i === bricks[sel].run ? 2 : 1;
+const units = i => Math.round((hi[i]-lo[i])/STEPS[i]);          // grid steps along axis i (studs, plates or micros)
+// --- Size grids. Each brick type resizes on its own grid, per axis in the brick's LOCAL frame
+// (full sizes in Brickadia units: step, minimum, and fixed axes), from the size survey in
+// references/generated/SPECIAL_TEST.md ("Grid and minimum per axis"). sizeRule(b) turns it into
+// world axes with the orientation byte. Plain stud bricks step in studs, with plates along the stud
+// axis (vertical, or sideways); microbricks and the micro family in micros; B_* rounds are fixed.
+const SIZE_RULES = (() => {
+  const R = (step, min, fix) => ({ step, min, fix: fix || [0, 0, 0] });
+  const wedge = R([10, 10, 4], [10, 10, 4]), corner = R([10, 10, 4], [20, 20, 4]), arch = R([10, 10, 2], [10, 30, 8]);
+  const t = {
+    PB_DefaultWedge: wedge, PB_DefaultSideWedge: wedge, PB_DefaultSideWedgeTile: wedge,
+    PB_DefaultStudded: R([10, 10, 10], [10, 10, 10]),
+    PB_DefaultArch: arch, PB_DefaultArchInverted: arch,
+    PB_DefaultRamp: R([10, 10, 4], [20, 10, 4]), PB_DefaultRampInverted: R([10, 10, 4], [20, 10, 4]),
+    PB_DefaultRampCorner: corner, PB_DefaultRampCornerInverted: corner,
+    PB_DefaultRampInnerCorner: corner, PB_DefaultRampInnerCornerInverted: corner,
+    PB_DefaultRampCrestCorner: wedge, PB_DefaultRampCrest: wedge, PB_DefaultRampCrestEnd: wedge,
+    PB_RoundedCap: wedge,
+    BP_RoundPlate: R([2, 2, 4], [20, 20, 4], [0, 0, 1]), BP_SquarePlate: R([2, 2, 4], [20, 20, 4], [0, 0, 1]),
+    BP_SpikePlate: R([10, 10, 4], [10, 10, 4], [0, 0, 1]),
+    BP_LatticeThin: R([10, 10, 2], [10, 10, 2], [0, 0, 1]),
+    PB_PicketFence: R([10, 10, 24], [20, 10, 24], [0, 1, 1]),
+    PB_Spike: R([10, 10, 4], [10, 10, 12]),
+    PB_Baguette: R([10, 10, 6], [20, 10, 6], [0, 1, 1]),
+    PB_AerodynamicSurface: R([10, 10, 2], [10, 10, 2], [0, 0, 1]),
+    PB_AerodynamicSurfaceVertical: R([10, 10, 4], [10, 10, 8]),
+  };
+  for (const a of Object.keys(BrickShapes.MICRO_TYPES)) t[a] = R([2, 2, 2], [2, 2, 2]);
+  return t;
+})();
+const NO_FIX = [false, false, false];
+function sizeRule(b){
+  if (!b) return { steps: BRICK.steps.slice(), min: [1, 1, 1], fix: NO_FIX };
+  if (b.shape === 'round') return { steps: [STEP, STEP, PLATE], min: [1, 1, 1], fix: [true, true, true] };
+  if (b.shape === 'special' || b.shape === 'micro') {
+    const R = SIZE_RULES[b.asset] || (b.shape === 'micro' ? SIZE_RULES.PB_DefaultMicroWedge : SIZE_RULES.PB_DefaultWedge);
+    const M = BrickShapes.brickOrient(b.o ?? 16), r = { steps: [], min: [], fix: [] };
+    for (let i = 0; i < 3; i++) {
+      const j = [0, 1, 2].find(j => M[i][j]);
+      r.steps[i] = +(R.step[j]*BRZ_UNIT).toFixed(4); r.min[i] = Math.max(1, Math.round(R.min[j]/R.step[j])); r.fix[i] = !!R.fix[j];
+    }
+    return r;
+  }
+  if (b.micro) return { steps: MICROB.steps.slice(), min: [1, 1, 1], fix: NO_FIX };
+  const steps = [STEP, STEP, STEP], min = [1, 1, 1];
+  steps[b.up ? 2 : Math.abs(b.side || 1) === 2 ? 0 : 1] = PLATE;      // plates along the stud axis
+  if (b.shape === 'ramp') min[b.run] = 2;              // a ramp's run is at least 2 studs (crest + slope)
+  return { steps, min, fix: NO_FIX };
+}
+let RULE = sizeRule(null);                             // the focused brick's (selectBrick / setMode set it)
+const isFixedAxis = i => !!RULE.fix[i];
+const maxUnits = i => isFixedAxis(i) ? units(i) : Math.round(MAX/STEPS[i]);
+const minUnits = i => isFixedAxis(i) ? units(i) : RULE.min[i];
 // rounds / cones are fixed meshes: no resize handles, no typed sizes, no type switch
 const fixedSize = b => b?.shape === 'round';
+// the export-measured shapes keep their type: no Brick / Tile / Microbrick switch
+const lockedType = b => fixedSize(b) || b?.shape === 'special' || b?.shape === 'micro';
+// what one grid step along axis i is: 'plate' (bricks + plates labels), 'stud', 'micro' or 'unit'
+const stepKind = i => { const s = STEPS[i]; return Math.abs(s - PLATE) < 1e-6 && !micro ? 'plate' : Math.abs(s - STEP) < 1e-6 ? 'stud'
+                        : Math.abs(s - MICRO) < 1e-6 ? 'micro' : 'unit'; };
 // Brickadia-style height label: whole bricks, then leftover plates as "f" (flats): 3 -> "1", 5 -> "1+2f", 2 -> "2f".
-// Microbricks always read in plain micros.
+// Axes in studs or micros read as plain numbers.
 function fmtUnits(i, n){
-  if (i < 2 || micro) return `${n}`;
+  if (stepKind(i) !== 'plate') return `${n}`;
   const b = Math.floor(n/3), r = n % 3;
   return r === 0 ? `${b}` : b === 0 ? `${r}f` : `${b}+${r}f`;
 }
-// parse a typed size back to units; Z accepts "2" (bricks), "2f" (plates), "1+2f" or "1+2"
+// parse a typed size back to units; a plate axis accepts "2" (bricks), "2f" (plates), "1+2f" or "1+2"
 function parseUnits(i, s){
-  if (i < 2 || micro) return parseInt(s, 10);
+  if (stepKind(i) !== 'plate') return parseInt(s, 10);
   const m = /^(?:(\d+)\+)?(\d+)(f?)$/i.exec(s.trim());
   if (!m) return NaN;
   const a = +(m[1] || 0), b = +m[2];
@@ -1207,7 +2134,7 @@ const DIM_OFF = 18;                                      // px between the edge 
 // Typed sizes, shared by the dimension labels and the top-left menu. Like dragging, typing only
 // moves the near face. Enter / click away applies, Esc cancels, ↑/↓ step one stud or plate.
 function setSize(i, n){
-  if (!(n > 0) || !bricks[sel] || fixedSize(bricks[sel])) return;   // empty scene, or a fixed-size round
+  if (!(n > 0) || !bricks[sel] || fixedSize(bricks[sel]) || isFixedAxis(i)) return;   // empty scene, a fixed-size round or a fixed axis
   const was = units(i);
   histBegin('size');
   setNear(i, Math.max(minUnits(i), Math.min(maxUnits(i), n))); lastAxis = i; recenter();
@@ -1222,8 +2149,8 @@ function wireSizeInput(inp, i, holder, fitWidth = () => {}){
   holder.addEventListener('dblclick', e => e.stopPropagation());      // ...or a reset
   inp.addEventListener('focus', () => { initAudio(); inp.select(); });
   inp.addEventListener('input', () => {
-    inp.value = micro ? inp.value.replace(/\D/g, '').slice(0, 3)          // micros: plain numbers up to 300
-              : i < 2 ? inp.value.replace(/\D/g, '').slice(0, 2) : inp.value.replace(/[^0-9+f]/gi, '').slice(0, 6);
+    inp.value = stepKind(i) === 'plate' ? inp.value.replace(/[^0-9+f]/gi, '').slice(0, 6)   // bricks + plates
+              : inp.value.replace(/\D/g, '').slice(0, 3);                                    // studs / micros: plain numbers
     fitWidth();
   });
   inp.addEventListener('blur', apply);
@@ -1257,7 +2184,11 @@ const menuInp = [0,1,2].map(i => {
   return inp;
 });
 function updateMenuUnits(){
-  document.querySelectorAll('#menu .munit').forEach((el, i) => { el.textContent = micro ? 'micros' : i < 2 ? 'studs' : 'height'; });
+  document.querySelectorAll('#menu .munit').forEach((el, i) => {
+    const k = stepKind(i), u = +(STEPS[i]/BRZ_UNIT).toFixed(2);
+    el.textContent = ({ plate: 'height', stud: 'studs', micro: 'micros' })[k] || `× ${u} units`;
+    if (isFixedAxis(i)) el.textContent += ' (fixed)';
+  });
 }
 updateMenuUnits();
 
@@ -1277,16 +2208,18 @@ const modeBtns = [...document.querySelectorAll('#mode button')];
 const brickType = b => b.shape ? b.shape : b.micro ? 'micro' : { smooth: 'tile', plain: 'plain' }[topStyle(b)] || 'brick';
 function setMode(mode){
   const b = bricks[sel], m = mode === 'micro';
-  if (!b || mode === brickType(b) || fixedSize(b)) return;
+  if (!b || mode === brickType(b) || lockedType(b)) return;
   histBegin('type');
   if (b.shape === 'ramp') { delete b.shape; delete b.run; delete b.lip; }
   if (b.shape === 'crest' || b.shape === 'crestEnd') { delete b.shape; delete b.run; delete b.closed; }
   b.top = mode === 'tile' ? 'smooth' : mode === 'plain' ? 'plain' : 'studs'; b.tile = b.top === 'smooth';
   modeBtns.forEach(btn => btn.setAttribute('aria-pressed', String(btn.dataset.mode === mode)));
+  RULE = sizeRule(b);                         // a ramp's 2-stud run minimum goes with its shape
   if (m === micro) { histEnd(); initAudio(); playClick(); return; }   // brick <-> plain / smooth tile: same sizes, just the top changes
   micro = m; b.micro = m;
   const M = micro ? MICROB : BRICK;
-  STEPS = M.steps.slice(); START = M.start.slice();
+  RULE = sizeRule(b);
+  STEPS = RULE.steps.slice(); START = M.start.slice();
   for (let i=0;i<3;i++){
     const n = Math.max(1, Math.min(maxUnits(i), Math.round((hi[i]-lo[i])/STEPS[i] + 1e-9)   /* halves round up: 3 micros tall -> 2 plates */));
     setNear(i, n);
@@ -1315,15 +2248,57 @@ function microName(L, W, H){ return H === 1 ? `${L}x${W} Microbrick` : `${L}x${W
 // a placeholder until the game's own name is checked).
 // Ramps: run x width, then the stud-brick height, + " Ramp" ("2x1 Ramp"). A placeholder: the
 // game's own ramp naming hasn't been checked yet.
+// The export-measured shapes ('special' / 'micro'): local X x local Y, then the height, + the type
+// ("2x1 Wedge", "1x4 Arch", "2x2 Round Plate"); types with a fixed height drop it; the micro family is
+// "Micro Wedge 4x6x8" in micros. All placeholders: the game's own names aren't checked.
 function displayName(b, L, W, H){
+  if (b.shape === 'special' || b.shape === 'micro') return shapeName(b, localSizes(b, [L, W, H]));
   if (b.shape === 'ramp') return (b.run === 1 ? brickName(W, L, H) : brickName(L, W, H)) + ' Ramp';
   // crests: run x width like ramps ("2x1 Ramp Crest", "2x1 Ramp Crest End"); rounds: per asset. Placeholders.
   if (b.shape === 'crest' || b.shape === 'crestEnd') return (b.run === 1 ? brickName(W, L, H) : brickName(L, W, H)) + (b.shape === 'crest' ? ' Ramp Crest' : ' Ramp Crest End');
   if (b.shape === 'round') return ROUND_NAMES[b.round] || b.round;
+  if (!b.micro && !b.up && b.side) { const s = localSizes(b, [L, W, H]); L = s[0]/10; W = s[1]/10; H = s[2]/4; }   // sideways: by its own axes
   return b.micro ? microName(L, W, H) : brickName(L, W, H) + ({ smooth: ' Smooth Tile', plain: ' Tile' }[topStyle(b)] || '');
 }
-function brickName(L, W, p){
-  if (L === W && 2*p === 5*L) return `${L}x${W} Cube`;
+// full local sizes in Brickadia units from world grid-step counts n (sizeRule steps)
+function localSizes(b, n){
+  const st = sizeRule(b).steps, w = n.map((k, i) => Math.round(k*st[i]/BRZ_UNIT*1000)/1000);
+  if (b.o != null && (b.shape === 'special' || b.shape === 'micro')) {
+    const M = BrickShapes.brickOrient(b.o);
+    return [0, 1, 2].map(j => w[[0, 1, 2].find(i => M[i][j])]);
+  }
+  if (!b.up && b.side) return Math.abs(b.side) === 2 ? [w[1], w[2], w[0]] : [w[0], w[2], w[1]];   // sideways box: local Z = the stud axis
+  return w;
+}
+const SHAPE_NAMES = {
+  PB_DefaultWedge: 'Wedge', PB_DefaultSideWedge: 'Side Wedge', PB_DefaultSideWedgeTile: 'Side Wedge Tile',
+  PB_DefaultArch: 'Arch', PB_DefaultArchInverted: 'Inverted Arch',
+  PB_DefaultRamp: 'Ramp', PB_DefaultRampInverted: 'Inverted Ramp', PB_DefaultRampCorner: 'Ramp Corner',
+  PB_DefaultRampCornerInverted: 'Inverted Ramp Corner', PB_DefaultRampInnerCorner: 'Ramp Inner Corner',
+  PB_DefaultRampInnerCornerInverted: 'Inverted Ramp Inner Corner', PB_DefaultRampCrestCorner: 'Ramp Crest Corner',
+  PB_DefaultRampCrest: 'Ramp Crest', PB_DefaultRampCrestEnd: 'Ramp Crest End',
+  PB_DefaultStudded: 'Studded Brick', PB_RoundedCap: 'Rounded Cap',
+  BP_RoundPlate: 'Round Plate', BP_SquarePlate: 'Square Plate', BP_SpikePlate: 'Spike Plate', BP_LatticeThin: 'Thin Lattice',
+  PB_PicketFence: 'Picket Fence', PB_Spike: 'Spike', PB_Baguette: 'Baguette',
+  PB_AerodynamicSurface: 'Aerodynamic Surface', PB_AerodynamicSurfaceVertical: 'Vertical Aerodynamic Surface',
+  PB_DefaultMicroBrick: 'Microbrick', PB_DefaultMicroWedge: 'Micro Wedge', PB_DefaultMicroRamp: 'Micro Ramp',
+  PB_DefaultMicroWedgeCorner: 'Micro Wedge Corner', PB_DefaultMicroWedgeInnerCorner: 'Micro Wedge Inner Corner',
+  PB_DefaultMicroWedgeOuterCorner: 'Micro Wedge Outer Corner', PB_DefaultMicroWedgeTriangleCorner: 'Micro Wedge Triangle Corner',
+  PB_DefaultMicroWedgeHalfInnerCorner: 'Micro Wedge Half Inner Corner', PB_DefaultMicroWedgeHalfInnerCornerInverted: 'Micro Wedge Half Inner Corner Inverted',
+  PB_DefaultMicroWedgeHalfOuterCorner: 'Micro Wedge Half Outer Corner', PB_DefaultMicroRoundHalf: 'Micro Half Round',
+  PB_DefaultMicroRoundCorner: 'Micro Quarter Round', PB_DefaultPole: 'Micro Pole',
+};
+const shapeLabel = a => SHAPE_NAMES[a] || String(a).replace(/^(PB|BP|B)_(Default)?/, '').replace(/([a-z])([A-Z])/g, '$1 $2');
+const FLAT_TYPES = new Set(['BP_RoundPlate', 'BP_SquarePlate', 'BP_SpikePlate', 'BP_LatticeThin', 'PB_PicketFence', 'PB_Baguette', 'PB_AerodynamicSurface']);
+function shapeName(b, s){
+  const num = v => +v.toFixed(2), label = shapeLabel(b.asset);
+  if (b.shape === 'micro') return `${label} ${num(s[0]/2)}x${num(s[1]/2)}x${num(s[2]/2)}`;
+  const L = num(s[0]/10), W = num(s[1]/10), p = s[2]/4;
+  if (FLAT_TYPES.has(b.asset)) return `${L}x${W} ${label}`;
+  return `${Number.isInteger(p) ? brickName(L, W, p, false) : `${L}x${W}x${num(s[2])}u`} ${label}`;
+}
+function brickName(L, W, p, cube = true){
+  if (cube && L === W && 2*p === 5*L) return `${L}x${W} Cube`;
   const base = `${L}x${W}`;
   if (p === 3) return base;
   if (p === 1) return base + 'f';
@@ -1377,7 +2352,7 @@ function updateHover(sx, sy){
       const cw = canvas.clientWidth, ch = canvas.clientHeight;
       const hit = pickRay((2*mouse[0]/cw - 1)/sx + cam.x, (1 - 2*mouse[1]/ch)/sy + cam.y);
       if (hit) { hoverBrick = hit.k; hoverFace = hit.ax >= 0 ? hit.ax : 2; }
-      if (hoverBrick === sel && !fixedSize(bricks[sel])) { hoverAxis = hoverFace; }   // fixed rounds: no grab faces
+      if (hoverBrick === sel && !fixedSize(bricks[sel]) && !isFixedAxis(hoverFace)) { hoverAxis = hoverFace; }   // fixed rounds / axes: no grab faces
     }
   }
   canvas.style.cursor = orbit.dragging ? 'move' : held ? (lockAxis >= 0 ? 'grabbing' : 'default')
@@ -1484,17 +2459,17 @@ function recenter(){
 // and the camera glides over to centre on it (recenter shifts the world under the camera).
 function selectBrick(i){
   sel = i; const b = bricks[i];
-  lo = b.lo; hi = b.hi; micro = b.micro;
+  lo = b.lo; hi = b.hi; micro = !!b.micro;
   const M = micro ? MICROB : BRICK;
-  STEPS = M.steps.slice(); START = M.start.slice();
+  RULE = sizeRule(b);                                  // this type's grid, minimums and fixed axes
+  STEPS = RULE.steps.slice(); START = M.start.slice();
   for (let k=0;k<3;k++){ dlo[k] = lo[k]; dhi[k] = hi[k]; }
   pendAxis = -1; pendUnits = 0; lockAxis = -1; lastAxis = -1; dragDir = null;
   modeBtns.forEach(btn => btn.setAttribute('aria-pressed', String(btn.dataset.mode === brickType(b))));
-  // fixed rounds: type buttons off, sizes shown read-only
-  const fixed = fixedSize(b);
-  modeBtns.forEach(btn => { btn.disabled = fixed; });
-  dimBox.forEach(d => { d.inp.readOnly = fixed; d.box.classList.toggle('ro', fixed); });
-  menuInp.forEach(inp => { inp.readOnly = fixed; inp.closest('.mrow').classList.toggle('ro', fixed); });
+  // fixed rounds / the export-measured shapes: type buttons off; fixed axes shown read-only
+  modeBtns.forEach(btn => { btn.disabled = lockedType(b); });
+  dimBox.forEach((d, i) => { const f = isFixedAxis(i); d.inp.readOnly = f; d.box.classList.toggle('ro', f); });
+  menuInp.forEach((inp, i) => { const f = isFixedAxis(i); inp.readOnly = f; inp.closest('.mrow').classList.toggle('ro', f); });
   updateMenuUnits();
   recenter();
 }
@@ -1676,11 +2651,7 @@ addEventListener('pointermove', onMove);
 addEventListener('pointerup', onUp);
 addEventListener('pointercancel', onUp);
 addEventListener('blur', onUp);
-addEventListener('dblclick', () => { if (!bricks[sel] || fixedSize(bricks[sel])) return;   // empty scene, or rounds (one size)
-  histBegin('reset size'); for (let i=0;i<3;i++){ lo[i] = -START[i]; hi[i] = START[i]; }
-  const b = bricks[sel]; if (b.shape === 'ramp') { lo[b.run] = -STEP; hi[b.run] = STEP; }   // a ramp resets to 2 studs long
-  histEnd();
-  lastAxis = -1; dragDir = null; zoomMul = 1; });
+// (Double-click no longer resets a brick's size: a leftover from the resize UX tester, removed at the user's request.)
 
 // Scroll zooms the view (up = in, down = out). zoomMul scales the auto-fit framing, so it
 // sticks after release. Mid-drag it zooms immediately about the pinned point (which stays put
@@ -1797,7 +2768,6 @@ function playClick(){
 // [enums, ?, {Struct: {Field: Type}}]). A Type is a primitive ("u8", "i16", "f32", "str", "bool"…),
 // a struct name (its fields follow inline, one value each), [T] (a MessagePack array of T), or
 // [T, nil] (a bin blob of packed little-endian T). An .mps holds the schema's last struct.
-const BRZ_UNIT = STEP/10;                   // Brickadia units -> viewer units (a stud is 10 units)
 class MsgReader {
   constructor(u8){ this.u = u8; this.p = 0; this.dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength); }
   byte(){ return this.u[this.p++]; }
@@ -1841,7 +2811,8 @@ const PRIM = { u8:[1,'getUint8'], i8:[1,'getInt8'], u16:[2,'getUint16'], i16:[2,
 function parseSchema(u8){
   const top = new MsgReader(u8).next();
   const structs = top[top.length - 1];       // older saves: [enums, structs]; newer: [enums, ?, structs]
-  const S = new Map(structs.map(([name, fields]) => [name, fields]));
+  const map = t => Array.isArray(t) && Array.isArray(t[0]) ? { mapOf: t[0] } : t;   // {K: V} (a one-entry map) -> Map kind
+  const S = new Map(structs.map(([name, fields]) => [name, fields.map(([f, t]) => [f, map(t)])]));
   return { S, root: structs[structs.length - 1][0] };
 }
 function decodeMps(u8, schema){
@@ -1852,6 +2823,11 @@ function decodeMps(u8, schema){
     const v = {}; for (const [f, ft] of S.get(t)) { v[f] = unpack(ft, dv, o); o += packedSize(ft); } return v;
   }
   function value(t){
+    if (t && t.mapOf) {                        // Map: header, then key, value pairs -> [[k, v], ...]
+      const b = r.byte(), n = b >= 0x80 && b <= 0x8f ? b & 15 : b === 0xde ? (r.p += 2, r.dv.getUint16(r.p - 2, false)) : b === 0xdf ? (r.p += 4, r.dv.getUint32(r.p - 4, false)) : NaN;
+      if (isNaN(n)) throw new Error(`expected a map at ${r.p-1}`);
+      const out = []; for (let i=0;i<n;i++) { const k = value(t.mapOf[0]); out.push([k, value(t.mapOf[1])]); } return out;
+    }
     if (Array.isArray(t)) {
       if (t.length === 2) {                  // [T, nil]: packed bin
         const bin = r.next(), n = bin.length / packedSize(t[0]);
@@ -1890,20 +2866,11 @@ function readBrz(buf){
   for (let i=0;i<nFile;i++) files.set((folderPath(fileFolder[i]) + '/' + fileNames[i]).replace(/^\//, ''), blobs[fileBlob[i]]);
   return files;
 }
-// Brickadia orientation byte: direction << 2 | rotation. Direction 0..5 = X+ X- Y+ Y- Z+ Z-
-// (which way the brick's up points); rotation = quarter turns about it. Returns the world
-// half-extents [X,Y,Z] for local half-extents s, and up (+1 / -1 / 0 = sideways).
-function orient(o, s){
-  const dir = o >> 2, rot = o & 3, odd = rot & 1;
-  if (dir >= 4) return { half: odd ? [s[1], s[0], s[2]] : [s[0], s[1], s[2]], up: dir === 4 ? 1 : -1 };
-  // sideways (verified, references/generated/ORIENT_TEST.md): local X goes to world +Z at rot 0,
-  // and each rot step turns local X onto where local Y was.
-  if (dir <= 1) return { half: odd ? [s[2], s[0], s[1]] : [s[2], s[1], s[0]], up: 0 };
-  return { half: odd ? [s[0], s[2], s[1]] : [s[1], s[2], s[0]], up: 0 };
-}
+// Brickadia orientation byte: direction << 2 | rotation. The loader turns it into the verified
+// rotation matrix with BrickShapes.brickOrient (the same rule as tools/orient.js, ORIENT_TEST.md).
 // Ramp slope direction for an upright / upside-down orientation byte. Local axes: X is the run
 // (the save's minimum X half-size is 10 = 2 studs), and the lip (low end) is at local +X.
-// Verified with orient-test_ramps.brz (ORIENT_TEST.md): direction 4 rot 0/1/2/3 puts the lip at
+// Verified with an orientation test save: direction 4 rot 0/1/2/3 puts the lip at
 // +X / +Y / -X / -Y. Direction 5 is direction 4 turned 180 degrees about Y; the viewer draws it as
 // a vertical mirror, so even rotations also flip the lip along X.
 function rampDir(o){
@@ -1917,7 +2884,7 @@ function loadSave(buf, name){
   const global = decodeMps(get(W + 'GlobalData.mps'), parseSchema(get(W + 'GlobalData.schema')));
   const idxSchema = parseSchema(get(W + 'Bricks/ChunkIndexShared.schema'));
   const chunkSchema = parseSchema(get(W + 'Bricks/ChunksShared.schema'));
-  const out = []; let skipped = 0, sideways = 0, extraGrids = 0, sidewaysRamps = 0, sidewaysShapes = 0;
+  const out = [], skippedTypes = {}; let skipped = 0, sideways = 0, extraGrids = 0;
   const grids = [...new Set([...files.keys()].map(k => k.match(/^World\/0\/Bricks\/Grids\/([^/]+)\//)?.[1]).filter(Boolean))];
   for (const g of grids) {
     const GP = `${W}Bricks/Grids/${g}/`;
@@ -1935,25 +2902,34 @@ function loadSave(buf, name){
       const centre = ['X','Y','Z'].map(a => c[a]*size + size/2 + off[a]);
       ch.BrickTypeIndices.forEach((t, i) => {
         const p = proc[t - ch.ProceduralBrickStartingIndex];
-        const isMicro = p && /MicroBrick/i.test(p.asset), isBrick = p && /DefaultBrick$/.test(p.asset);
-        const isTile = p && /DefaultSmoothTile$/.test(p.asset);   // a stud brick with a smooth top
-        const isPlain = p && /DefaultTile$/.test(p.asset);         // a stud brick with a plain, bevelled top
-        const isRamp = p && /DefaultRamp(Inverted)?$/.test(p.asset);
-        const isCrest = p && /DefaultRampCrest$/.test(p.asset), isCrestEnd = p && /DefaultRampCrestEnd$/.test(p.asset);
+        const asset = p && p.asset;
+        const isMicro = p && /MicroBrick$/i.test(asset), isBrick = p && /DefaultBrick$/.test(asset);
+        const isTile = p && /DefaultSmoothTile$/.test(asset);   // a stud brick with a smooth top
+        const isPlain = p && /DefaultTile$/.test(asset);         // a stud brick with a plain, bevelled top
+        const isRamp = p && /DefaultRamp$/.test(asset);          // (RampInverted is a special shape: studs on its full top)
+        const isCrest = p && /DefaultRampCrest$/.test(asset), isCrestEnd = p && /DefaultRampCrestEnd$/.test(asset);
         // fixed-asset (B_*) rounds / cones: no size in the save, the generator gives their half-extents
         const basic = t < ch.ProceduralBrickStartingIndex ? global.BasicBrickAssetNames?.[t] : null;
         const isRound = !!basic && BrickShapes.isRound(basic);
-        if (!isRound && (!p || !(isMicro || isBrick || isTile || isPlain || isRamp || isCrest || isCrestEnd))) { skipped++; return; }   // other fixed-asset bricks / shapes: later
-        let { half, up } = orient(ch.Orientations[i], isRound ? roundHalf(basic) : [p.size.X, p.size.Y, p.size.Z]);
-        if (isRamp && !up) { sidewaysRamps++; return; }   // sideways ramps need a full 3D mesh rotation: later
-        if ((isCrest || isCrestEnd || isRound) && !up) { sidewaysShapes++; return; }   // same for crests and rounds
-        // PB_DefaultRampInverted: taken to be the ramp flipped vertically (not checked against the game)
-        if (isRamp && /Inverted$/.test(p.asset)) up = -up;
+        const isMicroShape = p && !isMicro && BrickShapes.isMicro(asset), isSpecial = p && BrickShapes.isSpecial(asset);
+        if (!isRound && (!p || !(isMicro || isBrick || isTile || isPlain || isMicroShape || isSpecial))) {   // other fixed-asset bricks / shapes: later
+          skipped++; const k = asset || basic || `type ${t}`; skippedTypes[k] = (skippedTypes[k] || 0) + 1; return;
+        }
+        // World box from the verified orientation rule (tools/orient.js): h[i] = sum_j |M[i][j]| s[j].
+        const o = ch.Orientations[i], M = BrickShapes.brickOrient(o), dir = (o >> 2) % 6;
+        const s = isRound ? roundHalf(basic) : [p.size.X, p.size.Y, p.size.Z];
+        const half = [0, 1, 2].map(r => Math.abs(M[r][0])*s[0] + Math.abs(M[r][1])*s[1] + Math.abs(M[r][2])*s[2]);
+        const up = dir === 4 ? 1 : dir === 5 ? -1 : 0;
         if (!up) sideways++;
-        const ramp = isRamp ? { shape: 'ramp', ...rampDir(ch.Orientations[i]) }
-                   : isCrest ? { shape: 'crest', ...BrickShapes.crestDir(ch.Orientations[i]) }            // { run }
-                   : isCrestEnd ? { shape: 'crestEnd', ...BrickShapes.crestEndDir(ch.Orientations[i]) }   // { run, closed }
-                   : isRound ? { shape: 'round', round: basic } : {};
+        // Ramps / crests upright or upside down keep their world-frame meshes (rampBuffer, crestMesh);
+        // sideways they're special shapes like the rest, drawn from the local-frame generators.
+        const shape = isRamp && up ? { shape: 'ramp', ...rampDir(o) }
+                    : isCrest && up ? { shape: 'crest', ...BrickShapes.crestDir(o) }            // { run }
+                    : isCrestEnd && up ? { shape: 'crestEnd', ...BrickShapes.crestEndDir(o) }   // { run, closed }
+                    : isRound ? { shape: 'round', round: basic, ...(up ? {} : { o }) }
+                    : isMicroShape ? { shape: 'micro', asset, o }
+                    : isSpecial ? { shape: 'special', asset, o } : {};
+        if (!up) shape.side = sideCode(o);                     // which way the studs face (box logic, rounds)
         const rp = ch.RelativePositions[i], pos = [rp.X + centre[0], rp.Y + centre[1], rp.Z + centre[2]];
         const col = ch.ColorsAndAlphas[i];
         // The stored bytes are sRGB-encoded (bColorsAreLinear = false; confirmed by the joint fit in
@@ -1966,9 +2942,9 @@ function loadSave(buf, name){
         out.push({
           lo: pos.map((v, a) => +((v - half[a]) * BRZ_UNIT).toFixed(3)),
           hi: pos.map((v, a) => +((v + half[a]) * BRZ_UNIT).toFixed(3)),
-          micro: !!isMicro, tile: !!isTile, top: isTile ? 'smooth' : isPlain ? 'plain' : 'studs', color: [toS(col.R), toS(col.G), toS(col.B)], up,
+          micro: !!(isMicro || isMicroShape), tile: !!isTile, top: isTile ? 'smooth' : isPlain ? 'plain' : 'studs', color: [toS(col.R), toS(col.G), toS(col.B)], up,
           material: global.MaterialAssetNames?.[ch.MaterialIndices?.[i]],   // e.g. "BMC_Plastic" (Brick Properties)
-          ...ramp,
+          ...shape,
         });
       });
     });
@@ -1985,9 +2961,9 @@ function loadSave(buf, name){
   const c = [0,1,2].map(i => (lo[i]+hi[i])/2), r = [0,1,2].map(i => Math.max(c[i]-sl[i], sh[i]-c[i]));
   zoomMul = Math.min(ZOOM_MAX, Math.max(1, fitHalf(c.map((v,i) => v-r[i]), c.map((v,i) => v+r[i]))/fitHalf(lo, hi)));
   histPush({ kind: 'scene', label: 'load save', before: prevScene, after: sceneSnap() });
-  const notes = [skipped && `${skipped} unsupported skipped`, sideways && `${sideways} sideways (no studs yet)`,
-                 sidewaysRamps && `${sidewaysRamps} sideways ramp${sidewaysRamps === 1 ? '' : 's'} skipped`,
-                 sidewaysShapes && `${sidewaysShapes} sideways crest / round${sidewaysShapes === 1 ? '' : 's'} skipped`,
+  window.lastLoad = { name, drawn: out.length, skipped, skippedTypes, sideways, extraGrids };   // for tests from the console
+  const notes = [skipped && `${skipped} unsupported skipped (${Object.entries(skippedTypes).map(([k, n]) => `${k.replace(/^(PB|BP|B)_(Default)?/, '')} ${n}`).join(', ')})`,
+                 sideways && `${sideways} sideways`,
                  extraGrids && `${extraGrids} moving grid(s) not shown yet`].filter(Boolean);
   setStatus(`${name}: ${out.length} brick${out.length === 1 ? '' : 's'}${notes.length ? ' · ' + notes.join(' · ') : ''}`);
 }
@@ -2063,7 +3039,7 @@ function addBpPreset(json, name = 'Pasted environment'){
 // Positions stay in the frame they were uploaded in (local + histOrigin - instBase): recenter()
 // just changes the uShift uniform, so recentring never re-uploads anything.
 // Without ANGLE_instanced_arrays the same records are drawn one by one from constants.
-const instExt = gl.getExtension('ANGLE_instanced_arrays');
+const instExt = /[?&]noinst(&|$)/.test(location.search) ? null : gl.getExtension('ANGLE_instanced_arrays');   // ?noinst: test the fallback
 const INST_F = 13, INST_ATTRS = [[LOC.iCenter, 3, 0], [LOC.iScale, 3, 12], [LOC.iColor, 3, 24], [LOC.iFlags, 4, 36]];
 const boxInstBuf = gl.createBuffer();
 const inst = { n: -1, data: new Float32Array(0), base: [0, 0, 0], all: true, dirty: new Set(), sel: -1,
@@ -2373,12 +3349,12 @@ function frame(t = performance.now()){
   syncInstances();
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib);
   gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(1,1);
-  gl.uniform1f(uEdge,0); gl.uniform1f(uBevelMax, BEVEL);
+  gl.uniform1f(uEdge,0); gl.uniform1f(uBevelMax, BEVEL); gl.uniform1f(uBevelFit, BEVEL_FIT ? 1 : 0);
   // studs / underside fade out when a stud is only a few px
   gl.uniform1f(uStudFade, Math.max(0, Math.min(1, (studPx(0) - 6)/8)));
-  // slope texture: one bump is 1/16 stud (BUMPS in the shader); fade it out between ~1.5 and 4 px (like the studs)
-  const bumpFade = Math.max(0, Math.min(1, (studPx(0)*STEP/STEPS[0]/16 - 1.5)/2.5));
-  gl.uniform1f(uBump, 0.16*bumpFade);
+  // slope texture: one bump is 1/SHADE.BUMPS stud; fade it out between ~1.5 and 4 px (like the studs)
+  const bumpFade = Math.max(0, Math.min(1, (studPx(0)*STEP/STEPS[0]/SHADE.BUMPS - 1.5)/2.5));
+  gl.uniform1f(uBump, SHADE.BUMP_STRENGTH*bumpFade);
   drawInstances(() => {
     const b = bricks[sel];
     if (!b) return;                          // empty scene
@@ -2631,10 +3607,14 @@ function tick(){
   if (b && !pbody.hidden) {
     const [l, u] = proposedBox(), n = i => Math.round((u[i] - l[i])/STEPS[i]);   // size incl. the ghost
     put(out.name, displayName(bricks[sel], n(0), n(1), n(2)));
-    put(out.type, { brick: 'Brick', plain: 'Tile', tile: 'Smooth Tile', micro: 'Microbrick', ramp: 'Ramp',
+    put(out.type, b.shape === 'special' || b.shape === 'micro' ? shapeLabel(b.asset) :
+                  { brick: 'Brick', plain: 'Tile', tile: 'Smooth Tile', micro: 'Microbrick', ramp: 'Ramp',
                     crest: 'Ramp Crest', crestEnd: 'Ramp Crest End', round: /Cone$/.test(b.round || '') ? 'Cone' : 'Round' }[brickType(bricks[sel])]);
-    put(out.size, micro ? `${n(0)} × ${n(1)} × ${n(2)} micros` : `${n(0)} × ${n(1)} × ${fmtUnits(2, n(2))}` + (fixedSize(b) ? ' (fixed)' : ''));
+    put(out.size, [0, 1, 2].map(i => fmtUnits(i, n(i)) + (stepKind(i) === 'micro' && !micro ? 'm' : '')).join(' × ') +
+                  (micro ? ' micros' : '') + (fixedSize(b) ? ' (fixed)' : RULE.fix.some(Boolean) ? ` (${'XYZ'.split('').filter((_, i) => RULE.fix[i]).join('')} fixed)` : ''));
     put(out.orient, (ORIENT[b.up ?? 1] || 'Upright') +
+                    (!b.up && b.side ? `, studs face ${b.side > 0 ? '+' : '−'}${Math.abs(b.side) === 2 ? 'X' : 'Y'}` : '') +
+                    (b.o != null ? ` (orientation ${b.o}: dir ${(b.o >> 2) % 6}, rot ${b.o & 3})` : '') +
                     (b.shape === 'ramp' ? `, slopes down to ${b.lip > 0 ? '+' : '−'}${'XY'[b.run]}` : '') +   // ramps: which way the lip faces
                     (b.shape === 'crest' || b.shape === 'crestEnd' ? `, ridge along ${'YX'[b.run]}` : '') +   // crests: the ridge runs across the run
                     (b.shape === 'crestEnd' ? `, closed end at ${b.closed > 0 ? '+' : '−'}${'YX'[b.run]}` : ''));
@@ -2695,7 +3675,7 @@ const clone = o => JSON.parse(JSON.stringify(o));
 // { shape:'crestEnd', run, closed }, { shape:'round', asset:'B_...' }. Their entries switch on once the
 // viewer can draw them: when a drawing function named in SHAPE_PROBES exists, or when the shape name is
 // added to EDITOR_SHAPES. Until then they're listed but disabled ("coming soon").
-const EDITOR_SHAPES = ['ramp', 'crest', 'crestEnd', 'round'];   // all integrated (rounds use { shape:'round', round:<asset> })
+const EDITOR_SHAPES = ['ramp', 'crest', 'crestEnd', 'round', 'special', 'micro'];   // all integrated (rounds use { shape:'round', round:<asset> })
 const SHAPE_PROBES = { crest: ['crestBuffer'], crestEnd: ['crestEndBuffer'], round: ['roundBuffer'] };
 const globalFn = n => { try { return new Function(`return typeof ${n} === 'function'`)(); } catch { return false; } };
 const shapeReady = s => !s || EDITOR_SHAPES.includes(s) || (SHAPE_PROBES[s] || []).some(globalFn);
@@ -2706,8 +3686,50 @@ const ROUNDS = [
   ['B_2x2F_Round', '2x2f Round', 2, 4, 'round'], ['B_2x2_Round', '2x2 Round', 2, 12, 'round'], ['B_2x2_Cone', '2x2 Cone', 2, 24, 'cone'],
   ['B_4x4_Round', '4x4 Round', 4, 12, 'round'],
 ];
+// The export-measured shapes ({ shape:'special' | 'micro', asset, o }): [group, asset, local half-extents
+// in Brickadia units (a common size from the survey in SPECIAL_TEST.md), icon], placed upright (o = 16).
+const SPECIALS = [
+  ['Ramps', 'PB_DefaultRampInverted', [10, 10, 6], ['ramp', 1, 'inv']],
+  ['Ramps', 'PB_DefaultRampCorner', [10, 10, 6], ['crestEnd']],
+  ['Ramps', 'PB_DefaultRampCornerInverted', [10, 10, 6], ['crestEnd', 1, 'inv']],
+  ['Ramps', 'PB_DefaultRampInnerCorner', [10, 10, 6], ['crestEnd']],
+  ['Ramps', 'PB_DefaultRampInnerCornerInverted', [10, 10, 6], ['crestEnd', 1, 'inv']],
+  ['Ramps', 'PB_DefaultRampCrestCorner', [10, 10, 6], ['crest']],
+  ['Wedges and arches', 'PB_DefaultWedge', [10, 5, 6], ['ramp']],
+  ['Wedges and arches', 'PB_DefaultSideWedge', [10, 10, 2], ['sidewedge', .35]],
+  ['Wedges and arches', 'PB_DefaultSideWedgeTile', [10, 10, 2], ['sidewedge', .35]],
+  ['Wedges and arches', 'PB_DefaultArch', [5, 20, 6], ['arch']],
+  ['Wedges and arches', 'PB_DefaultArchInverted', [5, 15, 6], ['arch', 1, 'inv']],
+  ['Special', 'PB_DefaultStudded', [10, 10, 10], ['box', 1, true]],
+  ['Special', 'PB_RoundedCap', [10, 5, 4], ['round', .6, 1]],
+  ['Special', 'BP_RoundPlate', [10, 10, 2], ['round', .3, 2]],
+  ['Special', 'BP_SquarePlate', [10, 10, 2], ['box', .3]],
+  ['Special', 'BP_SpikePlate', [10, 10, 2], ['box', .3]],
+  ['Special', 'BP_LatticeThin', [20, 20, 1], ['box', .15]],
+  ['Special', 'PB_PicketFence', [20, 5, 12], ['box', 1]],
+  ['Special', 'PB_Spike', [5, 5, 12], ['cone', 1, 1]],
+  ['Special', 'PB_Baguette', [20, 5, 3], ['round', .4, 1]],
+  ['Special', 'PB_AerodynamicSurface', [10, 20, 1], ['box', .15]],
+  ['Special', 'PB_AerodynamicSurfaceVertical', [10, 5, 10], ['box', 1]],
+  ['Micro', 'PB_DefaultMicroWedge', [5, 5, 5], ['sidewedge', .5]],
+  ['Micro', 'PB_DefaultMicroRamp', [5, 5, 5], ['ramp', .5]],
+  ['Micro', 'PB_DefaultMicroWedgeCorner', [5, 5, 5], ['crestEnd', .5]],
+  ['Micro', 'PB_DefaultMicroWedgeInnerCorner', [5, 5, 5], ['crestEnd', .5]],
+  ['Micro', 'PB_DefaultMicroWedgeOuterCorner', [5, 5, 5], ['crestEnd', .5]],
+  ['Micro', 'PB_DefaultMicroWedgeTriangleCorner', [5, 5, 5], ['sidewedge', .5]],
+  ['Micro', 'PB_DefaultMicroWedgeHalfInnerCorner', [5, 5, 5], ['sidewedge', .5]],
+  ['Micro', 'PB_DefaultMicroWedgeHalfInnerCornerInverted', [5, 5, 5], ['sidewedge', .5]],
+  ['Micro', 'PB_DefaultMicroWedgeHalfOuterCorner', [5, 5, 5], ['sidewedge', .5]],
+  ['Micro', 'PB_DefaultMicroRoundHalf', [5, 5, 5], ['round', .5, 1]],
+  ['Micro', 'PB_DefaultMicroRoundCorner', [5, 5, 5], ['round', .5, 1]],
+  ['Micro', 'PB_DefaultPole', [2, 2, 10], ['round', 1, .5]],
+];
 // Default sizes: 2x2 for stud bricks and ramps (the usual sizes in the saves), a 5x5x2 microbrick
-// (a 1x1 plate's size, so it stays on the plate grid), ramp crests 2x1 as in ramp-crests.brz.
+// (a 1x1 plate's size, so it stays on the plate grid), ramp crests 2x1 as in a reference save.
+function specialEntry([group, asset, half, icon]){
+  const m = BrickShapes.isMicro(asset);
+  return { group, label: shapeLabel(asset), icon, size: half.map(v => 2*v*U), brick: { shape: m ? 'micro' : 'special', asset, o: 16, ...(m ? { micro: true } : {}) } };
+}
 const CATALOGUE = [
   { group: 'Basic', label: 'Brick',       icon: ['box', 1, true],   size: [2*STEP, 2*STEP, 3*PLATE], brick: {} },
   { group: 'Basic', label: 'Plate',       icon: ['box', .35, true], size: [2*STEP, 2*STEP, PLATE],   brick: {} },
@@ -2717,7 +3739,9 @@ const CATALOGUE = [
   { group: 'Ramps', label: 'Ramp',        icon: ['ramp'],           size: [2*STEP, 2*STEP, 3*PLATE], brick: { shape: 'ramp', run: 0, lip: 1 } },
   { group: 'Ramps', label: 'Ramp Crest',  icon: ['crest'],          size: [2*STEP, STEP, 3*PLATE],   brick: { shape: 'crest', run: 0 } },
   { group: 'Ramps', label: 'Ramp Crest End', icon: ['crestEnd'],    size: [2*STEP, STEP, 3*PLATE],   brick: { shape: 'crestEnd', run: 0, closed: -1 } },
+  ...SPECIALS.filter(s => s[0] === 'Ramps').map(specialEntry),
   ...ROUNDS.map(([asset, label, n, h, kind]) => ({ group: 'Rounds', label, icon: [kind, h/12, n], size: [n*STEP, n*STEP, h*U], brick: { shape: 'round', round: asset } })),
+  ...SPECIALS.filter(s => s[0] !== 'Ramps').map(specialEntry),
 ];
 
 // Tiny isometric glyphs (22 x 20) for the catalogue; x, y in 0..1 (footprint), z in 0..1 (a brick's height)
@@ -2737,11 +3761,16 @@ function iconSvg([kind, h = 1, extra]){
   } else if (kind === 'crestEnd') {
     s = poly([[0,0,m],[.5,.5,1],[.5,1,1],[0,1,m]], .4) + poly([[1,0,m],[.5,.5,1],[.5,1,1],[1,1,m]], .55) +
         poly([[1,0,0],[1,1,0],[1,1,m],[1,0,m]], .3) + poly([[0,1,0],[1,1,0],[1,1,m],[.5,1,1],[0,1,m]], .18);
+  } else if (kind === 'sidewedge') {          // a triangular prism standing on its right-angle corner
+    s = poly([[1,0,0],[0,1,0],[0,1,h],[1,0,h]], .3) + poly([[0,0,h],[1,0,h],[0,1,h]], .55);
+  } else if (kind === 'arch') {               // a bridge: two legs and a span
+    s = poly([[1,0,0],[1,.3,0],[1,.3,.6],[1,.7,.6],[1,.7,0],[1,1,0],[1,1,1],[1,0,1]], .3) + poly([[0,0,1],[1,0,1],[1,1,1],[0,1,1]], .55);
   } else {                                    // round / cone; extra = footprint in studs
     const r = 4 + 4*Math.sqrt(Math.min(1, (extra || 1)/4)), yb = 16, yt = 16 - 9*Math.min(1, h), rt = kind === 'cone' ? r*.45 : r;
     s = `<path d="M${11-r},${yb} A${r},${r/2} 0 0 0 ${11+r},${yb} L${11+rt},${yt} L${11-rt},${yt} Z" fill="currentColor" fill-opacity=".3"/>` +
         `<ellipse cx="11" cy="${yt}" rx="${rt}" ry="${rt/2}" fill="currentColor" fill-opacity=".6"/>`;
   }
+  if (extra === 'inv') s = `<g transform="translate(0 21) scale(1 -1)">${s}</g>`;   // the inverted types: upside down
   return `<svg viewBox="0 0 22 20" aria-hidden="true" stroke="currentColor" stroke-opacity=".75" stroke-width=".8" stroke-linejoin="round">${s}</svg>`;
 }
 
@@ -2752,7 +3781,7 @@ let lastMouse = null, lastOver = false, lastPlaceT = -1e9, groundAbs = 0;
 const gsize = items => [0, 1, 2].map(i => Math.max(...items.map(t => t.hi[i])));
 const gsteps = items => items.some(t => t.micro) ? [MICRO, MICRO, MICRO] : [STEP, STEP, PLATE];
 function itemName(t){
-  const st = t.micro ? [MICRO, MICRO, MICRO] : [STEP, STEP, PLATE], n = i => Math.round((t.hi[i] - t.lo[i])/st[i]);
+  const st = sizeRule(t).steps, n = i => Math.round((t.hi[i] - t.lo[i])/st[i]);
   try { return displayName(t, n(0), n(1), n(2)); } catch { return 'brick'; }
 }
 const ghostName = items => items.length === 1 ? itemName(items[0]) : `${items.length} bricks`;
@@ -2779,13 +3808,20 @@ const ROTATE = {
   crest: t => { t.run = 1 - (t.run | 0); },
   crestEnd: t => { const C = [-1, 1, 1, -1]; let r = [0, 1, 2, 3].find(q => (q & 1) === (t.run | 0) && C[q] === t.closed) ?? 0;
                    r = (r + 1) % 4; t.run = r & 1; t.closed = C[r]; },
+  // the export-measured shapes and sideways rounds carry their orientation byte: turn it about world Z
+  special: t => { t.o = turnOrient(t.o); },
+  micro: t => { t.o = turnOrient(t.o); },
+  round: t => { if (t.o != null) t.o = turnOrient(t.o); },
 };
+// a sideways brick's stud side turns with it: +X -> +Y -> -X -> -Y
+const turnSide = s => ({ 2: 3, 3: -2, [-2]: -3, [-3]: 2 })[s] ?? s;
 function rotateItems(items, turns){
   for (let n = 0; n < ((turns % 4) + 4) % 4; n++) {
     for (const t of items) {
       const l = t.lo, h = t.hi;
       t.lo = [-h[1], l[0], l[2]]; t.hi = [-l[1], h[0], h[2]];       // (x, y) -> (-y, x) about the group corner
       if (ROTATE[t.shape]) ROTATE[t.shape](t);
+      if (!t.up && t.side) t.side = turnSide(t.side);
     }
     const m = [0, 1].map(i => Math.min(...items.map(t => t.lo[i])));   // back onto the group's low corner
     for (const t of items) for (const i of [0, 1]) { t.lo[i] = r3(t.lo[i] - m[i]); t.hi[i] = r3(t.hi[i] - m[i]); }
