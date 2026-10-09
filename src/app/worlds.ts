@@ -29,6 +29,7 @@ import { initAudio, playClick } from '../ui/audio.ts';
 import { setStatus } from '../ui/status.ts';
 import { $ } from '../ui/dom.ts';
 import type { Brick } from '../scene/brick.ts';
+import { pushAll } from '../core/math';
 
 /** One state of a world, ready for the scene. */
 interface WorldState {
@@ -165,7 +166,7 @@ async function loadRevision(w: OpenWorld, revisionId: number | null, name: strin
     if (p.bricks.length) placed++;
     if (p.snapped) snapped++;
     skipped += p.skipped;
-    extras.push(...p.bricks);
+    pushAll(extras, p.bricks);
   }
   const others = model.grids.filter((g) => g.id !== 1).length;
   const note = [`${placed} of ${others} moving grid(s) shown (read-only)`, snapped && `${snapped} turned to the nearest quarter turn`, skipped && `${skipped} of their bricks unsupported`].filter(Boolean).join(', ');

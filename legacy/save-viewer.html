@@ -2513,7 +2513,7 @@ function histApply(t, side){               // side: 'before' (undo) or 'after' (
   if (t.kind === 'scene') {
     t[side === 'before' ? 'after' : 'before'] = sceneSnap();   // the side being left, as it is now
     const s = t[side];
-    bricks.length = 0; bricks.push(...s.list);
+    bricks.length = 0; for (const b of s.list) bricks.push(b);
     histOrigin = s.origin.slice(); zoomMul = s.zoom;
     instAll();                             // a different brick list: re-upload the instance buffers
     selectBrick(s.sel);
@@ -2952,12 +2952,12 @@ function loadSave(buf, name){
   if (!out.length) throw new Error('no supported bricks in this save');
   histEnd();
   const prevScene = sceneSnap();
-  bricks.length = 0; bricks.push(...out);
+  bricks.length = 0; for (const b of out) bricks.push(b);
   histOrigin = [0, 0, 0];                    // a new scene starts its own frame
   instAll();                                 // re-upload the instance buffers
   selectBrick(0);
   // frame the whole save around the focused brick
-  const sl = [0,1,2].map(i => Math.min(...bricks.map(b => b.lo[i]))), sh = [0,1,2].map(i => Math.max(...bricks.map(b => b.hi[i])));
+  const sl = [0,1,2].map(i => bricks.reduce((m, b) => Math.min(m, b.lo[i]), Infinity)), sh = [0,1,2].map(i => bricks.reduce((m, b) => Math.max(m, b.hi[i]), -Infinity));   // no spread: big saves overflow the call stack
   const c = [0,1,2].map(i => (lo[i]+hi[i])/2), r = [0,1,2].map(i => Math.max(c[i]-sl[i], sh[i]-c[i]));
   zoomMul = Math.min(ZOOM_MAX, Math.max(1, fitHalf(c.map((v,i) => v-r[i]), c.map((v,i) => v+r[i]))/fitHalf(lo, hi)));
   histPush({ kind: 'scene', label: 'load save', before: prevScene, after: sceneSnap() });

@@ -198,7 +198,7 @@ export function readOverview(src: FileSource, opts: OverviewOptions = {}): SaveO
     const pl = placements.get(id);
     if (pl) { grid.location = pl.loc; grid.rotation = pl.rot; }
     grids.push(grid);
-    all.push(...grid.chunks);
+    for (const c of grid.chunks) all.push(c);
   }
 
   const totals = { grids: grids.length, chunks: all.length, bricks: 0, components: 0, wires: 0, storedBytes: 0, rawBytes: 0, estBytes: 0 };
@@ -311,7 +311,9 @@ export function densityMap(ov: SaveOverview, grid = '1'): { x0: number; y0: numb
   const cs = ov.chunks.filter((c) => c.grid === grid);
   if (!cs.length) return null;
   const xs = cs.map((c) => c.coord[0]), ys = cs.map((c) => c.coord[1]);
-  const x0 = Math.min(...xs), y0 = Math.min(...ys), w = Math.max(...xs) - x0 + 1, h = Math.max(...ys) - y0 + 1;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (let i = 0; i < xs.length; i++) { x0 = Math.min(x0, xs[i]!); x1 = Math.max(x1, xs[i]!); y0 = Math.min(y0, ys[i]!); y1 = Math.max(y1, ys[i]!); }
+  const w = x1 - x0 + 1, h = y1 - y0 + 1;
   const bricks = new Float64Array(w * h);
   for (const c of cs) bricks[(c.coord[1] - y0) * w + (c.coord[0] - x0)]! += c.bricks;
   return { x0, y0, w, h, size: cs[0]!.size, bricks };
