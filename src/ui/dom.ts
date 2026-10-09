@@ -21,6 +21,7 @@ const MARKUP = `
     <button type="button" id="open">Open save (.brz)</button>
     <input type="file" id="pick" accept=".brz,.bp" hidden>
     <div id="status">drop or paste (Ctrl+V) a .brz</div>
+    <div id="saverow"><button type="button" id="savebrz" title="Download the scene as a .brz (uncompressed), written into the save you opened">Save .brz</button></div>
   </div>
   <div id="pastemode" role="group" aria-label="What Ctrl+V does" title="What Ctrl+V does. Dropping a file or the Open button always opens a save.">Ctrl+V
     <button type="button" data-paste="upload" aria-pressed="true" title="Ctrl+V opens a .brz copied in the file manager">Upload</button>
@@ -55,6 +56,9 @@ const MARKUP = `
       <label class="crow"><span>Hex</span><input id="chex" type="text" maxlength="7" autocomplete="off" spellcheck="false" aria-label="Hex colour, #rgb or #rrggbb"></label>
     </div>
   </div>
+  <button type="button" id="painttoggle" aria-expanded="false" aria-controls="paintbody" title="Colour palette, material and intensity: paint the focused brick">Paint
+    ${CHEV}</button>
+  <div id="paintbody" hidden></div>
 </section>`;
 
 /** Builds the page into document.body (the #app placeholder is replaced). */

@@ -3,8 +3,9 @@
 
 import { S } from '../../app/state.ts';
 import { lightFromBp } from '../../format/bp.ts';
-import { LIGHTING } from '../../render/lighting.ts';
-import { loadSave } from '../../scene/load.ts';
+import { LIGHTING, type LightPreset } from '../../render/lighting.ts';
+import { loadedName, loadSave } from '../../scene/load.ts';
+import { download, savedName, sceneBrz } from '../../scene/save.ts';
 import { hist, setUndoLimit } from '../../scene/history.ts';
 import { initAudio, playClick } from '../audio.ts';
 import { setStatus } from '../status.ts';
@@ -12,7 +13,18 @@ import { $ } from '../dom.ts';
 
 let lightSel: HTMLSelectElement;
 
+/**
+ * Extra file openers (the full build adds .brdb worlds). Each returns true when it took the file;
+ * it reports its own errors.
+ */
+export const openers: ((f: File) => Promise<boolean>)[] = [];
+let openersReady: Promise<unknown> = Promise.resolve();
+/** Files opened before the full UI has loaded wait for its openers. */
+export function waitForOpeners(p: Promise<unknown>): void { openersReady = p.catch(() => undefined); }
+
 export async function openFile(f: File): Promise<void> {
+  await openersReady;
+  for (const o of openers) if (await o(f)) return;
   if (/\.(bp|json)$/i.test(f.name)) {
     try { addBpPreset(JSON.parse(await f.text()), f.name); } catch (err) { setStatus(`Couldn't read ${f.name}: ${(err as Error).message}`); console.error(err); }
     return;
@@ -25,11 +37,16 @@ export function setPreset(k: string): void { S.lighting = k; if (lightSel) light
 
 export function addBpPreset(json: unknown, name = 'Pasted environment'): void {
   const p = lightFromBp(json), label = name.replace(/\.(bp|json)$/i, '') + ' (.bp)';
-  const k = 'bp:' + label;
-  LIGHTING[k] = { name: label, ...p };
-  if (![...lightSel.options].some((o) => o.value === k)) lightSel.add(new Option(label, k));
-  lightSel.value = S.lighting = k;
+  useLighting('bp:' + label, { name: label, ...p });
   setStatus(`Lighting: ${label}`);
+}
+
+/** Adds (or replaces) a lighting preset, lists it in the picker and selects it. */
+export function useLighting(k: string, p: LightPreset): void {
+  LIGHTING[k] = p;
+  const opt = [...lightSel.options].find((o) => o.value === k);
+  if (opt) opt.text = p.name; else lightSel.add(new Option(p.name, k));
+  lightSel.value = S.lighting = k;
 }
 
 export function initFilePanel(): void {
@@ -42,9 +59,11 @@ export function initFilePanel(): void {
   addEventListener('drop', (e) => {
     e.preventDefault(); document.body.classList.remove('drop');
     const files = [...(e.dataTransfer?.files || [])];
-    const f = files.find((f) => /\.(brz|bp)$/i.test(f.name)) || files[0];
+    const f = files.find((f) => /\.(brz|brdb|bp)$/i.test(f.name)) || files[0];
     if (f) void openFile(f);
   });
+
+  $('savebrz').addEventListener('click', saveBrzClick);
 
   // lighting preset picker (fills from LIGHTING, so new presets just appear)
   lightSel = $<HTMLSelectElement>('light');
@@ -74,4 +93,15 @@ export function initFilePanel(): void {
     const text = raw.replace(/^["']|["']$/g, '');
     if (/\.brz$/i.test(text)) setStatus("Can't open file paths from the clipboard — copy the .brz file itself (e.g. in Explorer) and paste again");
   });
+}
+
+/** "Save .brz": the scene rebuilt into the save it was opened from, as a raw (uncompressed) .brz. */
+function saveBrzClick(): void {
+  try {
+    const r = sceneBrz();
+    if (!r) { setStatus('Open a save first: Save .brz writes your edits back into the save you opened'); return; }
+    const name = savedName(loadedName, '.brz');
+    download(r.bytes, name);
+    setStatus(`Saved ${name} (${S.bricks.length} brick${S.bricks.length === 1 ? '' : 's'})` + (r.warnings.length ? ' · ' + r.warnings.join(' · ') : ''));
+  } catch (err) { setStatus(`Couldn't save: ${(err as Error).message}`); console.error(err); }
 }

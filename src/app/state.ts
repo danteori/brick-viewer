@@ -7,6 +7,7 @@ import { BRICK, DEFAULT_COLOR, INITIAL } from '../core/units.ts';
 import type { Mat4 } from '../core/math.ts';
 import { viewOf } from '../core/math.ts';
 import { sizeRule, type Brick, type SizeRule, type V3 } from '../scene/brick.ts';
+import type { GroundPlateLook } from '../env/ground-plate.ts';
 
 export const ELEV = Math.atan(1 / Math.SQRT2);             // 35.2644 degrees
 export const YAW0 = -Math.PI / 4;
@@ -102,6 +103,10 @@ export const S = {
   mouseOnCanvas: false,
 
   lighting: 'default',
+  /** the ground plate of the applied environment; null = none (the default: no environment applied) */
+  ground: null as GroundPlateLook | null,
+  /** ?test: the golden / parity hook is installed; world environments aren't applied on load */
+  testMode: false,
   hooks: {
     draw: [], hud: [], beforeLoad: [], loaded: [],
     placing: () => false,

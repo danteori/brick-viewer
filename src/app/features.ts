@@ -27,6 +27,10 @@ export interface FeatureFlags {
    * the environment format + lighting, which both builds use to light a world as saved).
    */
   environmentPanel: boolean;
+  /** Palette + paint tool docked in Brick Properties (both builds). */
+  paint: boolean;
+  /** Top-down map with click-to-focus (module worker + 2D canvas; full only). */
+  mapPanel: boolean;
 }
 
 /**
@@ -39,6 +43,14 @@ export const loadBrdbBackend: (() => Promise<SqlBackend>) | null = IS_LITE
   ? null
   : () => import('../format/sqljs.ts').then((m) => m.loadSqlJs());
 
+/**
+ * The full build's extra UI (src/app/full-ui.ts: the Environment panel, .brdb worlds with revisions
+ * and dynamic grids, save as a new world, and the Map with its tile worker), or null in lite.
+ */
+export const loadFullUi: (() => Promise<{ mountFullUi(): void }>) | null = IS_LITE
+  ? null
+  : () => import('./full-ui.ts');
+
 export const FEATURES: Readonly<FeatureFlags> = Object.freeze({
   brzRead: true,
   brzWriteRaw: true,
@@ -46,4 +58,6 @@ export const FEATURES: Readonly<FeatureFlags> = Object.freeze({
   brdb: !IS_LITE,
   hdr: !IS_LITE,
   environmentPanel: !IS_LITE,
+  paint: true,
+  mapPanel: !IS_LITE,
 });

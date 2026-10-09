@@ -40,6 +40,8 @@ export interface PalettePanelOptions {
   model: PaintModel;
   /** Called after the user changes the current paint in the panel. */
   onPick?: (paint: PaintFields) => void;
+  /** Label of the paint button (default "Paint selection"). */
+  paintLabel?: string;
   /** "Paint selection" was pressed. The button is hidden when this is not given. */
   onPaint?: (paint: PaintFields) => void;
   /** The eyedropper toggle changed. */
@@ -142,7 +144,7 @@ export function mountPalettePanel(root: HTMLElement, opts: PalettePanelOptions):
   const inten = el('input', { type: 'range', min: '0', max: String(MAX_INTENSITY), step: '1', 'aria-label': 'Material intensity, 0 to 10' });
   const intenOut = el('output', { class: 'bvp-num' });
   const eyeBtn = el('button', { type: 'button', class: 'bvp-btn', 'aria-pressed': 'false', title: 'Eyedropper: click a brick to take its colour, material and intensity' }, 'Eyedropper');
-  const paintBtn = el('button', { type: 'button', class: 'bvp-btn bvp-main', title: 'Paint the selected bricks with the current paint' }, 'Paint selection');
+  const paintBtn = el('button', { type: 'button', class: 'bvp-btn bvp-main', title: 'Paint the selected bricks with the current paint' }, opts.paintLabel ?? 'Paint selection');
   const upBtn = el('button', { type: 'button', class: 'bvp-btn' }, 'Upload palette (.bp)');
   const resetBtn = el('button', { type: 'button', class: 'bvp-btn', title: 'Forget the uploaded palette and show the default one' }, 'Reset to default');
   const file = el('input', { type: 'file', accept: '.bp,application/json', hidden: '' });

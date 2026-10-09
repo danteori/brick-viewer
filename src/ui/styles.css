@@ -132,3 +132,35 @@ body.placing canvas { cursor:copy !important; }
 #chex[aria-invalid="true"] { border-color:#e03131; }
 .nogl { max-width: 40rem; margin: 3rem auto; padding: 0 16px; }
 .nogl a { color: #e8590c; }
+
+/* Save row under Open (Save .brz; the full build adds Save as world) and the world revision picker */
+#saverow { display:flex; flex-wrap:wrap; gap:4px; }
+#saverow button { flex:1 1 auto; }
+#saverow #savebrdb { flex-basis:100%; white-space:normal; font-size:11px; }
+#revbox { display:flex; align-items:center; gap:6px; font:12px system-ui, sans-serif; color:#9a9ca3; }
+#revbox[hidden] { display:none; }
+#revbox select { min-width:0; flex:1; max-width:15em; padding:4px 6px; border-radius:7px; border:1px solid rgba(255,255,255,.18); background:#2b2c30; color:#eee; }
+/* Paint: the palette docked under Brick Properties */
+#props #painttoggle { display:flex; align-items:center; justify-content:space-between; gap:10px; width:100%; padding:6px 0 4px;
+  border-top:1px solid rgba(255,255,255,.07); font-weight:600; color:#c9ccd3; }
+#props #painttoggle:hover { color:#eee; }
+#paintbody .bv-palette { padding:2px 0 8px; background:none; border:0; box-shadow:none; border-radius:0; }
+/* Environment: a button in the left column opens the panel beside it */
+#envbtn { padding:7px 10px; border-radius:10px; border:1px solid rgba(255,255,255,.12); background:rgba(29,30,33,.88); color:#eee;
+  font:13px system-ui, sans-serif; cursor:pointer; text-align:left; }
+#envbtn:hover, #envbtn[aria-expanded="true"] { border-color:#e8590c; }
+#envpanel { position:fixed; z-index:2; top:calc(12px + env(safe-area-inset-top, 0px)); left:260px; width:min(360px, calc(100vw - 24px));
+  max-height:calc(100% - 24px); overflow:auto; display:flex; }
+#envpanel[hidden] { display:none; }
+/* Map: a toggle in the bottom-right corner and the overview above it */
+#mapbtn { position:fixed; right:calc(12px + env(safe-area-inset-right, 0px)); bottom:calc(12px + env(safe-area-inset-bottom, 0px)); z-index:1;
+  padding:6px 12px; border-radius:10px; border:1px solid rgba(255,255,255,.12); background:rgba(29,30,33,.88); color:#eee; font:13px system-ui, sans-serif; cursor:pointer; }
+#mapbtn:hover, #mapbtn[aria-expanded="true"] { border-color:#e8590c; }
+#mappanel { position:fixed; z-index:1; right:calc(12px + env(safe-area-inset-right, 0px)); bottom:calc(52px + env(safe-area-inset-bottom, 0px));
+  width:min(300px, calc(100vw - 24px)); display:grid; gap:6px; padding:8px 10px; box-sizing:border-box; border-radius:12px;
+  background:rgba(29,30,33,.92); border:1px solid rgba(255,255,255,.12); box-shadow:0 6px 24px rgba(0,0,0,.35); font:12px system-ui, sans-serif; color:#c9ccd3; }
+#mappanel[hidden] { display:none; }
+#mappanel .maphead { display:flex; justify-content:space-between; align-items:center; font-weight:600; }
+#mappanel .mapfit { padding:2px 8px; border-radius:6px; border:1px solid rgba(255,255,255,.18); background:#2b2c30; color:#eee; cursor:pointer; }
+#mapcanvas { width:100%; aspect-ratio:1; border-radius:8px; background:#1d1e21; cursor:crosshair; touch-action:none; }
+#mappanel .mapnote { font-size:11px; color:#9a9ca3; }

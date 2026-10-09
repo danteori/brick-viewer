@@ -2,7 +2,9 @@
 // listener order (it decides which handler sees an event first), and runs the frame loop.
 
 import { S } from './state.ts';
-import type { FeatureFlags } from './features.ts';
+import { loadFullUi, type FeatureFlags } from './features.ts';
+import { initWorldEnvironment } from './environment.ts';
+import { initPaintPanel } from '../ui/panels/paint.ts';
 import { installTestHook } from './test-hook.ts';
 import { createGfx } from '../render/gl.ts';
 import { initDraw } from '../render/draw.ts';
@@ -20,7 +22,7 @@ import { initEditorInput } from '../editor/input.ts';
 import { $, mountDom } from '../ui/dom.ts';
 import { initStatus } from '../ui/status.ts';
 import { initSizePanel } from '../ui/panels/size.ts';
-import { initFilePanel } from '../ui/panels/file.ts';
+import { initFilePanel, waitForOpeners } from '../ui/panels/file.ts';
 import { initProps, tickProps } from '../ui/panels/props.ts';
 import { initCataloguePanel } from '../ui/panels/catalogue.ts';
 import { drawDims, initDims } from '../ui/overlay/dims.ts';
@@ -34,6 +36,7 @@ export interface AppOptions {
 
 export function createApp(root: HTMLElement | null, opts: AppOptions): void {
   mountDom(root);
+  S.testMode = new URLSearchParams(location.search).has('test');
   const canvas = $<HTMLCanvasElement>('c');
   const gfx = createGfx(canvas);
   if (!gfx) {
@@ -88,8 +91,12 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
   initClipboard([...document.querySelectorAll<HTMLButtonElement>('#pastemode button')]);
   initCataloguePanel();
   initEditorInput(canvas);
+  initWorldEnvironment();
+  initPaintPanel();
+  // full build: environment panel, .brdb worlds and the map (a separate chunk, never in lite)
+  if (loadFullUi) waitForOpeners(loadFullUi().then((m) => m.mountFullUi()).catch((err) => console.error('full UI failed to load', err)));
 
-  if (new URLSearchParams(location.search).has('test')) installTestHook(canvas);
+  if (S.testMode) installTestHook(canvas);
 
   const frame = (t: number = performance.now()): void => {
     edgeTick(t);
