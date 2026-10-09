@@ -3,6 +3,8 @@
 //
 //   npm run golden:compare -- --target full      tests/golden/full/ vs tests/golden/
 //   npm run golden:compare -- --target lite
+//   npm run golden:compare -- --target full --against base-full --tol 0 --need 1
+//                                                tests/golden/full/ vs tests/golden/base-full/, exactly
 //
 // Writes a diff image (red = over the threshold) for each failing shot next to the capture, and
 // exits non-zero when any shot fails or is missing. Everything here is local and git-ignored.
@@ -13,11 +15,11 @@ import { PNG } from 'pngjs';
 
 const ROOT = resolve(import.meta.dirname, '..');
 const args = process.argv.slice(2);
-const ti = args.indexOf('--target');
-const TARGET = ti >= 0 ? args[ti + 1] : 'full';
-const filter = args.filter((a, i) => !a.startsWith('--') && i !== ti + 1)[0] ?? '';
-const GOLD = join(ROOT, 'tests/golden'), CAP = join(ROOT, `tests/golden/${TARGET}`);
-const TOL = 2, NEED = 0.999;
+const opt = (name, dflt) => { const i = args.indexOf(name); if (i < 0) return dflt; const v = args[i + 1]; args.splice(i, 2); return v; };
+const TARGET = opt('--target', 'full'), AGAINST = opt('--against', '');
+const TOL = Number(opt('--tol', 2)), NEED = Number(opt('--need', 0.999));
+const filter = args.filter((a) => !a.startsWith('--'))[0] ?? '';
+const GOLD = AGAINST ? join(ROOT, 'tests/golden', AGAINST) : join(ROOT, 'tests/golden'), CAP = join(ROOT, `tests/golden/${TARGET}`);
 
 if (!existsSync(GOLD)) { console.log('no goldens; run npm run golden:capture first'); process.exit(0); }
 const files = readdirSync(GOLD).filter((f) => f.endsWith('.png') && f.includes(filter)).sort();
@@ -45,5 +47,5 @@ for (const f of files) {
 }
 const w = Math.max(...rows.map((r) => r[0].length));
 for (const r of rows) console.log(`${r[0].padEnd(w)}  ${r[1].padEnd(7)} ${r[2].padStart(10)}  ${r[3]}`);
-console.log(`${files.length - fails}/${files.length} shots within ${TOL}/255 on >= ${NEED * 100} % of pixels (${TARGET})`);
+console.log(`${files.length - fails}/${files.length} shots within ${TOL}/255 on >= ${NEED * 100} % of pixels (${TARGET}${AGAINST ? ` vs ${AGAINST}` : ''})`);
 process.exit(fails ? 1 : 0);

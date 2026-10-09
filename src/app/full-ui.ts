@@ -106,8 +106,7 @@ function initMap(): void {
   };
   /** the focused brick's centre in save units */
   const focusXY = (): [number, number] | null => {
-    const b = S.bricks[S.sel];
-    return b ? [((b.lo[0] + b.hi[0]) / 2 + S.histOrigin[0]) / BRZ_UNIT, ((b.lo[1] + b.hi[1]) / 2 + S.histOrigin[1]) / BRZ_UNIT] : null;
+    return S.sel >= 0 && S.scene.alive(S.sel) ? [((S.lo[0] + S.hi[0]) / 2) / BRZ_UNIT, ((S.lo[1] + S.hi[1]) / 2) / BRZ_UNIT] : null;
   };
   const redraw = (): void => {
     drawnKey = '';
@@ -196,11 +195,11 @@ function initMap(): void {
 /** Focus the brick whose centre is nearest to world (x, y) in save units (map click). */
 export function focusNearest(x: number, y: number): number {
   let best = -1, bd = Infinity;
-  const o = S.histOrigin;
-  S.bricks.forEach((b, k) => {
-    const dx = ((b.lo[0] + b.hi[0]) / 2 + o[0]) / BRZ_UNIT - x, dy = ((b.lo[1] + b.hi[1]) / 2 + o[1]) / BRZ_UNIT - y, d = dx * dx + dy * dy;
+  const s = S.scene;
+  for (const k of s.ordered()) {
+    const dx = s.px[k]! - x, dy = s.py[k]! - y, d = dx * dx + dy * dy;
     if (d < bd) { bd = d; best = k; }
-  });
+  }
   if (best < 0 || S.held) return -1;
   const keep = S.cam.half;
   histEnd(); initAudio(); selectBrick(best); playSelect();

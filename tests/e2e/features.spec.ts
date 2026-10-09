@@ -38,7 +38,7 @@ test('environment panel lights the scene and shows the ground plate', async ({ p
   expect(errors).toEqual([]);
 });
 
-test('paint the focused brick, then undo', async ({ page }) => {
+test('paint the focused brick (nothing selected), then undo', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('#chexout')).toHaveText('#fa4040');
   await page.locator('#painttoggle').click();
@@ -46,7 +46,7 @@ test('paint the focused brick, then undo', async ({ page }) => {
   await expect(swatch).toBeVisible();
   await swatch.click();
   const hex = (await page.locator('.bvp-hex').textContent())!.toLowerCase();
-  await page.getByRole('button', { name: 'Paint focused brick' }).click();
+  await page.getByRole('button', { name: 'Paint selection' }).click();
   await expect(page.locator('#chexout')).toHaveText(hex);
   await expect(status(page)).toContainText('Painted');
   await page.locator('canvas#c').hover({ position: { x: 640, y: 700 } });

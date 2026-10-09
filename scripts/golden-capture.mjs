@@ -108,7 +108,7 @@ await page.evaluate(() => window.__brickTest.hideUi());
 const shots = [];
 async function shoot(file, meta) {
   const frames = await page.evaluate(() => window.__brickTest.settle());
-  await page.screenshot({ path: join(OUT, file), animations: 'disabled', caret: 'hide' });
+  await page.screenshot({ path: join(OUT, file), animations: 'disabled', caret: 'hide', timeout: 180_000 });   // SwiftShader: big saves take a while
   shots.push({ file, ...meta, settleFrames: frames });
   console.log(`${file}${frames < 0 ? '  (did not settle)' : ''}`);
 }

@@ -1,13 +1,16 @@
 // A world's dynamic grids (vehicles, doors...) as viewer bricks, placed where their entity sits
 // (src/scene/grids.ts). The viewer draws axis-aligned boxes and meshes per orientation byte, so a
 // grid's rotation is applied by composing it with each brick's orientation: exact for rotations in
-// quarter turns, otherwise snapped to the nearest quarter-turn rotation (the brick centres are still
-// placed exactly). Read-only: these bricks are drawn by src/render/extras.ts, not edited.
+// quarter turns, otherwise snapped to the nearest quarter-turn rotation. Read-only: these bricks are
+// drawn by src/render/extras.ts (all grids in one store of their own, chunked like the scene), not
+// edited.
 
 import { BrickShapes } from '../render/meshes/shapes.js';
 import type { SaveView } from '../format/saveview.ts';
 import { gridBricks, rotate, type Grid, type Quat, type Vec3 } from './grids.ts';
 import { viewerBrick } from './load.ts';
+import { SceneStore } from './store.ts';
+import { putPlain, supportedAsset } from './view.ts';
 import type { Brick } from './brick.ts';
 
 type Mat3 = number[][];
@@ -47,7 +50,7 @@ export function orientOfMatrix(R: Mat3): number {
 
 export interface PlacedGrid { bricks: Brick[]; skipped: number; snapped: boolean }
 
-/** One grid's bricks as viewer bricks in world space (frame-independent viewer units). */
+/** One grid's bricks as viewer bricks in world space (absolute viewer units). */
 export function placedGridBricks(view: SaveView, grid: Grid): PlacedGrid {
   const { m: R, error } = snapRotation(quatColumns(grid.transform.quat));
   const out: Brick[] = [];
@@ -59,4 +62,28 @@ export function placedGridBricks(view: SaveView, grid: Grid): PlacedGrid {
     out.push(b);
   }
   return { bricks: out, skipped, snapped: error > 1e-3 };
+}
+
+export interface PlacedGridStore { placed: number; skipped: number; snapped: boolean }
+
+/**
+ * Adds one grid's bricks to `store` (the world's dynamic grids share one store, drawn as render
+ * chunks like the scene). A brick sits at the entity's location plus its grid-local position
+ * turned by the grid's rotation, snapped to the nearest quarter turn like the orientations (so a
+ * grid that isn't turned by quarter turns is drawn turned by the nearest one as a whole), rounded
+ * to whole units.
+ */
+export function placedGridStore(view: SaveView, grid: Grid, store: SceneStore, linear = false): PlacedGridStore {
+  const { m: R, error } = snapRotation(quatColumns(grid.transform.quat));
+  const t = grid.transform.pos;
+  let skipped = 0, placed = 0;
+  for (const gb of gridBricks(view, grid)) {
+    if (!supportedAsset(gb.asset, gb.size !== null)) { skipped++; continue; }
+    const o = orientOfMatrix(mul(R, BrickShapes.brickOrient(gb.orient))), p = gb.pos;
+    const pos = [0, 1, 2].map((i) => Math.round(t[i]! + R[i]![0]! * p[0] + R[i]![1]! * p[1] + R[i]![2]! * p[2])) as Vec3;
+    const id = store.alloc();
+    putPlain(store, id, { ...gb, orient: o < 0 ? gb.orient : o, pos }, linear, String(grid.id));
+    placed++;
+  }
+  return { placed, skipped, snapped: error > 1e-3 };
 }

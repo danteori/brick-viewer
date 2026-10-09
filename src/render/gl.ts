@@ -2,10 +2,14 @@
 
 import { BRICK_FS, BRICK_VS } from './shaders/brick.ts';
 
-/** Fixed attribute slots. Attribute 0 stays an enabled, non-instanced array. */
-export const LOC = { aPos: 0, aNrm: 1, aSlope: 2, iCenter: 3, iScale: 4, iColor: 5, iFlags: 6, aPart: 7, aCap: 8 } as const;
+/**
+ * Fixed attribute slots. Attribute 0 stays an enabled, non-instanced array. The i* slots are the
+ * 24-byte instance record (render/instances.ts): iPos int16 x4, iHalf uint16 x4, iColor unorm8 x4,
+ * iMisc uint8 x4.
+ */
+export const LOC = { aPos: 0, aNrm: 1, aSlope: 2, iPos: 3, iHalf: 4, iColor: 5, iMisc: 6, aPart: 7, aCap: 8 } as const;
 
-const UNIFORMS = ['uMVP', 'uShift', 'uEdge', 'uLine', 'uFadeC', 'uFadeR', 'uStudFade', 'uBevelMax', 'uBevelFit',
+const UNIFORMS = ['uMVP', 'uChunkOffset', 'uBox', 'uUnitDiv', 'uEdge', 'uLine', 'uFadeC', 'uFadeR', 'uStudFade', 'uBevelMax', 'uBevelFit',
   'uEye', 'uLight', 'uSun', 'uSky', 'uFloor', 'uExposure', 'uBump', 'uMat', 'uIntensity', 'uMatPass'] as const;
 export type UniformName = (typeof UNIFORMS)[number];
 export type Uniforms = Record<UniformName, WebGLUniformLocation | null>;
@@ -36,5 +40,6 @@ export function createGfx(canvas: HTMLCanvasElement): Gfx | null {
   gl.useProgram(prog);
   const u = {} as Uniforms;
   for (const n of UNIFORMS) u[n] = gl.getUniformLocation(prog, n);
+  gl.uniform1f(u.uUnitDiv, 50);                  // units per viewer unit (1 / BRZ_UNIT)
   return { gl, prog, u };
 }

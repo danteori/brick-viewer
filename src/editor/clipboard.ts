@@ -2,10 +2,10 @@
 // or places the copied brick through the ghost (Paste brick). The mode is remembered; the first
 // upload switches it to Paste brick once (only while the user hasn't picked one).
 
-import { S } from '../app/state.ts';
+import { S, hasFocus } from '../app/state.ts';
 import { r3 } from '../core/units.ts';
 import type { Brick, V3 } from '../scene/brick.ts';
-import { snapBrick } from '../scene/history.ts';
+import { brickView } from '../scene/view.ts';
 import { itemName, startPlacing } from './ghost.ts';
 import { loadString, PASTE_KEY, saveString } from '../app/settings.ts';
 import { appendStatus, setStatus, statusText } from '../ui/status.ts';
@@ -44,8 +44,8 @@ export function setPasteMode(m: 'upload' | 'brick'): void {
 }
 
 export function copyFocused(): void {
-  if (!S.bricks[S.sel]) { setStatus('Nothing to copy'); return; }
-  const s = snapBrick(S.sel), o = s.lo.slice();
+  if (!hasFocus()) { setStatus('Nothing to copy'); return; }
+  const s = brickView(S.scene, S.sel), o = s.lo.slice();
   if (s.save) { delete s.save.seq; if (!Object.keys(s.save).length) delete s.save; }   // a paste is a new brick
   s.lo = s.lo.map((v, i) => r3(v - o[i])) as V3; s.hi = s.hi.map((v, i) => r3(v - o[i])) as V3;
   clip.items = [s];

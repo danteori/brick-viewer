@@ -252,6 +252,17 @@ export interface FlattenResult {
   /** Paths whose bytes were re-encoded. */
   reencoded: string[];
   warnings: string[];
+  /** With `skipStale`: files left out because they can't be converted without a guess. */
+  skipped: string[];
+}
+
+export interface FlattenOptions extends ReencodeOptions {
+  /**
+   * Leave out (instead of throwing on) the files that can't be converted to the live schemas
+   * without a guess, listing them in `skipped`. Only for showing a world: a save written from such
+   * a tree would lose those files, so a save template is flattened without it.
+   */
+  skipStale?: boolean;
 }
 
 /**
@@ -259,14 +270,20 @@ export interface FlattenResult {
  * "save as new world" and the world archive .brz are written from. Files that already match the
  * live schemas keep their bytes.
  */
-export function flattenTree(tree: SaveView, opts: ReencodeOptions = {}): FlattenResult {
-  const files: FileMap = new Map(), reencoded: string[] = [], warnings = new Set<string>();
+export function flattenTree(tree: SaveView, opts: FlattenOptions = {}): FlattenResult {
+  const files: FileMap = new Map(), reencoded: string[] = [], warnings = new Set<string>(), skipped: string[] = [];
   for (const p of tree.paths()) files.set(p, tree.get(p)!);
   const target: SaveView = { paths: () => [...files.keys()], has: (p) => files.has(p), get: (p) => files.get(p), asWrittenWith: (p) => files.get(p) };
   for (const p of tree.paths()) {
     if (!p.endsWith('.mps')) continue;
-    const again = reencodeForTarget(tree, p, target, opts, warnings);
+    let again: Uint8Array | null;
+    try { again = reencodeForTarget(tree, p, target, opts, warnings); }
+    catch (e) {
+      if (!opts.skipStale || !(e instanceof StaleSchemaError)) throw e;
+      files.delete(p); skipped.push(p);
+      continue;
+    }
     if (again) { files.set(p, again); reencoded.push(p); }
   }
-  return { files, reencoded, warnings: [...warnings] };
+  return { files, reencoded, warnings: [...warnings], skipped };
 }
