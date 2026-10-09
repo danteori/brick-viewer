@@ -61,7 +61,7 @@ export function step(q: { i: number; d: number }): void {
   const was = S.pendUnits;
   // keep the proposed size within 1 unit .. MAX, and stop at the last size that doesn't overlap a brick
   S.pendUnits = growFree(i, was, Math.max(minUnits(i) - units(i), Math.min(maxUnits(i) - units(i), S.pendUnits + q.d * S.ns[i])));
-  if (S.pendUnits !== was) { S.grab[i] = 1; S.lastAxis = i; playResize(); }   // no tick when clamped
+  if (S.pendUnits !== was) { S.grab[i] = 1; S.lastAxis = i; playResize(units(i) + S.pendUnits); }   // no tick when clamped; pitch = new size
   S.lockAxis = S.pendUnits ? i : -1;            // back at the default: unlocked again
   if (!S.pendUnits) S.pendAxis = -1;
 }
@@ -96,7 +96,7 @@ export function setSize(i: number, n: number): void {
   histBegin('size');
   setNear(i, to); S.lastAxis = i; recenter();
   histEnd();
-  if (units(i) !== was) playResize();
+  if (units(i) !== was) playResize(units(i));
 }
 
 /**
