@@ -12,6 +12,7 @@
 // were deleted (kind 'orphan', chunks marked missing; skip them), and dynamic grids with more
 // than one chunk.
 
+import { overviewPaths, runLoaded, type LazyBrdbTree } from '../format/brdblazy.ts';
 import { readEntities, type EntityRecord, type EntityTable, type Quat, type Vec3 } from '../format/entities.ts';
 import { decodeWritten, writtenGlobalData, type SaveView } from '../format/saveview.ts';
 import { decodeBrickChunk, type BrickChunk, type GlobalData, type PlainBrick } from '../format/world.ts';
@@ -132,6 +133,12 @@ export function buildWorldModel(view: SaveView): WorldModel {
     });
   }
   return { grids, entities, warnings };
+}
+
+/** buildWorldModel on a lazily opened world (brdblazy.ts): loads only the chunk indexes and entity files, with their schemas. */
+export async function buildWorldModelLazy(tree: LazyBrdbTree): Promise<WorldModel> {
+  await tree.loadWritten(overviewPaths(tree));
+  return runLoaded(tree, buildWorldModel);
 }
 
 /** A brick of a grid: grid-local position (`pos`) plus where it sits in the world. */
