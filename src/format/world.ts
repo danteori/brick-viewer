@@ -100,7 +100,7 @@ function loadCtx(files: FileMap, opts: WorldOptions): WorldContext {
   const global = decodeMps<GlobalData>(get(W + 'GlobalData.mps'), globalSchema);
   const ciBytes = files.get(GP + 'ChunkIndex.mps');
   const ci = ciBytes ? decodeMps<ChunkIndex>(ciBytes, idxSchema) : null;
-  const flagFields = chunkSchema.S.get(chunkSchema.root)!.filter(([, t]) => t === 'BRSavedBitFlags').map(([f]) => f);
+  const flagFields = brickFlagFields(chunkSchema);
   return { GP, globalSchema, idxSchema, chunkSchema, global, ci, flagFields };
 }
 
@@ -116,37 +116,52 @@ export function extractBricks(files: FileMap, opts: WorldOptions = {}): { bricks
     if (!f) return;
     const ch = decodeMps<BrickChunk>(f, c.chunkSchema), size = ci.ChunkSizes[j]!, off = ci.ChunkOffsets[j]!;
     const centre = AX.map((a) => k[a] * size + size / 2 + off[a]);
-    const proc: { asset: string; size: XYZ }[] = [];
-    let si = 0;
-    for (const sc of ch.BrickSizeCounters) {
-      for (let n = 0; n < sc.NumSizes; n++) proc.push({ asset: g.ProceduralBrickAssetNames[sc.AssetIndex]!, size: ch.BrickSizes[si++]! });
-    }
-    const flagBits = c.flagFields.map((ff) => (ch[ff] as { Flags: number[] }).Flags);
-    ch.BrickTypeIndices.forEach((t, i) => {
-      const p = t >= ch.ProceduralBrickStartingIndex ? proc[t - ch.ProceduralBrickStartingIndex] : undefined;
-      const rp = ch.RelativePositions[i]!, col = ch.ColorsAndAlphas[i]!;
-      const b: PlainBrick = {
-        asset: p ? p.asset : g.BasicBrickAssetNames[t]!,
-        size: p ? [p.size.X, p.size.Y, p.size.Z] : null,
-        pos: [rp.X + centre[0]!, rp.Y + centre[1]!, rp.Z + centre[2]!],
-        orient: ch.Orientations[i]!,
-        color: [col.R, col.G, col.B, col.A],
-        material: g.MaterialAssetNames[ch.MaterialIndices[i]!]!,
-        owner: ch.OwnerIndices[i]!,
-        originalOwner: ch.OriginalOwnerIndices?.[i] ?? ch.OwnerIndices[i]!,
-      };
-      const fl: Record<string, number> = {};
-      let any = false;
-      c.flagFields.forEach((ff, n) => {
-        const bit = (flagBits[n]![i >> 3]! >> (i & 7)) & 1;
-        fl[ff] = bit;
-        if (!bit) any = true;
-      });
-      if (any) b.flags = fl;
-      bricks.push(b);
-    });
+    for (const b of decodeBrickChunk(ch, c.chunkSchema, g, centre)) bricks.push(b);
   });
   return { bricks, ctx: c };
+}
+
+/** Chunk fields of type BRSavedBitFlags (collision flags and so on), in schema order. */
+export function brickFlagFields(chunkSchema: Schema): string[] {
+  return chunkSchema.S.get(chunkSchema.root)!.filter(([, t]) => t === 'BRSavedBitFlags').map(([f]) => f);
+}
+
+/**
+ * One decoded brick chunk -> plain bricks, positions = chunk centre + relative position.
+ * `g` must be the GlobalData the chunk was written with, `chunkSchema` the schema it was decoded with.
+ */
+export function decodeBrickChunk(ch: BrickChunk, chunkSchema: Schema, g: GlobalData, centre: readonly number[]): PlainBrick[] {
+  const flagFields = brickFlagFields(chunkSchema), out: PlainBrick[] = [];
+  const proc: { asset: string; size: XYZ }[] = [];
+  let si = 0;
+  for (const sc of ch.BrickSizeCounters) {
+    for (let n = 0; n < sc.NumSizes; n++) proc.push({ asset: g.ProceduralBrickAssetNames[sc.AssetIndex]!, size: ch.BrickSizes[si++]! });
+  }
+  const flagBits = flagFields.map((ff) => (ch[ff] as { Flags: number[] }).Flags);
+  ch.BrickTypeIndices.forEach((t, i) => {
+    const p = t >= ch.ProceduralBrickStartingIndex ? proc[t - ch.ProceduralBrickStartingIndex] : undefined;
+    const rp = ch.RelativePositions[i]!, col = ch.ColorsAndAlphas[i]!;
+    const b: PlainBrick = {
+      asset: p ? p.asset : g.BasicBrickAssetNames[t]!,
+      size: p ? [p.size.X, p.size.Y, p.size.Z] : null,
+      pos: [rp.X + centre[0]!, rp.Y + centre[1]!, rp.Z + centre[2]!],
+      orient: ch.Orientations[i]!,
+      color: [col.R, col.G, col.B, col.A],
+      material: g.MaterialAssetNames[ch.MaterialIndices[i]!]!,
+      owner: ch.OwnerIndices[i]!,
+      originalOwner: ch.OriginalOwnerIndices?.[i] ?? ch.OwnerIndices[i]!,
+    };
+    const fl: Record<string, number> = {};
+    let any = false;
+    flagFields.forEach((ff, n) => {
+      const bit = (flagBits[n]![i >> 3]! >> (i & 7)) & 1;
+      fl[ff] = bit;
+      if (!bit) any = true;
+    });
+    if (any) b.flags = fl;
+    out.push(b);
+  });
+  return out;
 }
 
 /** Chunk fields the writer knows how to build. */

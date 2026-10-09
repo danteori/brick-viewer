@@ -41,6 +41,10 @@ npx playwright install chromium && npx playwright test   # smoke tests in Chromi
 Some tests run against real save files. Those aren't in this repository: point `BRICK_REFS` at a
 folder with a `saves/` subfolder (default `../references`). Without it those tests are skipped.
 
+The `.brdb` world tests also cross-check against Python's `sqlite3` through
+`scripts/check_brdb.py` (skipped without Python). To soak-test the world reader on your own
+worlds, copy some `.brdb` files into a folder and point `BRICK_WORLDS` at it (they're only read).
+
 `npm run golden:capture` renders reference screenshots of the legacy viewer with Playwright into
 `tests/golden/`. They show whatever saves you have locally, so that folder is git-ignored. Pick
 the saves in `golden.config.json` (also git-ignored; see the script header).
@@ -49,7 +53,8 @@ the saves in `golden.config.json` (also git-ignored; see the script header).
 
 | Path | What |
 |---|---|
-| `src/format/` | DOM-free save format code: MessagePack, BLAKE3, `.schema`/`.mps`, `.brz` read/write, bricks to and from save chunks |
+| `src/format/` | DOM-free save format code: MessagePack, BLAKE3, `.schema`/`.mps`, `.brz` read/write, bricks to and from save chunks, `.brdb` worlds (revisions, schema-at-time decoding, new-world and append-revision writers, stale-schema re-encoding), entities |
+| `src/scene/` | Scene data: brick grids placed in the world by their entities (`grids.ts`) |
 | `src/core/` | Shared maths, e.g. the orientation byte to rotation table |
 | `src/app/` | Entry points (`main.full.ts`, `main.lite.ts`) and `features.ts`, the only file that may read the `__LITE__` build flag |
 | `legacy/` | The frozen single-file viewer: the pixel reference for the port and the WebGL1 fallback |
@@ -60,7 +65,10 @@ the saves in `golden.config.json` (also git-ignored; see the script header).
 - [fzstd](https://github.com/101arrowz/fzstd) (MIT, Copyright (c) 2020 Arjun Barrett) decodes
   zstd. It's bundled in both builds and inlined in `legacy/save-viewer.html`, with its licence
   notice.
+- [sql.js](https://github.com/sql-js/sql.js) (MIT, Copyright (c) 2017 sql.js authors) runs
+  SQLite (public domain) as wasm to read and write `.brdb` worlds. Full build only, loaded on
+  demand; the lite build doesn't contain it.
 
 ## Licence
 
-MIT; see [LICENSE](LICENSE). Bundled third-party code keeps its own licence (fzstd: MIT).
+MIT; see [LICENSE](LICENSE). Bundled third-party code keeps its own licence (fzstd, sql.js: MIT).
