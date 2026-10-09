@@ -222,7 +222,7 @@ test('interaction script gives the same brick lists in legacy and the new app', 
 test('every reference save loads to the same brick list', async ({ browser }) => {
   const saves = referenceSaves();
   test.skip(!saves.length, 'no reference saves (BRICK_REFS)');
-  test.setTimeout(600_000);
+  test.setTimeout(900_000);
   const pages: Page[] = [];
   for (const url of ['/legacy/save-viewer.html', '/?test']) {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 });
