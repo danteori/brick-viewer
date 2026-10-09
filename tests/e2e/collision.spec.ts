@@ -207,10 +207,11 @@ test('R is refused when the turned brick would overlap a brick', async ({ page }
   const before = await box0(page);
   await page.mouse.move(640, 790);
   await page.keyboard.press('r');
+  await frames(page);
+  expect(await page.locator('#hud').innerHTML()).toMatch(/blocked: overlaps a brick/);   // shown for 1.5 s
   await settle(page);
   expect((await box0(page)).size).toEqual(before.size);
   expect((await snap(page)).status).toMatch(/Can't rotate .*: overlaps a brick/);
-  expect(await page.locator('#hud').innerHTML()).toMatch(/blocked: overlaps a brick/);
 });
 
 test('R held + drag points the top along a world axis, as one undo step', async ({ page }) => {

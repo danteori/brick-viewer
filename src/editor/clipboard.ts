@@ -46,6 +46,7 @@ export function setPasteMode(m: 'upload' | 'brick'): void {
 export function copyFocused(): void {
   if (!S.bricks[S.sel]) { setStatus('Nothing to copy'); return; }
   const s = snapBrick(S.sel), o = s.lo.slice();
+  if (s.save) { delete s.save.seq; if (!Object.keys(s.save).length) delete s.save; }   // a paste is a new brick
   s.lo = s.lo.map((v, i) => r3(v - o[i])) as V3; s.hi = s.hi.map((v, i) => r3(v - o[i])) as V3;
   clip.items = [s];
   setStatus(`Copied ${itemName(s)}` + (clip.mode === 'brick' ? ' · Ctrl+V to paste' : ' · Ctrl+V uploads: switch it to Paste brick under Open save'));

@@ -46,8 +46,13 @@ export interface Brick {
   grid?: string;
 }
 
-/** Owner and flag fields of a loaded brick, passed through to the writer. */
-export interface SaveExtras { owner?: number; originalOwner?: number; flags?: Record<string, number> }
+/**
+ * Owner and flag fields of a loaded brick, passed through to the writer, and its place in the save
+ * as loaded: `seq` is its index in load order (chunk by chunk, as in the chunk files). Saving writes
+ * loaded bricks back in that order, so components and wires, which name bricks by their index in a
+ * chunk, still point at the same bricks. A copy (paste) has no seq: it's a new brick.
+ */
+export interface SaveExtras { owner?: number; originalOwner?: number; flags?: Record<string, number>; seq?: number }
 
 /**
  * A stud brick has a 3-way top style: studs, plain (PB_DefaultTile: flat top with the edge bevel)

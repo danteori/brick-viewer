@@ -18,6 +18,9 @@ import { setStatus } from '../ui/status.ts';
 
 export interface LoadReport { name: string; drawn: number; skipped: number; skippedTypes: Record<string, number>; sideways: number; extraGrids: number }
 
+/** A save brick with its index in load order (SaveExtras.seq), for bricks the viewer doesn't show. */
+export type SeqBrick = PlainBrick & { seq?: number };
+
 /** Why a save brick has no viewer brick: its asset isn't a supported type. */
 export interface Skip { skip: string }
 
@@ -72,8 +75,8 @@ export function viewerBrick(pb: PlainBrick, linear: boolean): Brick | Skip {
 }
 
 /** Save files -> viewer bricks of grid 1 (other grids are physics entities, not shown yet). */
-export function bricksFromFiles(files: FileMap): { bricks: Brick[]; report: Omit<LoadReport, 'name' | 'drawn'>; unsupported: PlainBrick[] } {
-  const out: Brick[] = [], skippedTypes: Record<string, number> = {}, unsupported: PlainBrick[] = [];
+export function bricksFromFiles(files: FileMap): { bricks: Brick[]; report: Omit<LoadReport, 'name' | 'drawn'>; unsupported: SeqBrick[] } {
+  const out: Brick[] = [], skippedTypes: Record<string, number> = {}, unsupported: SeqBrick[] = [];
   let skipped = 0, sideways = 0, extraGrids = 0;
   const grids = [...new Set([...files.keys()].map((k) => k.match(/^World\/0\/Bricks\/Grids\/([^/]+)\//)?.[1]).filter(Boolean))];
   for (const g of grids) if (g !== '1') extraGrids++;
@@ -81,7 +84,8 @@ export function bricksFromFiles(files: FileMap): { bricks: Brick[]; report: Omit
     const { bricks, linear } = extractBricks(files);
     bricks.forEach((pb, i) => {
       const b = viewerBrick(pb, linear[i]!);
-      if ('skip' in b) { skipped++; skippedTypes[b.skip] = (skippedTypes[b.skip] || 0) + 1; unsupported.push(pb); return; }
+      if ('skip' in b) { skipped++; skippedTypes[b.skip] = (skippedTypes[b.skip] || 0) + 1; unsupported.push({ ...pb, seq: i }); return; }
+      (b.save ??= {}).seq = i;                 // its place in the save (see SaveExtras.seq)
       if (!b.up) sideways++;
       out.push(b);
     });
@@ -110,7 +114,7 @@ export async function ensureLoadedFiles(): Promise<void> {
   if (completeFiles === f) { loadedFiles = all; completeFiles = null; }   // unless another save opened meanwhile
 }
 /** Grid-1 bricks of that save the viewer can't show: "Save .brz" writes them back unchanged. */
-export let loadedUnsupported: PlainBrick[] = [];
+export let loadedUnsupported: SeqBrick[] = [];
 
 export let lastLoad: LoadReport | null = null;
 
