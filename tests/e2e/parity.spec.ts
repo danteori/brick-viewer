@@ -218,7 +218,14 @@ test('interaction script gives the same brick lists in legacy and the new app', 
   };
   expect(size(1, 2)).toBeGreaterThan(size(0, 2));   // the top-face drag made it taller
   expect(size(2, 0)).toBeGreaterThan(size(1, 0));   // the X drag made it longer
-  expect(counts).toEqual([1, 1, 1, 1, 1, 2, 3, 4, 4, 4, 3, 2, 3]);
+  // and placed, deleted, undid and redid (where a drop lands depends on the panel layout, so the
+  // microbrick may be refused; the parity check above covers that case too)
+  const at = (step: string): number => counts[legacy.findIndex((r) => r.step === step)];
+  expect(at('paste')).toBe(2);
+  expect(at('place ramp')).toBe(3);
+  expect(at('delete')).toBe(at('focus click') - 1);
+  expect(at('undo x3')).toBeLessThan(at('delete'));
+  expect(at('redo')).toBe(at('undo x3') + 1);
 });
 
 // Loading: every reference save (private, from BRICK_REFS; skipped without it) must give the same
