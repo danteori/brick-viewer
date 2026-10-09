@@ -20,6 +20,11 @@ export interface FeatureFlags {
   brdb: boolean;
   /** HDR pipeline: shadows, SSAO, bloom, AA, sky; quality tiers. */
   hdr: boolean;
+  /**
+   * Environment settings panel (src/ui/panels/environment.ts, ~13 KB min / ~4 KB gzip on top of
+   * the environment format + lighting, which both builds use to light a world as saved).
+   */
+  environmentPanel: boolean;
 }
 
 export const FEATURES: Readonly<FeatureFlags> = Object.freeze({
@@ -28,4 +33,5 @@ export const FEATURES: Readonly<FeatureFlags> = Object.freeze({
   brzWriteZstd: !IS_LITE,
   brdb: !IS_LITE,
   hdr: !IS_LITE,
+  environmentPanel: !IS_LITE,
 });
