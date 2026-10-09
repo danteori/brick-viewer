@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  node:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      # Reference saves are private and not in this repo, so the tests that need them skip here.
+      - run: npm test
+      - run: npm run build
+      - name: Lite size budget (300 KB)
+        run: npm run size
+      - name: Smoke test (Playwright, Chromium)
+        run: |
+          npx playwright install --with-deps chromium
+          npx playwright test

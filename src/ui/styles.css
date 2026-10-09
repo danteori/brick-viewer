@@ -1,0 +1,20 @@
+:root {
+  color-scheme: light dark;
+  --bg: #f4f4f2;
+  --fg: #1d1d1b;
+  --muted: #6b6b66;
+  --accent: #e8590c;
+  --line: #d8d8d2;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #1b1b1a; --fg: #ececea; --muted: #a0a09a; --line: #3a3a37; }
+}
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, sans-serif; }
+.ph { max-width: 40rem; margin: 0 auto; padding: 3rem 16px; }
+.ph h1 { font-size: 1.6rem; margin: 0 0 1rem; }
+.ph h1 small { display: block; font-size: 0.9rem; font-weight: 400; color: var(--muted); }
+.ph a { color: var(--accent); }
+.ph .drop { border: 2px dashed var(--line); border-radius: 8px; padding: 1.5rem; text-align: center; color: var(--muted); }
+.ph .drop.over { border-color: var(--accent); color: var(--fg); }
+.ph pre { white-space: pre-wrap; min-height: 1.5em; }
+.ph .small { font-size: 0.85rem; color: var(--muted); }

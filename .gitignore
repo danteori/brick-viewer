@@ -1,0 +1,22 @@
+node_modules/
+dist/
+dist-lite/
+site/
+coverage/
+test-results/
+playwright-report/
+*.tmp
+*.log
+
+# Goldens are renders of private saves: they stay on this machine and never go in git.
+tests/golden/*
+!tests/golden/README.md
+
+# Never commit reference material (saves, screenshots, presets). It lives in the private
+# sibling folder ../references and is read through BRICK_REFS.
+references/
+*.brz
+*.brdb
+
+# Local golden capture config: names private saves.
+golden.config.json

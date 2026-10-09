@@ -1,0 +1,35 @@
+{
+  "name": "brick-viewer",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Browser viewer and editor for brick-building game save files (.brz). Not affiliated with Brickadia.",
+  "scripts": {
+    "dev": "vite --port 5173 --strictPort",
+    "build": "npm run build:full && npm run build:lite",
+    "build:full": "tsc --noEmit && vite build --mode full",
+    "build:lite": "tsc --noEmit && vite build --mode lite",
+    "preview": "vite preview --port 4173 --strictPort",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "size": "node scripts/size-budget.mjs",
+    "golden:capture": "node scripts/golden-capture.mjs",
+    "site": "node scripts/assemble-site.mjs"
+  },
+  "dependencies": {
+    "fzstd": "0.1.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.64.0",
+    "@types/node": "^26.6.4",
+    "eslint": "^10.12.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.71.1",
+    "vite": "^8.3.4",
+    "vite-plugin-singlefile": "^2.3.3",
+    "vitest": "^5.0.3"
+  }
+}
