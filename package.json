@@ -16,7 +16,8 @@
     "test:watch": "vitest",
     "size": "node scripts/size-budget.mjs",
     "golden:capture": "node scripts/golden-capture.mjs",
-    "site": "node scripts/assemble-site.mjs"
+    "site": "node scripts/assemble-site.mjs",
+    "golden:compare": "node scripts/golden-compare.mjs"
   },
   "dependencies": {
     "fzstd": "0.1.1"
@@ -26,6 +27,7 @@
     "@playwright/test": "^1.64.0",
     "@types/node": "^26.6.4",
     "eslint": "^10.12.0",
+    "pngjs": "^7.0.0",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.71.1",
     "vite": "^8.3.4",
