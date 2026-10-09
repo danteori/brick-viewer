@@ -23,7 +23,7 @@
 // Ported from save-viewer.html (parseSchema / decodeMps), tools/brzwriter.js (encodeMps /
 // schemaPathFor) and tools/survey_brz.py (variants, maps, fixed arrays, SoA data).
 
-import { ByteBuf, MsgMap, MsgReader, arrayHeader, mapHeader, pack, packFloat64, type MsgValue, type Packable } from './msgpack.ts';
+import { ByteBuf, MsgMap, MsgReader, arrayHeader, mapHeader, pack, packFloat64, safeInt, type MsgValue, type Packable } from './msgpack.ts';
 
 export type SchemaType =
   | string
@@ -180,7 +180,7 @@ export class MpsDecoder {
     const p = PRIM[t];
     if (p) {
       const x = dv[p[1]](o, true);
-      return typeof x === 'bigint' ? Number(x) : x;
+      return typeof x === 'bigint' ? safeInt(x) : x;
     }
     const out: MpsObject = {};
     for (const [f, ft] of structOf(this.schema, t)!) {
