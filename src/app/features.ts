@@ -18,8 +18,13 @@ export interface FeatureFlags {
   brzWriteRaw: boolean;
   /** .brz write with zstd (lazy wasm). */
   brzWriteZstd: boolean;
-  /** .brdb read / write (lazy sql.js). */
+  /** .brdb write and the sql.js read fallback (lazy wasm; full only). */
   brdb: boolean;
+  /**
+   * .brdb read through the lazy page reader (src/format/brdblazy.ts, no wasm, ~22 KB min / ~8 KB
+   * gzip): open a world and its revisions in both builds.
+   */
+  brdbRead: boolean;
   /** HDR pipeline: shadows, SSAO, bloom, AA, sky; quality tiers. */
   hdr: boolean;
   /**
@@ -56,6 +61,7 @@ export const FEATURES: Readonly<FeatureFlags> = Object.freeze({
   brzWriteRaw: true,
   brzWriteZstd: !IS_LITE,
   brdb: !IS_LITE,
+  brdbRead: true,
   hdr: !IS_LITE,
   environmentPanel: !IS_LITE,
   paint: true,

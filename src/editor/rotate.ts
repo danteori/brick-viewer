@@ -100,7 +100,7 @@ export function rotateTap(dir: 1 | -1): void {
 }
 
 /** An R-held reorient gesture: measured from where the pointer was when R went down. */
-interface Gesture { start: [number, number]; dir: string | null; moved: boolean; tx: { open: boolean } }
+interface Gesture { start: [number, number]; dir: string | null; moved: boolean; tx: { open: boolean }; ghost: boolean }
 let gest: Gesture | null = null;
 
 export const reorienting = (): boolean => !!gest;
@@ -108,7 +108,7 @@ export const reorienting = (): boolean => !!gest;
 export const gestureMoved = (): boolean => !!gest?.moved;
 
 export function beginReorient(at: [number, number] | null): void {
-  gest = { start: at ? [at[0], at[1]] : [innerWidth / 2, innerHeight / 2], dir: null, moved: false, tx: { open: false } };
+  gest = { start: at ? [at[0], at[1]] : [innerWidth / 2, innerHeight / 2], dir: null, moved: false, tx: { open: false }, ghost: !!ed.ghost };
 }
 
 /** Pointer moved while R is held. */
@@ -131,13 +131,16 @@ export function reorientMove(p: [number, number]): void {
   if (turnFocused(f, 'reorient', g.tx)) { initAudio(); playClick(); setStatus(`Reoriented ${itemName(S.bricks[S.sel])}: top toward ${axisLabel(d)}`); }
 }
 
-/** R released (or focus lost): returns true when it was a plain tap. */
+/**
+ * R released (or focus lost): true when it was a plain tap on the same target it started on (a
+ * ghost that ended while R was down doesn't hand the tap to the focused brick).
+ */
 export function endReorient(): boolean {
   const g = gest;
   gest = null;
   if (!g) return false;
   if (g.tx.open) histEnd();
-  return !g.moved;
+  return !g.moved && g.ghost === !!ed.ghost;
 }
 
 const axisLabel = (v: readonly number[]): string => { const i = v.findIndex((c) => c !== 0); return (v[i]! > 0 ? '+' : '-') + 'XYZ'[i]!; };

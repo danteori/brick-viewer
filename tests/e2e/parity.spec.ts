@@ -155,7 +155,8 @@ async function run(page: Page): Promise<{ step: string; snap: unknown }[]> {
 
   // catalogue: click Microbrick, turn it with R, click to place
   await page.locator('.bitem', { hasText: /^Microbrick$/ }).click();
-  await page.keyboard.press('r');
+  // only with a ghost: without one the app's R turns the focused brick (E-05), which legacy can't
+  if (await page.evaluate(() => (window.__brickTest.snapshot() as { ghost: boolean }).ghost)) await page.keyboard.press('r');
   await click(page, await beside(page, 0, -0.3));
   await snap('place microbrick');
 

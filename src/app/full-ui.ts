@@ -1,31 +1,22 @@
 // Full-build UI, loaded lazily through features.ts (the lite build never imports it):
 //   - the Environment panel (src/ui/panels/environment.ts), floating next to the left column;
-//   - .brdb worlds: open (button, drop, paste), the live revision or any earlier one, dynamic grids
-//     drawn read-only at their transforms, and "Save as new world (.brdb)" (experimental);
+//   - "Save as new world (.brdb)" (experimental; sql.js). Opening worlds is in worlds.ts, both builds;
 //   - the Map: a toggleable top-down overview of the opened save with click-to-focus.
 
 import { S } from './state.ts';
 import { loadBrdbBackend } from './features.ts';
 import { applyEnvironment, currentEnvironment, onWorldEnvironment } from './environment.ts';
 import { createEnvironmentPanel, type EnvironmentPanel, type PanelWorldKind } from '../ui/panels/environment.ts';
-import { BrdbWorld, writeNewWorld } from '../format/brdb.ts';
-import { flattenTree } from '../format/stale.ts';
-import { fileMapView } from '../format/saveview.ts';
-import { writeBrz } from '../format/brz.ts';
-import { buildWorldModel } from '../scene/grids.ts';
-import { placedGridBricks } from '../scene/worldgrids.ts';
-import { loadedBrz, loadedName, loadFiles } from '../scene/load.ts';
+import { writeNewWorld } from '../format/brdb.ts';
+import { ensureLoadedFiles, loadedBrz, loadedName } from '../scene/load.ts';
 import { download, savedName, sceneFiles } from '../scene/save.ts';
 import { histEnd } from '../scene/history.ts';
-import { setExtraBricks } from '../render/extras.ts';
 import { MapTiler, drawMap, fitView, screenToWorld, worldToScreen, type MapView } from '../render/maptiles.ts';
 import { BRZ_UNIT } from '../core/units.ts';
 import { keepZoom, selectBrick } from '../editor/resize.ts';
-import { openers } from '../ui/panels/file.ts';
-import { initAudio, playClick } from '../ui/audio.ts';
+import { initAudio, playSelect } from '../ui/audio.ts';
 import { setStatus } from '../ui/status.ts';
 import { $ } from '../ui/dom.ts';
-import type { Brick } from '../scene/brick.ts';
 
 const h = <K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string, string> = {}, text = ''): HTMLElementTagNameMap[K] => {
   const e = document.createElement(tag);
@@ -73,77 +64,16 @@ function initEnvironmentUi(): void {
 }
 
 // ------------------------------------------------------------------------------------ worlds
-let world: BrdbWorld | null = null;
-let worldName = '';
-
+// Opening worlds and revisions lives in worlds.ts (both builds); writing a world needs sql.js.
 function initWorlds(): void {
-  $('open').textContent = 'Open save (.brz / .brdb)';
-  $<HTMLInputElement>('pick').accept = '.brz,.brdb,.bp';
-  const revBox = h('label', { id: 'revbox', hidden: '', title: 'Show the world as it was saved at an earlier revision' }, 'Revision ');
-  const rev = h('select', { id: 'rev', 'aria-label': 'World revision' });
-  revBox.append(rev);
-  $('saverow').after(revBox);
   const saveWorld = h('button', { type: 'button', id: 'savebrdb', title: 'Experimental: download the scene as a new world (.brdb, uncompressed blobs). Not yet tested in-game.' }, 'Save as new world (.brdb) · experimental');
   $('saverow').append(saveWorld);
-  stopDrag(revBox);
-
-  openers.push(async (f) => {
-    if (!/\.brdb$/i.test(f.name)) return false;
-    try {
-      setStatus(`Opening ${f.name}…`);
-      const backend = await loadBrdbBackend!();
-      const bytes = new Uint8Array(await f.arrayBuffer());
-      const w = BrdbWorld.open(backend, bytes);
-      try { loadRevision(w, null, f.name); } catch (err) { w.close(); throw err; }
-      world?.close(); world = w; worldName = f.name;
-      rev.replaceChildren(new Option(`Live (${w.revisions.length} revision${w.revisions.length === 1 ? '' : 's'})`, ''));
-      for (const r of [...w.revisions].reverse()) {
-        const when = new Date(r.createdAt * 1000).toISOString().slice(0, 16).replace('T', ' ');
-        rev.add(new Option(`#${r.id} · ${when}${r.description ? ' · ' + r.description : ''}`, String(r.id)));
-      }
-      revBox.hidden = false;
-      initAudio(); playClick();
-    } catch (err) { setStatus(`Couldn't open ${f.name}: ${(err as Error).message}`); console.error(err); }
-    return true;
-  });
-  rev.addEventListener('change', () => {
-    if (!world) return;
-    try { loadRevision(world, rev.value ? Number(rev.value) : null, worldName); } catch (err) { setStatus(`Couldn't load that revision: ${(err as Error).message}`); console.error(err); }
-  });
-  // any other save replaces the world: hide its revision list and dynamic grids
-  S.hooks.beforeLoad.push(() => { setExtraBricks([], null); });
-  S.hooks.loaded.push(() => { if (!loading) { revBox.hidden = true; world?.close(); world = null; } });
-
   saveWorld.addEventListener('click', () => { void saveAsWorld(); });
-}
-
-let loading = false;
-
-/** Loads a world as of a revision (null = live): grid 1 as the scene, dynamic grids read-only. */
-function loadRevision(w: BrdbWorld, revisionId: number | null, name: string): void {
-  const flat = flattenTree(w.tree(revisionId ?? undefined));
-  const files = flat.files;
-  const model = buildWorldModel(fileMapView(files));
-  const extras: Brick[] = [];
-  let placed = 0, snapped = 0, skipped = 0;
-  for (const g of model.grids) {
-    if (g.kind !== 'dynamic') continue;
-    const p = placedGridBricks(fileMapView(files), g);
-    if (p.bricks.length) placed++;
-    if (p.snapped) snapped++;
-    skipped += p.skipped;
-    extras.push(...p.bricks);
-  }
-  const others = model.grids.filter((g) => g.id !== 1).length;
-  const note = [`${placed} of ${others} moving grid(s) shown (read-only)`, snapped && `${snapped} turned to the nearest quarter turn`, skipped && `${skipped} of their bricks unsupported`].filter(Boolean).join(', ');
-  const label = revisionId === null ? name : `${name} @ revision ${revisionId}`;
-  loading = true;
-  try { loadFiles(files, label, writeBrz(files), note); } finally { loading = false; }
-  setExtraBricks(extras, S.bricks[0] ?? null);
 }
 
 async function saveAsWorld(): Promise<void> {
   try {
+    await ensureLoadedFiles();
     const s = sceneFiles();
     if (!s) { setStatus('Open a save or world first: the new world is written from the save you opened'); return; }
     const backend = await loadBrdbBackend!();
@@ -273,7 +203,7 @@ export function focusNearest(x: number, y: number): number {
   });
   if (best < 0 || S.held) return -1;
   const keep = S.cam.half;
-  histEnd(); initAudio(); selectBrick(best); playClick();
+  histEnd(); initAudio(); selectBrick(best); playSelect();
   keepZoom(keep);
   return best;
 }

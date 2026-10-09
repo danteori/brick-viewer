@@ -4,7 +4,7 @@
 import { S } from '../../app/state.ts';
 import { lightFromBp } from '../../format/bp.ts';
 import { LIGHTING, type LightPreset } from '../../render/lighting.ts';
-import { loadedName, loadSave } from '../../scene/load.ts';
+import { ensureLoadedFiles, loadedName, loadSave } from '../../scene/load.ts';
 import { download, savedName, sceneBrz } from '../../scene/save.ts';
 import { hist, setUndoLimit } from '../../scene/history.ts';
 import { initAudio, playClick } from '../audio.ts';
@@ -63,7 +63,7 @@ export function initFilePanel(): void {
     if (f) void openFile(f);
   });
 
-  $('savebrz').addEventListener('click', saveBrzClick);
+  $('savebrz').addEventListener('click', () => { void saveBrzClick(); });
 
   // lighting preset picker (fills from LIGHTING, so new presets just appear)
   lightSel = $<HTMLSelectElement>('light');
@@ -96,8 +96,9 @@ export function initFilePanel(): void {
 }
 
 /** "Save .brz": the scene rebuilt into the save it was opened from, as a raw (uncompressed) .brz. */
-function saveBrzClick(): void {
+async function saveBrzClick(): Promise<void> {
   try {
+    await ensureLoadedFiles();                 // a lazily read world: the template needs every file
     const r = sceneBrz();
     if (!r) { setStatus('Open a save first: Save .brz writes your edits back into the save you opened'); return; }
     const name = savedName(loadedName, '.brz');

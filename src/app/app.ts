@@ -3,6 +3,7 @@
 
 import { S } from './state.ts';
 import { loadFullUi, type FeatureFlags } from './features.ts';
+import { initWorlds } from './worlds.ts';
 import { initWorldEnvironment } from './environment.ts';
 import { initPaintPanel } from '../ui/panels/paint.ts';
 import { initSoundPanel } from '../ui/panels/sound.ts';
@@ -87,6 +88,7 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
 
   initFilePanel();
   initSoundPanel();
+  if (opts.features.brdbRead) initWorlds();
   initProps();
   initGhost(canvas);
   S.hooks.applyList = applyList;

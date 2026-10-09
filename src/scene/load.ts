@@ -97,6 +97,18 @@ export let loadedFiles: FileMap | null = null;
 export let loadedName = '';
 /** The bytes as opened (a .brz, or a .brz made from a world), for the map. */
 export let loadedBrz: Uint8Array | null = null;
+/**
+ * When loadedFiles is only part of the save (a lazily read world), loads the rest. Null when
+ * loadedFiles is complete.
+ */
+let completeFiles: (() => Promise<FileMap>) | null = null;
+/** Makes loadedFiles the whole save before it's used as a template (Save .brz, Save as new world). */
+export async function ensureLoadedFiles(): Promise<void> {
+  const f = completeFiles;
+  if (!f) return;
+  const all = await f();
+  if (completeFiles === f) { loadedFiles = all; completeFiles = null; }   // unless another save opened meanwhile
+}
 /** Grid-1 bricks of that save the viewer can't show: "Save .brz" writes them back unchanged. */
 export let loadedUnsupported: PlainBrick[] = [];
 
@@ -111,9 +123,9 @@ export function loadSave(buf: ArrayBuffer | Uint8Array, name: string): LoadRepor
 /**
  * A save's file tree (a .brz, or a world at some revision) -> the scene. `brz`: the bytes of a
  * .brz holding the same tree, for the map. `gridNote` replaces the "moving grids not shown" note
- * when the caller draws them.
+ * when the caller draws them. `complete`: files is part of the save (it holds grid 1); this loads all of it.
  */
-export function loadFiles(files: FileMap, name: string, brz: Uint8Array | null = null, gridNote: string | null = null): LoadReport {
+export function loadFiles(files: FileMap, name: string, brz: Uint8Array | null = null, gridNote: string | null = null, complete: (() => Promise<FileMap>) | null = null): LoadReport {
   for (const f of S.hooks.beforeLoad) f();
   const { bricks: out, report, unsupported } = bricksFromFiles(files);
   if (!out.length) throw new Error('no supported bricks in this save');
@@ -130,7 +142,7 @@ export function loadFiles(files: FileMap, name: string, brz: Uint8Array | null =
   S.zoomMul = Math.min(ZOOM_MAX, Math.max(1, fitHalf(c.map((v, i) => v - r[i]), c.map((v, i) => v + r[i])) / fitHalf(lo, hi)));
   histPush({ kind: 'scene', label: 'load save', before: prevScene, after: sceneSnap() });
   lastLoad = { name, drawn: out.length, ...report };
-  loadedFiles = files; loadedName = name; loadedBrz = brz; loadedUnsupported = unsupported;
+  loadedFiles = files; completeFiles = complete; loadedName = name; loadedBrz = brz; loadedUnsupported = unsupported;
   const { skipped, skippedTypes, sideways, extraGrids } = report;
   const notes = [skipped && `${skipped} unsupported skipped (${Object.entries(skippedTypes).map(([k, n]) => `${k.replace(/^(PB|BP|B)_(Default)?/, '')} ${n}`).join(', ')})`,
     sideways && `${sideways} sideways`,
