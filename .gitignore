@@ -21,3 +21,6 @@ references/
 # Local golden capture config: names private saves.
 golden.config.json
 .vitest/
+
+# Private local-only fixtures (dev server reads .local/palette.bp). Never committed or bundled.
+.local/

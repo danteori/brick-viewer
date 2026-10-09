@@ -1,10 +1,10 @@
 // Picking and overlap queries through a uniform grid of brick boxes (ported from the legacy viewer).
 // The grid holds every brick's box in frame-independent coords (local + histOrigin), so recentring
-// doesn't touch it. The focused brick is tested on its own with its live box. Phase 3 replaces this
+// doesn't touch it. The focused brick is tested on its own with its live box. Overlap (collision)
+// queries live in collision.ts. Phase 3 replaces this
 // with the CSR SpatialIndex.
 
 import { S } from '../app/state.ts';
-import type { V3 } from './brick.ts';
 
 export const pickGrid = {
   dirty: true, cs: 1, org: [0, 0, 0] as number[], dim: [1, 1, 1] as number[],
@@ -118,34 +118,4 @@ export function pickRay(vx: number, vy: number): Hit | null {
     tMax[a] += tDel[a];
   }
   return best;
-}
-
-/**
- * Does any box [p + lo, p + hi] overlap a brick (touching is fine)? The focused brick is tested
- * live, the rest through the pick grid.
- */
-export function boxesHit(p: readonly number[], items: readonly { lo: V3; hi: V3 }[]): boolean {
-  const E = 1e-4;
-  const over = (l: ArrayLike<number>, h: ArrayLike<number>, L: ArrayLike<number>, H: ArrayLike<number>): boolean =>
-    l[0] < H[0] - E && h[0] > L[0] + E && l[1] < H[1] - E && h[1] > L[1] + E && l[2] < H[2] - E && h[2] > L[2] + E;
-  if (!S.bricks.length) return false;
-  if (pickGrid.dirty) pickBuild();
-  const PG = pickGrid, B = PG.box, cell = (v: number, i: number): number => Math.max(0, Math.min(PG.dim[i] - 1, Math.floor((v - PG.org[i]) / PG.cs)));
-  const L = [0, 0, 0], H = [0, 0, 0];
-  for (const t of items) {
-    const l = [0, 1, 2].map((i) => p[i] + t.lo[i]), h = [0, 1, 2].map((i) => p[i] + t.hi[i]);
-    if (S.bricks[S.sel] && over(l, h, S.dlo, S.dhi)) return true;
-    const la = l.map((v, i) => v + S.histOrigin[i]), ha = h.map((v, i) => v + S.histOrigin[i]);
-    const c0 = la.map(cell), c1 = ha.map(cell), dx = PG.dim[0], dy = PG.dim[1];
-    for (let z = c0[2]; z <= c1[2]; z++) for (let y = c0[1]; y <= c1[1]; y++) for (let x = c0[0]; x <= c1[0]; x++) {
-      const ks = PG.cells[(z * dy + y) * dx + x];
-      if (ks) for (const k of ks) {
-        if (k === S.sel) continue;
-        const o = k * 6;
-        L[0] = B[o]; L[1] = B[o + 1]; L[2] = B[o + 2]; H[0] = B[o + 3]; H[1] = B[o + 4]; H[2] = B[o + 5];
-        if (over(la, ha, L, H)) return true;
-      }
-    }
-  }
-  return false;
 }

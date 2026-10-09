@@ -31,3 +31,9 @@ export function referenceSaves(): string[] {
 export function readRef(rel: string): Uint8Array {
   return new Uint8Array(readFileSync(join(REFS, rel)));
 }
+
+/** Every .brdb world under saves/**, as paths relative to REFS (forward slashes). */
+export function referenceWorlds(): string[] {
+  if (!hasRefs) return [];
+  return walk(join(REFS, 'saves')).filter((p) => p.endsWith('.brdb')).map((p) => relative(REFS, p).replace(/\\/g, '/'));
+}

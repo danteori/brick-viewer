@@ -32,6 +32,15 @@ export interface BrickTest {
   paste(items: Brick[]): void;
 }
 
+/**
+ * snapBrick without the fields the legacy viewer doesn't have (intensity, pass-through save data),
+ * so the parity scripts compare like with like.
+ */
+function paritySnap(k: number): unknown {
+  const { intensity: _i, save: _s, ...rest } = snapBrick(k);
+  return rest;
+}
+
 export function installTestHook(canvas: HTMLCanvasElement): void {
   const raf = (): Promise<number> => new Promise((r) => requestAnimationFrame(r));
   const api: BrickTest = {
@@ -93,7 +102,7 @@ export function installTestHook(canvas: HTMLCanvasElement): void {
     /** the scene as frame-independent records, plus the focus and the editor state */
     snapshot() {
       return {
-        bricks: S.bricks.map((_, k) => snapBrick(k)), sel: S.sel,
+        bricks: S.bricks.map((_, k) => paritySnap(k)), sel: S.sel,
         clip: clip.items, pasteMode: clip.mode, ghost: !!ed.ghost, status: statusText(), held: S.held, zoom: +S.zoomMul.toPrecision(10), active: document.activeElement?.id || document.activeElement?.tagName,
       };
     },

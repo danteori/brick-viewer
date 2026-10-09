@@ -9,6 +9,8 @@ import type { V3 } from '../scene/brick.ts';
 import { G, drawBody, setBox } from './draw.ts';
 import { drawInstances, syncInstances } from './instances.ts';
 import { drawGrid } from './grid.ts';
+import { drawExtras } from './extras.ts';
+import { drawGround, drawGroundBackdrop } from './ground.ts';
 import { LIGHTING, lightDir } from './lighting.ts';
 import { nearOf, studPx } from './camera.ts';
 import { BOX_EDGE_COUNT, boxEB, boxIB } from './meshes/registry.ts';
@@ -44,11 +46,14 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
   // slope texture: one bump is 1/SHADE.BUMPS stud; fade it out between ~1.5 and 4 px
   const bumpFade = Math.max(0, Math.min(1, (studPx(0) * STEP / S.STEPS[0] / SHADE.BUMPS - 1.5) / 2.5));
   gl.uniform1f(u.uBump, SHADE.BUMP_STRENGTH * bumpFade);
+  drawGroundBackdrop(ortho, view);           // the far ground plate, if an environment shows one
   drawInstances(() => {
     const b = S.bricks[S.sel];
     if (!b) return;                          // empty scene
     drawBody(b, dlo, dhi);
   });
+  drawExtras();                              // read-only dynamic grids (none unless a world placed some)
+  drawGround();                              // the ground plate (off unless an environment is applied)
   gl.uniform1f(u.uEdge, 1); gl.uniform1f(u.uFadeR, 0);
   // hovering another brick: a faint wash on the face under the cursor (click = focus it)
   if (!S.held && S.hoverBrick >= 0 && S.hoverBrick !== S.sel) {

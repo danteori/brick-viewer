@@ -14,8 +14,8 @@ import { brickFlags, type Brick, type V3 } from '../scene/brick.ts';
 import { boxVB, shapeBuffer, shapeCount } from './meshes/registry.ts';
 import { pickGrid, pickUpdate } from '../scene/spatial.ts';
 
-const INST_F = 13;
-const INST_ATTRS: [number, number, number][] = [[LOC.iCenter, 3, 0], [LOC.iScale, 3, 12], [LOC.iColor, 3, 24], [LOC.iFlags, 4, 36]];
+export const INST_F = 13;
+export const INST_ATTRS: [number, number, number][] = [[LOC.iCenter, 3, 0], [LOC.iScale, 3, 12], [LOC.iColor, 3, 24], [LOC.iFlags, 4, 36]];
 
 interface Group { mesh: WebGLBuffer; buf: WebGLBuffer; data: Float32Array; n: number }
 export const inst = {
@@ -36,7 +36,7 @@ export const instAll = (): void => { inst.all = true; };
 export const markBrick = (k: number): void => { inst.dirty.add(k); };
 
 /** brick b's record at o in out, with faces l / h shifted by sh (into the upload frame) */
-function writeRecord(out: Float32Array, o: number, b: Brick, l: readonly number[], h: readonly number[], sh: readonly number[]): void {
+export function writeRecord(out: Float32Array, o: number, b: Brick, l: readonly number[], h: readonly number[], sh: readonly number[]): void {
   const l0 = l[0] + sh[0], l1 = l[1] + sh[1], l2 = l[2] + sh[2], h0 = h[0] + sh[0], h1 = h[1] + sh[1], h2 = h[2] + sh[2];
   out[o] = (l0 + h0) / 2; out[o + 1] = (l2 + h2) / 2; out[o + 2] = (l1 + h1) / 2;
   out[o + 3] = h0 - l0; out[o + 4] = h2 - l2; out[o + 5] = h1 - l1;

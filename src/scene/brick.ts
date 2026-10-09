@@ -38,9 +38,16 @@ export interface Brick {
   o?: number;
   /** sideways bricks: the stud axis code (+-2 world X, +-3 world Y) */
   side?: number;
+  /** material intensity, the save's A byte (0-10; 5 = the game's default) */
+  intensity?: number;
+  /** save fields the viewer doesn't use, kept so "Save .brz" writes them back */
+  save?: SaveExtras;
   /** the save grid this brick is in (unset = the main static grid, '1'); only same-grid bricks collide */
   grid?: string;
 }
+
+/** Owner and flag fields of a loaded brick, passed through to the writer. */
+export interface SaveExtras { owner?: number; originalOwner?: number; flags?: Record<string, number> }
 
 /**
  * A stud brick has a 3-way top style: studs, plain (PB_DefaultTile: flat top with the edge bevel)
