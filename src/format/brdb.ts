@@ -12,6 +12,8 @@
 // shared .schema, so BrdbTree.asWrittenWith hands out the schema live at a chunk's created_at
 // (survey_brz.schema_for). Writers: writeNewWorld (port of brdb.py write_brdb) and
 // appendRevision (save into an opened world). Both need an SqlBackend (sqljs.ts).
+// BrdbWorld copies the whole database into sql.js; brdblazy.ts reads the same tables page by
+// page instead (no wasm, contents on demand) on the shared BrdbFileTable / BrdbTree.
 
 import { blake3 } from './blake3.ts';
 import { bytesEqual, type FileMap } from './brz.ts';
@@ -101,24 +103,32 @@ export interface TreeDiff {
 const num = (v: SqlValue): number => (typeof v === 'bigint' ? Number(v) : (v as number));
 const numOrNull = (v: SqlValue): number | null => (v === null ? null : num(v));
 
-/** An opened .brdb. Holds a copy of the database; the input bytes are never changed. */
-export class BrdbWorld {
+/** Raw table rows in column order (shared by the sql.js and the lazy reader). */
+export interface BrdbRawTables {
+  /** revision_id, description, created_at, in revision_id order */
+  revisions: readonly (readonly SqlValue[])[];
+  /** folder_id, parent_id, name, created_at, deleted_at, in folder_id order */
+  folders: readonly (readonly SqlValue[])[];
+  /** file_id, parent_id, name, content_id, created_at, deleted_at, in file_id order */
+  files: readonly (readonly SqlValue[])[];
+}
+
+/**
+ * The versioned file tree of a world: revisions, folders and file rows, without blob contents.
+ * BrdbWorld (sql.js, whole file in memory) and LazyBrdbWorld (brdblazy.ts, pages on demand)
+ * both build on it; blob() is how each hands out contents.
+ */
+export abstract class BrdbFileTable {
   readonly revisions: BrdbRevision[];
   readonly folders: Map<number, BrdbFolderRow>;
   /** Every file row, live or not, in file_id order. */
   readonly rows: BrdbFileRow[];
-  readonly blobs: Map<number, BrdbBlobRow>;
   private readonly byPath = new Map<string, BrdbFileRow[]>();
-  private readonly cache = new Map<number, Uint8Array>();
-  private readonly unzstd: (b: Uint8Array) => Uint8Array;
 
-  private constructor(readonly backend: SqlBackend, readonly bytes: Uint8Array, readonly db: SqlDb, private readonly opts: BrdbOpenOptions) {
-    this.unzstd = opts.unzstd ?? zstdDecompress;
-    this.revisions = db.query('SELECT revision_id, description, created_at FROM revisions ORDER BY revision_id')
-      .map(([id, d, t]) => ({ id: num(id!), description: String(d ?? ''), createdAt: num(t!) }));
-    const rawFolders = db.query('SELECT folder_id, parent_id, name, created_at, deleted_at FROM folders ORDER BY folder_id');
+  protected constructor(raw: BrdbRawTables) {
+    this.revisions = raw.revisions.map(([id, d, t]) => ({ id: num(id!), description: String(d ?? ''), createdAt: num(t!) }));
     const fmeta = new Map<number, { parentId: number | null; name: string; createdAt: number; deletedAt: number | null }>();
-    for (const [id, par, name, ca, da] of rawFolders) fmeta.set(num(id!), { parentId: numOrNull(par!), name: String(name), createdAt: num(ca!), deletedAt: numOrNull(da!) });
+    for (const [id, par, name, ca, da] of raw.folders) fmeta.set(num(id!), { parentId: numOrNull(par!), name: String(name), createdAt: num(ca!), deletedAt: numOrNull(da!) });
     const pathOf = (id: number | null): string => {
       const parts: string[] = [];
       for (let f = id, guard = 0; f !== null; guard++) {
@@ -130,7 +140,7 @@ export class BrdbWorld {
       return parts.join('/');
     };
     this.folders = new Map([...fmeta].map(([id, m]) => [id, { id, ...m, path: pathOf(id) }]));
-    this.rows = db.query('SELECT file_id, parent_id, name, content_id, created_at, deleted_at FROM files ORDER BY file_id').map(([id, par, name, cid, ca, da]) => {
+    this.rows = raw.files.map(([id, par, name, cid, ca, da]) => {
       const folderId = numOrNull(par!), dir = folderId === null ? '' : this.folders.get(folderId)?.path;
       if (dir === undefined) throw new Error(`.brdb: file ${String(id)} is in a missing folder ${folderId}`);
       return { id: num(id!), folderId, name: String(name), path: dir ? `${dir}/${String(name)}` : String(name), contentId: num(cid!), createdAt: num(ca!), deletedAt: numOrNull(da!) };
@@ -140,6 +150,76 @@ export class BrdbWorld {
       if (!l) this.byPath.set(r.path, (l = []));
       l.push(r);
     }
+  }
+
+  /** Uncompressed contents of one blob. */
+  abstract blob(id: number): Uint8Array;
+
+  /** The latest revision (highest id). */
+  get head(): BrdbRevision | undefined {
+    return this.revisions[this.revisions.length - 1];
+  }
+
+  revision(id: number): BrdbRevision {
+    const r = this.revisions.find((x) => x.id === id);
+    if (!r) throw new Error(`no revision ${id}`);
+    return r;
+  }
+
+  /** Every row ever stored for a path, oldest first. */
+  history(path: string): readonly BrdbFileRow[] {
+    return this.byPath.get(path) ?? [];
+  }
+
+  /** The row of `path` alive at unix time `t`, or null. */
+  rowAt(path: string, t: number): BrdbFileRow | null {
+    let hit: BrdbFileRow | null = null;
+    for (const r of this.history(path)) if (r.createdAt <= t && (r.deletedAt === null || r.deletedAt > t)) hit = r;
+    return hit;
+  }
+
+  /** The rows of the live tree (deleted_at IS NULL), or of the tree as of a revision. */
+  protected treeRows(revisionId?: number): BrdbFileRow[] {
+    if (revisionId === undefined) return this.rows.filter((r) => r.deletedAt === null);
+    const t = this.revision(revisionId).createdAt;
+    return this.rows.filter((r) => r.createdAt <= t && (r.deletedAt === null || r.deletedAt > t));
+  }
+
+  /** Files written and deleted per revision. */
+  revisionStats(): RevisionStats[] {
+    const w = new Map<number, number>(), d = new Map<number, number>();
+    for (const r of this.rows) {
+      w.set(r.createdAt, (w.get(r.createdAt) ?? 0) + 1);
+      if (r.deletedAt !== null) d.set(r.deletedAt, (d.get(r.deletedAt) ?? 0) + 1);
+    }
+    return this.revisions.map((revision) => ({ revision, written: w.get(revision.createdAt) ?? 0, deleted: d.get(revision.createdAt) ?? 0 }));
+  }
+}
+
+/** Decompresses (and with `verify`, checks) one blob's stored content. */
+export function decodeBlob(info: BrdbBlobRow, stored: Uint8Array, opts: BrdbOpenOptions = {}): Uint8Array {
+  if (info.deltaBaseId !== null) throw new Error(`.brdb: blob ${info.id} is a delta blob (not seen in any save so far; not supported)`);
+  let content = stored;
+  if (info.compression === 1) content = (opts.unzstd ?? zstdDecompress)(content);
+  else if (info.compression !== 0) throw new Error(`.brdb: blob ${info.id} has unknown compression ${info.compression}`);
+  if (opts.verify) {
+    if (content.length !== info.sizeUncompressed) throw new Error(`.brdb: blob ${info.id} size ${content.length} != ${info.sizeUncompressed}`);
+    if (info.hash && !bytesEqual(blake3(content), info.hash)) throw new Error(`.brdb: blob ${info.id} hash mismatch`);
+  }
+  return content;
+}
+
+/** An opened .brdb. Holds a copy of the database; the input bytes are never changed. */
+export class BrdbWorld extends BrdbFileTable {
+  readonly blobs: Map<number, BrdbBlobRow>;
+  private readonly cache = new Map<number, Uint8Array>();
+
+  private constructor(readonly backend: SqlBackend, readonly bytes: Uint8Array, readonly db: SqlDb, private readonly opts: BrdbOpenOptions) {
+    super({
+      revisions: db.query('SELECT revision_id, description, created_at FROM revisions ORDER BY revision_id'),
+      folders: db.query('SELECT folder_id, parent_id, name, created_at, deleted_at FROM folders ORDER BY folder_id'),
+      files: db.query('SELECT file_id, parent_id, name, content_id, created_at, deleted_at FROM files ORDER BY file_id'),
+    });
     this.blobs = new Map(db.query('SELECT blob_id, compression, size_uncompressed, size_compressed, delta_base_id, hash FROM blobs').map(([id, c, us, cs, d, h]) =>
       [num(id!), { id: num(id!), compression: num(c!), sizeUncompressed: num(us!), sizeCompressed: num(cs!), deltaBaseId: numOrNull(d!), hash: h instanceof Uint8Array ? h : null }]));
   }
@@ -166,17 +246,6 @@ export class BrdbWorld {
     this.cache.clear();
   }
 
-  /** The latest revision (highest id). */
-  get head(): BrdbRevision | undefined {
-    return this.revisions[this.revisions.length - 1];
-  }
-
-  revision(id: number): BrdbRevision {
-    const r = this.revisions.find((x) => x.id === id);
-    if (!r) throw new Error(`no revision ${id}`);
-    return r;
-  }
-
   /** Uncompressed contents of one blob. */
   blob(id: number): Uint8Array {
     const hit = this.cache.get(id);
@@ -185,44 +254,14 @@ export class BrdbWorld {
     if (!info) throw new Error(`.brdb: missing blob ${id}`);
     if (info.deltaBaseId !== null) throw new Error(`.brdb: blob ${id} is a delta blob (not seen in any save so far; not supported)`);
     const row = this.db.query('SELECT content FROM blobs WHERE blob_id = ?', [id])[0];
-    let content = row?.[0] instanceof Uint8Array ? row[0] : new Uint8Array(0);
-    if (info.compression === 1) content = this.unzstd(content);
-    else if (info.compression !== 0) throw new Error(`.brdb: blob ${id} has unknown compression ${info.compression}`);
-    if (this.opts.verify) {
-      if (content.length !== info.sizeUncompressed) throw new Error(`.brdb: blob ${id} size ${content.length} != ${info.sizeUncompressed}`);
-      if (info.hash && !bytesEqual(blake3(content), info.hash)) throw new Error(`.brdb: blob ${id} hash mismatch`);
-    }
+    const content = decodeBlob(info, row?.[0] instanceof Uint8Array ? row[0] : new Uint8Array(0), this.opts);
     this.cache.set(id, content);
     return content;
   }
 
-  /** Every row ever stored for a path, oldest first. */
-  history(path: string): readonly BrdbFileRow[] {
-    return this.byPath.get(path) ?? [];
-  }
-
-  /** The row of `path` alive at unix time `t`, or null. */
-  rowAt(path: string, t: number): BrdbFileRow | null {
-    let hit: BrdbFileRow | null = null;
-    for (const r of this.history(path)) if (r.createdAt <= t && (r.deletedAt === null || r.deletedAt > t)) hit = r;
-    return hit;
-  }
-
   /** The live tree (deleted_at IS NULL), or the tree as of a revision. */
   tree(revisionId?: number): BrdbTree {
-    if (revisionId === undefined) return new BrdbTree(this, null, this.rows.filter((r) => r.deletedAt === null));
-    const t = this.revision(revisionId).createdAt;
-    return new BrdbTree(this, revisionId, this.rows.filter((r) => r.createdAt <= t && (r.deletedAt === null || r.deletedAt > t)));
-  }
-
-  /** Files written and deleted per revision. */
-  revisionStats(): RevisionStats[] {
-    const w = new Map<number, number>(), d = new Map<number, number>();
-    for (const r of this.rows) {
-      w.set(r.createdAt, (w.get(r.createdAt) ?? 0) + 1);
-      if (r.deletedAt !== null) d.set(r.deletedAt, (d.get(r.deletedAt) ?? 0) + 1);
-    }
-    return this.revisions.map((revision) => ({ revision, written: w.get(revision.createdAt) ?? 0, deleted: d.get(revision.createdAt) ?? 0 }));
+    return new BrdbTree(this, revisionId ?? null, this.treeRows(revisionId));
   }
 
   /** Which paths differ between two revisions (by content hash). */
@@ -251,7 +290,7 @@ export class BrdbTree implements SaveView {
   /** Paths stored twice at this time (not seen in game saves); the later row wins. */
   readonly duplicates: string[] = [];
 
-  constructor(readonly world: BrdbWorld, readonly revisionId: number | null, rows: readonly BrdbFileRow[]) {
+  constructor(readonly world: BrdbFileTable, readonly revisionId: number | null, rows: readonly BrdbFileRow[]) {
     for (const r of rows) {
       if (this.entries.has(r.path)) this.duplicates.push(r.path);
       this.entries.set(r.path, r);
