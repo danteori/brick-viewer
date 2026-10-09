@@ -13,7 +13,7 @@ import { setStatus } from '../ui/status.ts';
 import { farOf, fitHalf, PITCH_MAX, PITCH_MIN, snapToIso, studPx, toView, updateDirs, ZOOM_MAX, ZOOM_MIN } from '../render/camera.ts';
 import { viewOf } from '../core/math.ts';
 import { histBegin, histEnd } from '../scene/history.ts';
-import { initAudio, playClick, playResize } from '../ui/audio.ts';
+import { initAudio, playClick, playError, playResize, playSelect } from '../ui/audio.ts';
 import { drawGuide, clearGuide } from '../ui/overlay/dims.ts';
 import { syncSizeUi, updateMenuUnits, setModeButtons } from '../ui/panels/size.ts';
 
@@ -42,6 +42,7 @@ export const BLOCK_SHOW_MS = 1500;
 function refuse(reason: string, partly = false): void {
   resizeBlock.t = performance.now(); resizeBlock.reason = reason;
   setStatus(partly ? `Resize stopped: ${reason}` : `Can't resize: ${reason}`);
+  initAudio(); playError();
 }
 
 /**
@@ -183,7 +184,7 @@ export function onDown(e: PointerEvent, canvas: HTMLCanvasElement): void {
   if (e.button !== 0 || S.orbit.dragging || !S.bricks[S.sel]) return;
   if (S.hoverBrick >= 0 && S.hoverBrick !== S.sel) {            // clicked another brick: just move the focus
     const keep = S.cam.half;
-    histEnd(); initAudio(); selectBrick(S.hoverBrick); playClick();
+    histEnd(); initAudio(); selectBrick(S.hoverBrick); playSelect();
     keepZoom(keep);
     return;
   }

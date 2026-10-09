@@ -106,3 +106,17 @@ test('opens a .brdb world with its revisions', async ({ page }) => {
   }
   expect(errors).toEqual([]);
 });
+
+test('the Sound row mutes and sets the volume, and both persist', async ({ page }) => {
+  await page.goto('/');
+  const mute = page.locator('#mute'), vol = page.locator('#vol');
+  await expect(mute).toHaveAttribute('aria-pressed', 'false');
+  await mute.click();
+  await expect(mute).toHaveAttribute('aria-pressed', 'true');
+  await vol.fill('30');
+  await expect(mute).toHaveAttribute('aria-pressed', 'false');      // moving the slider unmutes
+  await mute.click();
+  await page.reload();
+  await expect(page.locator('#mute')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#vol')).toHaveValue('30');
+});

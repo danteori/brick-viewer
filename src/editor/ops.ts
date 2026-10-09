@@ -9,7 +9,7 @@ import { histEnd, histPush, snapBrick } from '../scene/history.ts';
 import { instAll } from '../render/instances.ts';
 import { keepZoom, selectBrick } from './resize.ts';
 import { ed, endPlacing, ghostName, itemName, poseGhost } from './ghost.ts';
-import { initAudio, playClick } from '../ui/audio.ts';
+import { initAudio, playClick, playDelete, playError, playPaste } from '../ui/audio.ts';
 import { setStatus } from '../ui/status.ts';
 
 function fromSnap(s: Brick): Brick {
@@ -43,7 +43,7 @@ export function placeGhost(): boolean {
   if (!G) return false;
   poseGhost();
   if (!G.pose) return false;
-  if (!G.valid) { setStatus(`Can't place ${ghostName(G.items)} here: ${G.reason}`); return false; }
+  if (!G.valid) { setStatus(`Can't place ${ghostName(G.items)} here: ${G.reason}`); initAudio(); playError(); return false; }
   histEnd();
   const p = G.pose, selBefore = S.sel, base = S.bricks.length, keep = S.cam.half;
   const placed = G.items.filter((_, j) => !G.skip[j]), skipped = G.items.length - placed.length;   // a paste drops overlapping bricks
@@ -57,7 +57,7 @@ export function placeGhost(): boolean {
   instAll();
   focusKeepZoom(base, keep);
   ed.lastPlaceT = performance.now();
-  initAudio(); playClick();
+  initAudio(); if (G.drop) playPaste(); else playClick();
   setStatus(G.drop
     ? `Pasted ${G.items.length === 1 ? ghostName(placed) : `${placed.length} brick${placed.length === 1 ? '' : 's'}`}${skipped ? ` (${skipped} skipped: overlapping)` : ''}`
     : `Placed ${ghostName(G.items)}`);
@@ -80,6 +80,6 @@ export function deleteFocused(): void {
   histPush({ kind: 'list', label: 'delete brick', adds: [], removes: [[k, snap]], selBefore: k, selAfter: nb });
   instAll();
   focusKeepZoom(nb, keep);
-  initAudio(); playClick();
+  initAudio(); playDelete();
   setStatus(S.bricks.length ? `Deleted ${name}` : `Deleted ${name}: the scene is empty, drag a brick in from Bricks`);
 }

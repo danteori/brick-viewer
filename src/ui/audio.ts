@@ -22,12 +22,14 @@ export const VOLUME_KEY = 'brickViewer.soundVolume';
 export const DEFAULT_VOLUME = 0.7;
 /** Resize ticks closer together than this are dropped (a fast drag would otherwise buzz). */
 export const RESIZE_MIN_GAP_MS = 20;
+/** Error buzzes closer together than this are dropped (a blocked resize drag refuses every step). */
+export const ERROR_MIN_GAP_MS = 250;
 
 export type SoundName = 'resize' | 'place' | 'delete' | 'paste' | 'error' | 'select';
 
 let ac: AudioContext | null = null, master: GainNode | null = null;
 let clickBuf: AudioBuffer | null = null, noiseBuf: AudioBuffer | null = null;
-let lastResize = -Infinity;
+let lastResize = -Infinity, lastError = -Infinity;
 let muted = loadString(MUTE_KEY) === '1';
 let volume = parseVolume(loadString(VOLUME_KEY));
 
@@ -174,6 +176,7 @@ export function playPaste(): void {
 /** Error buzz: 150 + 157 Hz square waves, low-passed at 900 Hz, two short pulses. */
 export function playError(): void {
   const b = bus(); if (!b) return;
+  const now = performance.now(); if (now - lastError < ERROR_MIN_GAP_MS) return; lastError = now;   // a blocked drag repeats
   const lp = b.ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900; lp.connect(b.out);
   for (const dt of [0, 0.1]) {
     const g = env(b.ac, lp, b.t + dt, 0.09, 0.005, 0.075);

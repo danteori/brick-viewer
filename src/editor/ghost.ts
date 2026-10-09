@@ -109,7 +109,7 @@ export function rotateItems(items: Brick[], turns: number): void {
     for (const t of items) for (const i of [0, 1]) { t.lo[i] = r3(t.lo[i] - m[i]); t.hi[i] = r3(t.hi[i] - m[i]); }
   }
 }
-export function rotateGhost(turns: number): void { if (!ed.ghost) return; rotateItems(ed.ghost.items, turns); playClick(); }
+
 export function nudgeGhost(d: number): void { if (!ed.ghost) return; ed.ghost.dz += d; playClick(); }
 
 /** a ray from the cursor (the same one pickRay casts) */

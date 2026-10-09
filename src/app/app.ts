@@ -5,6 +5,7 @@ import { S } from './state.ts';
 import { loadFullUi, type FeatureFlags } from './features.ts';
 import { initWorldEnvironment } from './environment.ts';
 import { initPaintPanel } from '../ui/panels/paint.ts';
+import { initSoundPanel } from '../ui/panels/sound.ts';
 import { installTestHook } from './test-hook.ts';
 import { createGfx } from '../render/gl.ts';
 import { initDraw } from '../render/draw.ts';
@@ -85,6 +86,7 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
   addEventListener('mousedown', (e) => { if (e.button === 2) onRightDown(); });
 
   initFilePanel();
+  initSoundPanel();
   initProps();
   initGhost(canvas);
   S.hooks.applyList = applyList;

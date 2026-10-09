@@ -17,6 +17,10 @@ const MARKUP = `
   </div>
   <label id="lightbox">Lighting <select id="light" aria-label="Lighting preset"></select></label>
   <label id="undobox" title="How many edits Ctrl+Z can step back through">Undo steps <input id="undolim" type="number" min="1" max="500" step="1"></label>
+  <div id="soundbox" role="group" aria-label="Sound">Sound
+    <button type="button" id="mute" aria-pressed="false" title="Mute the editor sounds">On</button>
+    <input id="vol" type="range" min="0" max="100" step="1" aria-label="Sound volume" title="Sound volume">
+  </div>
   <div id="file">
     <button type="button" id="open">Open save (.brz)</button>
     <input type="file" id="pick" accept=".brz,.bp" hidden>

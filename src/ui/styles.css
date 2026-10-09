@@ -25,7 +25,7 @@ canvas { display:block; width:100%; height:100%; touch-action:none; }
 #mode button:disabled { opacity:.4; cursor:default; color:#9a9ca3; }   /* fixed-size rounds can't switch type */
 .dim.ro, .dim.ro:hover { cursor:default; border-color:rgba(201,204,211,.18); color:#9a9ca3; }   /* read-only size (rounds) */
 #menu .mrow.ro { cursor:default; } #menu .mrow.ro input { color:#9a9ca3; border-style:dashed; }
-#lightbox, #undobox { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:7px 10px; border-radius:10px;
+#lightbox, #undobox, #soundbox { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:7px 10px; border-radius:10px;
         background:rgba(29,30,33,.88); border:1px solid rgba(255,255,255,.12); box-shadow:0 6px 24px rgba(0,0,0,.35);
         font:600 12px/1.2 system-ui, sans-serif; color:#9a9ca3; }
 #lightbox select { min-width:0; flex:1; padding:4px 6px; border-radius:7px; border:1px solid rgba(255,255,255,.18); background:#2b2c30;
@@ -34,6 +34,12 @@ canvas { display:block; width:100%; height:100%; touch-action:none; }
 #undobox input { width:4.5em; padding:4px 6px; border-radius:7px; border:1px solid rgba(255,255,255,.18); background:#2b2c30;
         color:#eee; font:600 12px/1.2 system-ui, sans-serif; }
 #undobox input:focus-visible { outline:2px solid #fff; outline-offset:1px; }
+#soundbox button { min-width:3.6em; padding:4px 8px; border-radius:7px; border:1px solid rgba(255,255,255,.18); background:#2b2c30; color:#eee;
+        cursor:pointer; font:600 12px/1.2 system-ui, sans-serif; }
+#soundbox button[aria-pressed="true"] { color:#ff7a66; }
+#soundbox button:hover { border-color:#e8590c; }
+#soundbox input { min-width:0; flex:1; accent-color:#e8590c; }
+#soundbox :focus-visible { outline:2px solid #fff; outline-offset:1px; }
 #file { display:grid; gap:4px; padding:8px; border-radius:10px; background:rgba(29,30,33,.88); border:1px solid rgba(255,255,255,.12);
         box-shadow:0 6px 24px rgba(0,0,0,.35); }
 #file button { padding:7px 10px; border:1px solid rgba(255,255,255,.18); border-radius:7px; background:#2b2c30; color:#eee; cursor:pointer;

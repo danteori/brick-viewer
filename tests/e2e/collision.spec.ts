@@ -163,3 +163,74 @@ test('a paste drops the bricks that would overlap, as one undo step', async ({ p
   await settle(page);
   expect((await snap(page)).bricks.length).toBe(3);
 });
+
+// --- E-05: R on the focused brick (rotate / reorient) follows the same rules
+const box0 = async (page: Page): Promise<{ size: number[]; mid: number[] }> => {
+  const b = (await snap(page)).bricks[0];
+  return { size: b.hi.map((v, i) => r3(v - b.lo[i])), mid: b.hi.map((v, i) => r3((v + b.lo[i]) / 2)) };
+};
+
+test('R rotates the focused brick about its centre; undo restores it', async ({ page }) => {
+  await twoBricks(page);
+  await page.locator('#menu .mrow input').nth(1).click();   // A: 2 x 3 studs, still clear of B when turned
+  await page.keyboard.type('3');
+  await page.keyboard.press('Enter');
+  await settle(page);
+  const before = await box0(page);
+  await page.mouse.move(640, 790);
+  await page.keyboard.press('r');
+  await settle(page);
+  const after = await box0(page);
+  expect(after.size).toEqual([before.size[1], before.size[0], before.size[2]]);
+  expect(after.mid).toEqual(before.mid);
+  expect((await snap(page)).status).toMatch(/Rotated/);
+  await page.keyboard.press('Control+z');
+  await settle(page);
+  expect((await box0(page)).size).toEqual(before.size);
+});
+
+test('R is refused when the turned brick would overlap a brick', async ({ page }) => {
+  await twoBricks(page);
+  await click(page, await onBrick(page, 1, [0.5, 0.5, 1]));   // B: 12 studs long in Y (grows the same way as A will)
+  await settle(page);
+  await page.locator('#menu .mrow input').nth(1).click();
+  await page.keyboard.type('12');
+  await page.keyboard.press('Enter');
+  await settle(page);
+  await click(page, await onBrick(page, 0, [0.5, 0.5, 1]));
+  await settle(page);
+  expect((await snap(page)).sel).toBe(0);
+  await page.locator('#menu .mrow input').nth(1).click();   // A: 2 x 8 studs: turned, it reaches into B
+  await page.keyboard.type('8');
+  await page.keyboard.press('Enter');
+  await settle(page);
+  const before = await box0(page);
+  await page.mouse.move(640, 790);
+  await page.keyboard.press('r');
+  await settle(page);
+  expect((await box0(page)).size).toEqual(before.size);
+  expect((await snap(page)).status).toMatch(/Can't rotate .*: overlaps a brick/);
+  expect(await page.locator('#hud').innerHTML()).toMatch(/blocked: overlaps a brick/);
+});
+
+test('R held + drag points the top along a world axis, as one undo step', async ({ page }) => {
+  await page.goto('/?test');
+  await page.waitForFunction(() => !!(window as unknown as W).__brickTest);
+  await settle(page);
+  const up0 = await page.evaluate(() => ((window as unknown as W).__brickTest.snapshot() as unknown as { bricks: { up: number }[] }).bricks[0].up);
+  expect(up0).toBe(1);
+  await page.mouse.move(640, 400); await frames(page);
+  await page.keyboard.down('r');
+  await page.mouse.move(760, 400, { steps: 8 }); await frames(page);
+  await page.keyboard.up('r');
+  await settle(page);
+  const s = await page.evaluate(() => (window as unknown as W).__brickTest.snapshot() as unknown as { bricks: { up: number; side?: number }[]; status: string });
+  expect(s.bricks[0].up).toBe(0);                   // on its side now
+  expect(Math.abs(s.bricks[0].side ?? 0)).toBeGreaterThan(1);
+  expect(s.status).toMatch(/Reoriented/);
+  await page.mouse.move(640, 790);
+  await page.keyboard.press('Control+z');
+  await settle(page);
+  const u = await page.evaluate(() => ((window as unknown as W).__brickTest.snapshot() as unknown as { bricks: { up: number }[] }).bricks[0].up);
+  expect(u).toBe(1);
+});
