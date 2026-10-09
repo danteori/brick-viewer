@@ -16,12 +16,16 @@ import { LIGHTING, lightDir } from './lighting.ts';
 import { nearOf, studPx } from './camera.ts';
 import { BOX_EDGE_COUNT, boxEB, boxIB } from './meshes/registry.ts';
 import { proposedBox } from '../editor/resize.ts';
+import { useBrickVariant } from './gl.ts';
+import { cutActive, setCutUniforms } from './cutaway.ts';
 
 /** index in the cube's faces of the near face for X (+-x), Y (+-GL z), Z (top +y, bottom -y) */
 export const faceOf = (i: number): number => (i === 0 ? (S.ns[0] > 0 ? 0 : 1) : i === 1 ? (S.ns[1] > 0 ? 4 : 5) : (S.ns[2] > 0 ? 2 : 3));
 
 /** Draws one frame into a w x h drawing buffer; returns the ortho scale (sx, sy) for the DOM overlays. */
 export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { sx: number; sy: number } {
+  const cutOn = cutActive();
+  useBrickVariant(G, cutOn);                 // the X-ray cutaway's program only while it's on
   const { gl, u } = G, { cam, dlo, dhi } = S;
   gl.viewport(0, 0, w, h);
   const asp = w / h, fx = Math.max(asp, 1), fy = Math.max(1 / asp, 1);
@@ -32,6 +36,7 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
   const view = S.view;
   gl.uniformMatrix4fv(u.uMVP, false, mul(ortho, view));
   gl.uniform3f(u.uEye, view[2], view[6], view[10]);   // view-space +z (toward the camera) in world/GL space
+  if (cutOn) setCutUniforms(G);
   { const P = LIGHTING[S.lighting]; gl.uniform3fv(u.uSun, P.sun); gl.uniform3fv(u.uSky, P.sky); gl.uniform3fv(u.uFloor, P.floor); gl.uniform1f(u.uExposure, P.exposure); }
   { const L = lightDir(); gl.uniform3f(u.uLight, L[0], L[1], L[2]); }
   gl.clearColor(0.169, 0.173, 0.188, 1);          // #2b2c30, matches --bg
@@ -68,7 +73,9 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
     gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.depthFunc(gl.LEQUAL); gl.depthMask(false);
     gl.uniform4f(u.uLine, 1, 1, 1, 0.07);
+    gl.uniform1f(u.uCutEdge, 1);             // the X-ray cutaway cuts the wash like the face under it
     gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, faceOf(S.hoverFace) * 6 * 2);
+    gl.uniform1f(u.uCutEdge, 0);
     gl.depthFunc(gl.LESS); gl.depthMask(true); gl.disable(gl.BLEND);
   }
   setBox(dlo, dhi);                          // back to the focused brick for the glow / ghost

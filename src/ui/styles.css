@@ -40,6 +40,18 @@ canvas { display:block; width:100%; height:100%; touch-action:none; }
 #soundbox button:hover { border-color:#e8590c; }
 #soundbox input { min-width:0; flex:1; accent-color:#e8590c; }
 #soundbox :focus-visible { outline:2px solid #fff; outline-offset:1px; }
+#viewbox, #xraybox { display:flex; align-items:center; justify-content:space-between; gap:6px; padding:7px 10px; border-radius:10px;
+        background:rgba(29,30,33,.88); border:1px solid rgba(255,255,255,.12); box-shadow:0 6px 24px rgba(0,0,0,.35);
+        font:600 12px/1.2 system-ui, sans-serif; color:#9a9ca3; }
+#xraybox { flex-direction:column; align-items:stretch; gap:4px; }
+#xraybox[hidden] { display:none; }
+#xraybox label { display:flex; align-items:center; gap:8px; }
+#xraybox input { min-width:0; flex:1; accent-color:#e8590c; }
+#viewbox button { padding:4px 8px; border-radius:7px; border:1px solid rgba(255,255,255,.18); background:#2b2c30; color:#eee;
+        cursor:pointer; font:600 12px/1.2 system-ui, sans-serif; }
+#viewbox button[aria-pressed="true"] { color:#ff7a66; border-color:#e8590c; }
+#viewbox button:hover { border-color:#e8590c; }
+#viewbox :focus-visible, #xraybox :focus-visible { outline:2px solid #fff; outline-offset:1px; }
 #file { display:grid; gap:4px; padding:8px; border-radius:10px; background:rgba(29,30,33,.88); border:1px solid rgba(255,255,255,.12);
         box-shadow:0 6px 24px rgba(0,0,0,.35); }
 #file button { padding:7px 10px; border:1px solid rgba(255,255,255,.18); border-radius:7px; background:#2b2c30; color:#eee; cursor:pointer;

@@ -5,6 +5,7 @@
 import { SHADE } from '../../core/units.ts';
 import { TONEMAP_GLSL } from './tonemap.ts';
 import { MATERIALS_GLSL } from '../materials.ts';
+import { CUT_GLSL } from '../cutaway.ts';
 
 /** a GLSL float literal */
 export const glf = (v: number): string => { const s = String(+v); return /[.e]/.test(s) ? s : s + '.0'; };
@@ -84,7 +85,7 @@ uniform float uMat, uIntensity, uMatPass;
 // specular anti-aliasing (U-10): normal-variance threshold and glint fade strength
 uniform float uStudFade;
 const float SPEC_AA_T = ${glf(SHADE.SPEC_AA_T)}, SPEC_AA_K = ${glf(SHADE.SPEC_AA_K)}, SPEC_AA_CAP = ${glf(SHADE.SPEC_AA_CAP)};
-${TONEMAP_GLSL}
+${CUT_GLSL}${TONEMAP_GLSL}
 ${MATERIALS_GLSL}
 float smin(float a, float b, float k){ float h = clamp(0.5 + 0.5*(b-a)/k, 0.0, 1.0); return mix(b, a, h) - k*h*(1.0-h); }
 // Stud surface height (in stud widths) at cell coord c (-0.5..0.5): flat top, sloped sides, a
@@ -183,10 +184,16 @@ float roundUnderside(vec2 q, vec2 sz, float eCirc, vec2 inward, out vec2 tilt){
 }
 void main(){
   if (uEdge > 0.5) {
+#ifdef CUT
+    if (uCutEdge > 0.5 && cutAway(vW)) discard;   // the hover wash on a brick the cutaway cuts into
+#endif
     float a = uLine.a;
     if (uFadeR > 0.0) a *= 1.0 - smoothstep(uFadeR*0.35, uFadeR, length(vW.xz - uFadeC.xz));
     fragColor = vec4(uLine.rgb, a); return;
   }
+#ifdef CUT
+  if (cutAway(vW)) discard;          // X-ray cutaway (render/cutaway.ts): only in the CUT variant
+#endif
   vec3 nG = normalize(vN);
   vec3 n = nG;
   bool slope = vSlope > 0.5;
