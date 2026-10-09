@@ -169,6 +169,11 @@ describe('stale-schema chunks', () => {
     const stale = BrdbWorld.open(sql, appendRevision(w1, next, { when: 2000, reencodeStale: false }).bytes);
     expect(() => flattenTree(stale.tree())).toThrow(StaleSchemaError);
     expect(() => flattenTree(stale.tree())).toThrow(/Mystery is new/);
+    // for showing a world only: the file that needs a guess is left out instead
+    const shown = flattenTree(stale.tree(), { skipStale: true });
+    expect(shown.skipped).toEqual([CHUNK]);
+    expect(shown.files.has(CHUNK)).toBe(false);
+    expect(shown.files.has(W + 'GlobalData.mps')).toBe(true);
     const next2 = new Map(w1.tree().files());
     next2.set(W + 'GlobalData.mps', enc(GLOBAL, { BasicBrickAssetNames: ['B_2x2', 'B_1x1'], ProceduralBrickAssetNames: ['PB_DefaultBrick'], MaterialAssetNames: ['BMC_Plastic'] }));
     expect(() => appendRevision(w1, next2, { when: 2000 })).toThrow(/BasicBrickAssetNames changed/);

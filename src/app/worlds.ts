@@ -37,6 +37,8 @@ interface WorldState {
   model: WorldModel;
   /** every file of that state, for a save template; null when `files` already is all of it */
   complete: (() => Promise<FileMap>) | null;
+  /** files left out of `files` because they can't be converted to the live schemas (flattenTree skipStale) */
+  skipped: number;
 }
 
 /** An opened world, whichever reader opened it. */
@@ -58,7 +60,7 @@ const subView = (tree: SaveView, paths: readonly string[]): SaveView => {
 
 async function openLazy(f: File): Promise<OpenWorld> {
   const w = await LazyBrdbWorld.open(blobSource(f));
-  const flat = async (tree: LazyBrdbTree, view: SaveView): Promise<FileMap> => (await runLoaded(tree, () => flattenTree(view))).files;
+  const flat = async (tree: LazyBrdbTree, view: SaveView, skipStale = false): Promise<{ files: FileMap; skipped: string[] }> => await runLoaded(tree, () => flattenTree(view, { skipStale }));
   return {
     reader: 'lazy',
     revisions: w.revisions,
@@ -69,15 +71,16 @@ async function openLazy(f: File): Promise<OpenWorld> {
       const want = tree.paths().filter((p) => { const m = p.match(GRID_DIR); return !m || !hidden.has(m[1]!); });
       await tree.loadWritten(want.filter((p) => p.endsWith('.mps')));
       await tree.load(want);
-      const files = await flat(tree, subView(tree, want));
+      const { files, skipped } = await flat(tree, subView(tree, want), true);
       w.unloadBlobs();                        // the scene's file map holds what it needs
-      const all = want.length === tree.paths().length;
+      const all = want.length === tree.paths().length && !skipped.length;
       return {
-        files, model,
+        files, model, skipped: skipped.length,
+        // a save template must hold every file: flattened strictly (a file that can't be converted fails the save)
         complete: all ? null : async () => {
           const t = w.tree(revisionId ?? undefined);
           await t.load(t.paths());
-          const full = await flat(t, t);
+          const full = (await flat(t, t)).files;
           w.unloadBlobs();
           return full;
         },
@@ -94,8 +97,9 @@ async function openSqlJs(f: File): Promise<OpenWorld> {
     reader: 'sql.js',
     revisions: w.revisions,
     async state(revisionId) {
-      const files = flattenTree(w.tree(revisionId ?? undefined)).files;
-      return { files, model: buildWorldModel(fileMapView(files)), complete: null };
+      const { files, skipped } = flattenTree(w.tree(revisionId ?? undefined), { skipStale: true });
+      const complete = skipped.length ? async (): Promise<FileMap> => flattenTree(w.tree(revisionId ?? undefined)).files : null;
+      return { files, model: buildWorldModel(fileMapView(files)), complete, skipped: skipped.length };
     },
     close: () => w.close(),
   };
@@ -156,19 +160,22 @@ export function initWorlds(): void {
 
 /** Loads a world as of a revision (null = live): grid 1 as the scene, dynamic grids read-only. */
 async function loadRevision(w: OpenWorld, revisionId: number | null, name: string): Promise<void> {
-  const { files, model, complete } = await w.state(revisionId);
+  const { files, model, complete, skipped: staleFiles } = await w.state(revisionId);
   const extras: Brick[] = [];
-  let placed = 0, snapped = 0, skipped = 0;
+  let placed = 0, snapped = 0, skipped = 0, failed = 0;
   for (const g of model.grids) {
     if (g.kind !== 'dynamic') continue;
-    const p = placedGridBricks(fileMapView(files), g);
+    let p: ReturnType<typeof placedGridBricks>;
+    try { p = placedGridBricks(fileMapView(files), g); }
+    catch (err) { failed++; console.warn(`grid ${g.id} not shown`, err); continue; }
     if (p.bricks.length) placed++;
     if (p.snapped) snapped++;
     skipped += p.skipped;
-    extras.push(...p.bricks);
+    for (const b of p.bricks) extras.push(b);
   }
   const others = model.grids.filter((g) => g.id !== 1).length;
-  const note = [`${placed} of ${others} moving grid(s) shown (read-only)`, snapped && `${snapped} turned to the nearest quarter turn`, skipped && `${skipped} of their bricks unsupported`].filter(Boolean).join(', ');
+  const note = [`${placed} of ${others} moving grid(s) shown (read-only)`, snapped && `${snapped} turned to the nearest quarter turn`, skipped && `${skipped} of their bricks unsupported`,
+    failed && `${failed} unreadable`, staleFiles && `${staleFiles} file(s) in a newer layout left out (saving this world will fail)`].filter(Boolean).join(', ');
   const label = revisionId === null ? name : `${name} @ revision ${revisionId}`;
   loading = true;
   try { loadFiles(files, label, writeBrz(files), note, complete); } finally { loading = false; }

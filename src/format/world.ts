@@ -118,7 +118,10 @@ export function extractBricks(files: FileMap, opts: WorldOptions = {}): { bricks
   ci.Chunk3DIndices.forEach((k, j) => {
     const f = files.get(chunkPath(c.GP, k));
     if (!f) return;
-    const ch = decodeMps<BrickChunk>(f, c.chunkSchema), size = ci.ChunkSizes[j]!, off = ci.ChunkOffsets[j]!;
+    // saves from before ~2025-09 have no ChunkSizes / ChunkOffsets: 2048-unit chunks, offset 0 for
+    // the main grid and (1024, 1024, 1024) for the others (as src/scene/grids.ts assumes)
+    const d = (opts.grid ?? '1') === '1' ? 0 : 1024;
+    const ch = decodeMps<BrickChunk>(f, c.chunkSchema), size = ci.ChunkSizes?.[j] ?? 2048, off = ci.ChunkOffsets?.[j] ?? { X: d, Y: d, Z: d };
     const centre = AX.map((a) => k[a] * size + size / 2 + off[a]);
     const before = bricks.length;
     for (const b of decodeBrickChunk(ch, c.chunkSchema, g, centre)) bricks.push(b);
@@ -283,10 +286,10 @@ export function rebuildFromLoaded(files: FileMap, bricks: readonly PlainBrick[],
     idx.ChunkOffsets.push({ X: 0, Y: 0, Z: 0 });
     idx.ChunkSizes.push(opts.chunkSize ?? 2048);
     idx.NumBricks.push(ch.n);
-    idx.NumComponents.push(j !== undefined ? c.ci!.NumComponents[j]! : 0);
-    idx.NumWires.push(j !== undefined ? c.ci!.NumWires[j]! : 0);
+    idx.NumComponents.push(j !== undefined ? c.ci!.NumComponents?.[j] ?? 0 : 0);
+    idx.NumWires.push(j !== undefined ? c.ci!.NumWires?.[j] ?? 0 : 0);
     if (j !== undefined) {
-      const o = c.ci!.ChunkOffsets[j]!;
+      const o = c.ci!.ChunkOffsets?.[j] ?? { X: 0, Y: 0, Z: 0 };
       if (o.X | o.Y | o.Z) warnings.push(`chunk ${ch.key} had a non-zero offset (dropped)`);
     }
   }

@@ -63,7 +63,7 @@ function histApply(t: Tx, side: 'before' | 'after'): void {
   if (t.kind === 'scene') {
     t[side === 'before' ? 'after' : 'before'] = sceneSnap();   // the side being left, as it is now
     const s = t[side];
-    S.bricks.length = 0; S.bricks.push(...s.list);
+    S.bricks.length = 0; for (const b of s.list) S.bricks.push(b);
     S.histOrigin = s.origin.slice() as V3; S.zoomMul = s.zoom;
     instAll();
     selectBrick(s.sel);

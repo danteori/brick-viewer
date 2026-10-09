@@ -135,13 +135,14 @@ export function loadFiles(files: FileMap, name: string, brz: Uint8Array | null =
   if (!out.length) throw new Error('no supported bricks in this save');
   histEnd();
   const prevScene = sceneSnap();
-  S.bricks.length = 0; S.bricks.push(...out);
+  S.bricks.length = 0; for (const b of out) S.bricks.push(b);
   S.histOrigin = [0, 0, 0];                    // a new scene starts its own frame
   instAll();
   selectBrick(0);
   // frame the whole save around the focused brick
   const { lo, hi, bricks } = S;
-  const sl = [0, 1, 2].map((i) => Math.min(...bricks.map((b) => b.lo[i]))), sh = [0, 1, 2].map((i) => Math.max(...bricks.map((b) => b.hi[i])));
+  const sl = [Infinity, Infinity, Infinity], sh = [-Infinity, -Infinity, -Infinity];   // no spread: big saves overflow the stack
+  for (const b of bricks) for (let i = 0; i < 3; i++) { sl[i] = Math.min(sl[i], b.lo[i]); sh[i] = Math.max(sh[i], b.hi[i]); }
   const c = [0, 1, 2].map((i) => (lo[i] + hi[i]) / 2), r = [0, 1, 2].map((i) => Math.max(c[i] - sl[i], sh[i] - c[i]));
   S.zoomMul = Math.min(ZOOM_MAX, Math.max(1, fitHalf(c.map((v, i) => v - r[i]), c.map((v, i) => v + r[i])) / fitHalf(lo, hi)));
   histPush({ kind: 'scene', label: 'load save', before: prevScene, after: sceneSnap() });
