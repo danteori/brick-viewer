@@ -106,10 +106,14 @@ function loadCtx(files: FileMap, opts: WorldOptions): WorldContext {
 
 const chunkPath = (GP: string, k: XYZ): string => `${GP}Chunks/${k.X}_${k.Y}_${k.Z}.mps`;
 
-/** Loaded save -> plain bricks of one grid, in chunk-index order then file order. */
-export function extractBricks(files: FileMap, opts: WorldOptions = {}): { bricks: PlainBrick[]; ctx: WorldContext } {
-  const c = loadCtx(files, opts), bricks: PlainBrick[] = [], g = c.global;
-  if (!c.ci) return { bricks, ctx: c };
+/**
+ * Loaded save -> plain bricks of one grid, in chunk-index order then file order. `linear[i]` says
+ * whether brick i's chunk stores linear colour bytes (bColorsAreLinear true, or missing as in saves
+ * from before CL14860); otherwise the bytes are sRGB-encoded.
+ */
+export function extractBricks(files: FileMap, opts: WorldOptions = {}): { bricks: PlainBrick[]; ctx: WorldContext; linear: boolean[] } {
+  const c = loadCtx(files, opts), bricks: PlainBrick[] = [], g = c.global, linear: boolean[] = [];
+  if (!c.ci) return { bricks, ctx: c, linear };
   const ci = c.ci;
   ci.Chunk3DIndices.forEach((k, j) => {
     const f = files.get(chunkPath(c.GP, k));
@@ -144,9 +148,10 @@ export function extractBricks(files: FileMap, opts: WorldOptions = {}): { bricks
       });
       if (any) b.flags = fl;
       bricks.push(b);
+      linear.push(ch.bColorsAreLinear !== false);
     });
   });
-  return { bricks, ctx: c };
+  return { bricks, ctx: c, linear };
 }
 
 /** Chunk fields the writer knows how to build. */

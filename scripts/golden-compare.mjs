@@ -1,7 +1,7 @@
 // Compares a capture of the new app with the legacy goldens (ARCHITECTURE.md section 6, Phase 1 gate):
 // a shot passes when at least 99.9 % of its pixels differ by at most 2/255 in every channel.
 //
-//   npm run golden:compare -- --target full      test-results/golden-full/ vs tests/golden/
+//   npm run golden:compare -- --target full      tests/golden/full/ vs tests/golden/
 //   npm run golden:compare -- --target lite
 //
 // Writes a diff image (red = over the threshold) for each failing shot next to the capture, and
@@ -16,7 +16,7 @@ const args = process.argv.slice(2);
 const ti = args.indexOf('--target');
 const TARGET = ti >= 0 ? args[ti + 1] : 'full';
 const filter = args.filter((a, i) => !a.startsWith('--') && i !== ti + 1)[0] ?? '';
-const GOLD = join(ROOT, 'tests/golden'), CAP = join(ROOT, `test-results/golden-${TARGET}`);
+const GOLD = join(ROOT, 'tests/golden'), CAP = join(ROOT, `tests/golden/${TARGET}`);
 const TOL = 2, NEED = 0.999;
 
 if (!existsSync(GOLD)) { console.log('no goldens; run npm run golden:capture first'); process.exit(0); }

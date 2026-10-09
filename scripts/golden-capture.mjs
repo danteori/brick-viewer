@@ -1,8 +1,8 @@
 // Golden capture: renders reference screenshots of the 3D view with Playwright on SwiftShader.
 //
 //   npm run golden:capture                         legacy viewer -> tests/golden/ (the goldens)
-//   npm run golden:capture -- --target full        new app (dist/)          -> test-results/golden-full/
-//   npm run golden:capture -- --target lite        new app (dist-lite/)     -> test-results/golden-lite/
+//   npm run golden:capture -- --target full        new app (dist/)          -> tests/golden/full/
+//   npm run golden:capture -- --target lite        new app (dist-lite/)     -> tests/golden/lite/
 //   npm run golden:capture -- ships                only saves whose path contains "ships"
 //
 // Every target is driven through the same page API, window.__brickTest:
@@ -12,7 +12,7 @@
 // Before each screenshot the UI panels, labels and HUD are hidden and the editor ghost and hover
 // highlights are off, so the goldens compare the 3D render only.
 //
-// The PNGs are renders of PRIVATE saves: tests/golden/ and test-results/ are git-ignored and the
+// The PNGs are renders of PRIVATE saves: tests/golden/ (subfolders included) is git-ignored and the
 // images stay on this machine. Saves come from BRICK_REFS (default ../references); without it the
 // script exits cleanly. Compare with scripts/golden-compare.mjs.
 
@@ -30,7 +30,7 @@ const ti = args.indexOf('--target');
 const TARGET = ti >= 0 ? args[ti + 1] : 'legacy';
 const filter = args.filter((a, i) => !a.startsWith('--') && i !== ti + 1)[0] ?? '';
 if (!['legacy', 'full', 'lite'].includes(TARGET)) { console.error(`unknown target ${TARGET}`); process.exit(2); }
-const OUT = TARGET === 'legacy' ? join(ROOT, 'tests/golden') : join(ROOT, `test-results/golden-${TARGET}`);
+const OUT = TARGET === 'legacy' ? join(ROOT, 'tests/golden') : join(ROOT, `tests/golden/${TARGET}`);
 
 if (!existsSync(join(REFS, 'saves'))) {
   console.log(`no reference saves at ${REFS}; nothing to capture`);

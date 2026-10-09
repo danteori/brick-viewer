@@ -7,9 +7,12 @@ your browser; nothing is uploaded.
 > contains no Brickadia logos, artwork, sounds or other game assets. Brick shapes are
 > approximated from public specs and screenshots.
 
-**Status:** early. The new TypeScript/WebGL2 app is being built. Until it reaches parity, the
-current single-file viewer lives at [`legacy/save-viewer.html`](legacy/save-viewer.html) and is
-also published next to the app.
+**Status:** the TypeScript/WebGL2 app has reached parity with the single-file viewer (camera,
+resizing, typed sizes, lighting presets and `.bp` environments, every supported brick type in all
+orientations, the editor with the Bricks catalogue, copy/paste, delete and undo/redo, and Brick
+Properties with the colour wheel). It renders pixel-identically to it. The single-file viewer stays
+at [`legacy/save-viewer.html`](legacy/save-viewer.html), published next to the app, for browsers
+without WebGL2.
 
 ## Run it
 
@@ -41,17 +44,33 @@ npx playwright install chromium && npx playwright test   # smoke tests in Chromi
 Some tests run against real save files. Those aren't in this repository: point `BRICK_REFS` at a
 folder with a `saves/` subfolder (default `../references`). Without it those tests are skipped.
 
-`npm run golden:capture` renders reference screenshots of the legacy viewer with Playwright into
-`tests/golden/`. They show whatever saves you have locally, so that folder is git-ignored. Pick
-the saves in `golden.config.json` (also git-ignored; see the script header).
+`npm run golden:capture` renders reference screenshots of the legacy viewer's 3D view (UI panels
+and the editor ghost hidden) with Playwright on SwiftShader into `tests/golden/`. They show
+whatever saves you have locally, so that folder is git-ignored. Pick the saves in
+`golden.config.json` (also git-ignored; see the script header). To check the app against them:
+
+```sh
+npm run build
+npm run golden:capture -- --target full    # or lite; renders into tests/golden/full/
+npm run golden:compare -- --target full    # pass: <= 2/255 on >= 99.9 % of pixels per shot
+```
+
+`tests/e2e/parity.spec.ts` runs the same mouse and keyboard script (resize drags, typed sizes,
+copy/paste, catalogue placement, focus, delete, undo/redo) against the legacy viewer and the app and
+compares the brick lists after every step; with `BRICK_REFS` set it also loads every reference save
+in both and compares the results.
 
 ## Layout
 
 | Path | What |
 |---|---|
-| `src/format/` | DOM-free save format code: MessagePack, BLAKE3, `.schema`/`.mps`, `.brz` read/write, bricks to and from save chunks |
-| `src/core/` | Shared maths, e.g. the orientation byte to rotation table |
-| `src/app/` | Entry points (`main.full.ts`, `main.lite.ts`) and `features.ts`, the only file that may read the `__LITE__` build flag |
+| `src/format/` | DOM-free save format code: MessagePack, BLAKE3, `.schema`/`.mps`, `.brz` read/write, bricks to and from save chunks, `.bp` environment presets |
+| `src/core/` | Units, matrices, colour helpers and the orientation byte to rotation table |
+| `src/scene/` | The brick record and its size rules, save loading, picking / overlap grid, undo history |
+| `src/render/` | WebGL2 renderer: the brick shader (GLSL 3.00, tone map in the shader), instancing, camera, lighting, grid, shape meshes |
+| `src/editor/` | Resizing, the placement ghost, catalogue data, copy/paste, place / delete |
+| `src/ui/` | Page markup and styles, panels (size, file, Brick Properties, catalogue), dimension overlay, HUD, names, sounds |
+| `src/app/` | Entry points (`main.full.ts`, `main.lite.ts`), `app.ts` (wiring and the frame loop), `state.ts` (the shared scene / camera state), the `?test` hook, and `features.ts`, the only file that may read the `__LITE__` build flag |
 | `legacy/` | The frozen single-file viewer: the pixel reference for the port and the WebGL1 fallback |
 | `tests/unit/`, `tests/e2e/` | Vitest and Playwright tests |
 

@@ -1,4 +1,6 @@
 import '../ui/styles.css';
-import { mountPlaceholder } from './placeholder.ts';
+import { createApp } from './app.ts';
+import { FEATURES } from './features.ts';
 
-mountPlaceholder(document.getElementById('app')!, 'legacy/save-viewer.html');
+// Hosted at /, next to /legacy/save-viewer.html (the WebGL1 fallback).
+createApp(document.getElementById('app'), { features: FEATURES, legacyHref: 'legacy/save-viewer.html' });
