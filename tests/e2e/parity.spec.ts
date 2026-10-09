@@ -5,7 +5,8 @@
 //
 // Intended differences (expectedApp below turns the legacy result into the app's expected one):
 // - E-22 collision: legacy lets a brick be resized into another; the app stops the face at the last
-//   size that doesn't overlap a brick of the same grid ('grow into neighbour').
+//   size that doesn't overlap a brick of the same grid ('grow into neighbour', when the layout puts
+//   a brick in the way).
 // - E-22 paste: the app reports a paste as "Pasted ..." (it may drop overlapping bricks), legacy as
 //   "Placed ...".
 
@@ -211,7 +212,10 @@ function expectedApp(step: string, legacy: unknown, prev: unknown): unknown {
     const p = prev as Snap, f = p.bricks[p.sel], over = (a: number, b: number, i: number): boolean => Math.max(f.lo[i], a) < Math.min(f.hi[i], b) - 1e-9;
     const ahead = p.bricks.filter((b, k) => k !== p.sel && (b.grid ?? '1') === (f.grid ?? '1') && over(b.lo[0], b.hi[0], 0) && over(b.lo[2], b.hi[2], 2) && b.lo[1] >= f.hi[1] - 1e-9);
     const limit = Math.min(...ahead.map((b) => b.lo[1]));
-    expect(s.bricks[s.sel].hi[1], 'legacy grew the brick into its neighbour').toBeGreaterThan(limit);
+    // Where the catalogue drops land depends on the panel layout (CI differs from a desktop), so
+    // there may be no brick ahead or legacy may stop short of it: then both must agree as before.
+    // tests/e2e/collision.spec.ts covers the stopping itself without depending on the layout.
+    if (!(s.bricks[s.sel].hi[1] > limit)) return s;
     expect(s.bricks[s.sel].lo[1]).toBe(f.lo[1]);
     const n = Math.floor((limit - f.hi[1]) / 0.2 + 1e-9);
     s.bricks[s.sel].hi[1] = +(f.hi[1] + n * 0.2).toFixed(3);
