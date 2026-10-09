@@ -15,13 +15,15 @@ canvas { display:block; width:100%; height:100%; touch-action:none; }
 .dim input::selection { background:rgba(232,89,12,.45); color:#fff; }
 #ov, #dims { position:fixed; inset:0; width:100%; height:100%; pointer-events:none; color:var(--fg); }
 #side { position:fixed; left:12px; top:calc(12px + env(safe-area-inset-top, 0px)); display:flex; flex-direction:column; gap:8px; align-items:stretch; }
-#mode { display:flex; padding:3px; gap:3px; border-radius:10px; background:rgba(29,30,33,.88); border:1px solid rgba(255,255,255,.12);
+#mode, #tool { display:flex; padding:3px; gap:3px; border-radius:10px; background:rgba(29,30,33,.88); border:1px solid rgba(255,255,255,.12);
         box-shadow:0 6px 24px rgba(0,0,0,.35); }
-#mode button { flex:1; padding:6px 10px; border:0; border-radius:7px; background:none; color:#9a9ca3; cursor:pointer;
+#mode button, #tool button { flex:1; padding:6px 10px; border:0; border-radius:7px; background:none; color:#9a9ca3; cursor:pointer;
         font:600 12px/1.2 system-ui, sans-serif; }
-#mode button:hover { color:#eee; }
-#mode button[aria-pressed="true"] { background:#e8590c; color:#fff; }
-#mode button:focus-visible { outline:2px solid #fff; outline-offset:1px; }
+#mode button:hover, #tool button:hover { color:#eee; }
+#mode button[aria-pressed="true"], #tool button[aria-pressed="true"] { background:#e8590c; color:#fff; }
+#mode button:focus-visible, #tool button:focus-visible { outline:2px solid #fff; outline-offset:1px; }
+body[data-tool="move"] #c { cursor:move !important; }
+body[data-tool="paint"] #c { cursor:crosshair !important; }
 #mode button:disabled { opacity:.4; cursor:default; color:#9a9ca3; }   /* fixed-size rounds can't switch type */
 .dim.ro, .dim.ro:hover { cursor:default; border-color:rgba(201,204,211,.18); color:#9a9ca3; }   /* read-only size (rounds) */
 #menu .mrow.ro { cursor:default; } #menu .mrow.ro input { color:#9a9ca3; border-style:dashed; }

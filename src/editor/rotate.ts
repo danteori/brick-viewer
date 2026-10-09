@@ -87,6 +87,7 @@ export function rotateTap(dir: 1 | -1): void {
   const f = (o: number): number => rotateBy(o, dir);
   const G = ed.ghost;
   if (G) {
+    G.anchor = undefined;                // turned: hold it by its centre
     if (G.items.length === 1 && turnGhostItem(f)) { initAudio(); playClick(); return; }
     rotateItems(G.items, dir); initAudio(); playClick();          // a group turns about world Z
     return;

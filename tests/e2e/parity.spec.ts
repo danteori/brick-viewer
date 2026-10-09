@@ -10,8 +10,9 @@
 // - E-22 paste: the app reports a paste as "Pasted ..." (it may drop overlapping bricks), legacy as
 //   "Placed ...".
 // - Phase 2 store: the app reads every brick back from save data, so default fields are always
-//   there (material "BMC_Plastic", top "studs", tile false) where legacy's hand-made bricks (the
-//   startup brick, catalogue drops) leave them out. canon() drops those defaults on both sides.
+//   there (material "BMC_Plastic", top "studs", tile false, intensity 5 on the clipboard) where
+//   legacy's hand-made bricks (the startup brick, catalogue drops) leave them out. canon() drops
+//   those defaults on both sides, in the brick list and on the clipboard.
 
 import { expect, test, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
@@ -209,11 +210,12 @@ interface Snap { bricks: { lo: number[]; hi: number[]; grid?: string }[]; sel: n
 
 /** A snapshot with default brick fields dropped (see the Phase 2 note at the top). */
 function canon(snap: unknown): unknown {
-  const s = structuredClone(snap) as { bricks?: Record<string, unknown>[] };
-  for (const b of s.bricks ?? []) {
+  const s = structuredClone(snap) as { bricks?: Record<string, unknown>[]; clip?: Record<string, unknown>[] | null };
+  for (const b of [...(s.bricks ?? []), ...(s.clip ?? [])]) {
     if (b.material === 'BMC_Plastic') delete b.material;
     if (b.top === 'studs') delete b.top;
     if (b.tile === false) delete b.tile;
+    if (b.intensity === 5) delete b.intensity;
   }
   return s;
 }

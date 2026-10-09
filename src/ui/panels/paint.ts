@@ -41,7 +41,8 @@ export const sceneTarget: PaintTarget<number> = {
 /** Paints the selection (or the focused brick) with the current paint: one undo step, nothing recorded if it already matches. */
 export function paintSelection(paint?: PaintFields): boolean {
   const ids = effectiveIds();
-  if (!ids.length || !model) return false;
+  const model = paintModel();
+  if (!ids.length) return false;
   if (paint) model.set(paint);
   histEnd();
   const t = txBegin('paint', ids);
@@ -64,8 +65,23 @@ function selectBrickQuiet(): void {
   S.cam.half = keep; S.zoomMul = z;
 }
 
+/** The current paint (shared by the palette panel and the Paint tool). */
+export function paintModel(): PaintModel { return (model ??= new PaintModel()); }
+
+/** Eyedropper on brick id: the current paint becomes its paint (the panel follows if it's open). */
+export function eyedropBrick(id: number): PaintFields | null {
+  const f = sceneTarget.get(id);
+  if (!f) return null;
+  const p = panel ? panel.eyedrop(f) : paintModel().pickFrom(f);
+  setStatus(`Took ${hexOfRgb8(p.colour)} · ${materialLabel(p.material)} · intensity ${p.intensity * 10} %`);
+  return p;
+}
+
+/** Re-reads the focused brick after its row was painted (it draws live from its record). */
+export function refreshFocus(): void { if (S.scene.alive(S.sel)) selectBrickQuiet(); }
+
 function mount(body: HTMLElement): void {
-  model = new PaintModel();
+  model = paintModel();
   panel = mountPalettePanel(body, {
     model,
     paintLabel: 'Paint selection',

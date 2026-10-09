@@ -183,3 +183,64 @@ test('move a selection: the originals don\'t block it; Esc puts it back; one und
   await settle(page);
   expect((await snap(page)).bricks.map((b) => [b.lo, b.hi])).toEqual(start);
 });
+
+test('Move tool: drag a brick to a new place, one undo step; a click only focuses', async ({ page }) => {
+  await twoBricks(page);
+  const start = (await snap(page)).bricks.map((b) => [b.lo.slice(), b.hi.slice()]);
+  await page.mouse.move(640, 790);
+  await page.keyboard.press('2');
+  await expect(page.locator('#tool button[data-tool="move"]')).toHaveAttribute('aria-pressed', 'true');
+  // a click on B focuses it and moves nothing
+  await click(page, await onBrick(page, 1, [0.5, 0.5, 1]));
+  let s = await snap(page);
+  expect(s.sel).toBe(1);
+  expect(s.bricks.map((b) => [b.lo, b.hi])).toEqual(start);
+  // drag B by its top to the ground two studs further along -Y
+  const from = await onBrick(page, 1, [0.5, 0.5, 1]);
+  const to = await page.evaluate(() => {
+    const t = (window as unknown as W).__brickTest, { lo, hi } = t.brickBox(1);
+    return t.project((lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2 - 0.6, lo[2]);
+  });
+  await page.mouse.move(from[0], from[1]); await frames(page);
+  await page.mouse.down();
+  await page.mouse.move(to[0], to[1], { steps: 10 }); await frames(page, 5);
+  expect((await snap(page)).ghost).toBe(true);
+  await page.mouse.up(); await settle(page);
+  s = await snap(page);
+  expect(s.ghost).toBe(false);
+  expect(s.bricks.length).toBe(2);
+  expect(s.bricks[0].lo).toEqual(start[0][0]);              // A stays
+  expect(s.bricks[1].lo).not.toEqual(start[1][0]);          // B moved
+  expect(r3(s.bricks[1].hi[0] - s.bricks[1].lo[0])).toBe(r3(start[1][1][0] - start[1][0][0]));
+  await page.mouse.move(640, 790);
+  await page.keyboard.press('Control+z');
+  await settle(page);
+  expect((await snap(page)).bricks.map((b) => [b.lo, b.hi])).toEqual(start);
+  await page.keyboard.press('1');
+});
+
+test('Paint tool: a stroke over both bricks paints each once as one undo step; Alt+click takes a paint', async ({ page }) => {
+  await twoBricks(page);
+  await page.locator('#painttoggle').click();
+  await page.locator('#paintbody .bvp-sw').nth(5).click();
+  const before = (await snap(page)).bricks.map((b) => b.color.join());
+  await page.mouse.move(640, 790);
+  await page.keyboard.press('3');
+  const a = await onBrick(page, 0, [0.5, 0.5, 1]), b = await onBrick(page, 1, [0.5, 0.5, 1]);
+  await page.mouse.move(a[0], a[1]); await frames(page);
+  await page.mouse.down();
+  await page.mouse.move(b[0], b[1], { steps: 2 });            // a fast stroke: picked along the way
+  await page.mouse.up(); await settle(page);
+  const after = (await snap(page)).bricks.map((b) => b.color.join());
+  expect(after[0]).toBe(after[1]);
+  expect(after[0]).not.toBe(before[0]);
+  expect((await snap(page)).status).toMatch(/Painted 2 bricks/);
+  await page.mouse.move(640, 790);
+  await page.keyboard.press('Control+z');
+  await settle(page);
+  expect((await snap(page)).bricks.map((b) => b.color.join())).toEqual(before);
+  // Alt+click: the eyedropper takes brick 0's paint (the startup red)
+  await click(page, await onBrick(page, 0, [0.5, 0.5, 1]), 'Alt');
+  await expect(page.locator('#paintbody .bvp-hex')).toHaveText(/#fa4040/i);
+  await page.keyboard.press('1');
+});

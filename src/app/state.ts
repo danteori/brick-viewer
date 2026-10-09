@@ -94,6 +94,8 @@ export const S = {
   hidden: new Set<number>(),
   /** the selection (E-01): ids, separate from the focus; empty = the focused brick alone */
   selection: new Set<number>(),
+  /** the tool mode (editor/tools.ts): what a left drag on the canvas does */
+  tool: 'resize' as 'resize' | 'move' | 'paint',
   micro: false,
   STEPS: BRICK.steps.slice() as V3,
   START: BRICK.start.slice() as V3,

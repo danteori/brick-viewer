@@ -23,6 +23,7 @@ import { initSpatial } from '../scene/spatial.ts';
 import { selectBrick } from '../editor/resize.ts';
 import { initClipboard } from '../editor/clipboard.ts';
 import { initEditorInput } from '../editor/input.ts';
+import { initTools } from '../editor/tools.ts';
 import { $, mountDom } from '../ui/dom.ts';
 import { initStatus } from '../ui/status.ts';
 import { initSizePanel } from '../ui/panels/size.ts';
@@ -101,6 +102,7 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
   initClipboard([...document.querySelectorAll<HTMLButtonElement>('#pastemode button')]);
   initCataloguePanel();
   initEditorInput(canvas);
+  initTools(canvas);
   initWorldEnvironment();
   initPaintPanel();
   // full build: environment panel, .brdb worlds and the map (a separate chunk, never in lite)

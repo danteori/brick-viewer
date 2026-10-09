@@ -8,6 +8,11 @@ const MARKUP = `
 <svg id="ov"></svg>
 <div id="hud"></div>
 <div id="side">
+  <div id="tool" role="group" aria-label="Tool">
+    <button type="button" data-tool="resize" aria-pressed="true" title="Resize (1): drag to resize the focused brick">Resize</button>
+    <button type="button" data-tool="move" aria-pressed="false" title="Move (2): drag a brick, or the selection it's in, to move it">Move</button>
+    <button type="button" data-tool="paint" aria-pressed="false" title="Paint (3): click or drag over bricks to paint them; Alt+click takes a brick's paint">Paint</button>
+  </div>
   <div id="menu" aria-label="Brick size"><div class="mtitle">Brick size</div></div>
   <div id="mode" role="group" aria-label="Brick type">
     <button type="button" data-mode="brick" aria-pressed="true">Brick</button>

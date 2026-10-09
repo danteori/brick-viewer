@@ -115,11 +115,21 @@ export function cutSelection(): void {
 
 // --- move ------------------------------------------------------------------------------------------
 
-/** M: pick the selection (or the focused brick) up into the ghost. */
-export function startMove(): void {
+/**
+ * Picks the selection (or the focused brick) up into the ghost. M: it follows the cursor until a
+ * click puts it down. The Move tool (editor/tools.ts): `drag`, held by the point `grab` (absolute
+ * viewer units) under the cursor, put down on release.
+ */
+export function startMove(opts: { drag?: boolean; grab?: number[] } = {}): void {
   if (S.held || ed.ghost) return;
   const ids = effectiveIds();
   if (!ids.length) { setStatus('Nothing to move: focus or select bricks first'); return; }
+  let anchor: number[] | undefined;
+  if (opts.grab) {
+    const b = new Array<number>(6), lo = [Infinity, Infinity, Infinity];
+    for (const id of ids) { S.scene.box(id, b); for (let i = 0; i < 3; i++) lo[i] = Math.min(lo[i]!, b[i]! * BRZ_UNIT); }
+    anchor = opts.grab.map((v, i) => v - lo[i]!);
+  }
   const items = groupItems(ids, true), hidden = new Set(ids);
   const hide = (on: boolean): void => {
     for (const id of ids) markBrick(id);
@@ -128,8 +138,9 @@ export function startMove(): void {
   hide(true);
   const onCancel = (): void => { hide(false); };
   const onPlace = (G: Ghost): boolean => placeMove(G, ids, () => hide(false));
-  startPlacing(items, ids.length === 1 ? 'move brick' : 'move bricks', 'click', null, { ignore: hidden, onPlace, onCancel });
-  setStatus(`Moving ${ghostName(items)}: click to put ${ids.length === 1 ? 'it' : 'them'} down, R turns, PgUp / PgDn raise / lower, Esc puts ${ids.length === 1 ? 'it' : 'them'} back`);
+  startPlacing(items, ids.length === 1 ? 'move brick' : 'move bricks', opts.drag ? 'drag' : 'click', null, { ignore: hidden, onPlace, onCancel, anchor });
+  const it = ids.length === 1 ? 'it' : 'them';
+  setStatus(`Moving ${ghostName(items)}: ${opts.drag ? 'release' : 'click'} to put ${it} down, R turns, PgUp / PgDn raise / lower, Esc puts ${it} back`);
 }
 
 /** Puts a moving group down at the ghost's pose: the same ids, one undo step. */

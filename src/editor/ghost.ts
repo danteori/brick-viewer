@@ -44,6 +44,8 @@ export interface Ghost {
   onPlace?: (g: Ghost) => boolean;
   /** called when the ghost goes away without being placed (a move puts the originals back) */
   onCancel?: () => void;
+  /** the point of the group held under the cursor, from its low corner (a drag-move); unset = the group's centre */
+  anchor?: number[];
 }
 
 export const ed = {
@@ -91,13 +93,13 @@ export function itemName(t: Brick): string {
 }
 export const ghostName = (items: readonly Brick[]): string => (items.length === 1 ? itemName(items[0]) : `${items.length} bricks`);
 
-export interface PlaceOpts { drop?: boolean; ignore?: ReadonlySet<number>; onPlace?: (g: Ghost) => boolean; onCancel?: () => void }
+export interface PlaceOpts { drop?: boolean; ignore?: ReadonlySet<number>; onPlace?: (g: Ghost) => boolean; onCancel?: () => void; anchor?: number[] }
 
 export function startPlacing(items: Brick[], label: string, mode: 'drag' | 'click', from: HTMLElement | null, opts: PlaceOpts = {}): void {
   if (S.held) return;
   endPlacing();
   ed.ghost = { items: cloneBrick(items), label, mode, from, dz: 0, pose: null, valid: false, reason: '', mouse: ed.lastMouse, over: ed.lastOver, visited: false, drop: !!opts.drop, skip: [],
-    ignore: opts.ignore, onPlace: opts.onPlace, onCancel: opts.onCancel };
+    ignore: opts.ignore, onPlace: opts.onPlace, onCancel: opts.onCancel, anchor: opts.anchor };
   document.body.classList.add('placing'); if (from) from.classList.add('on');
   initAudio();
   setStatus(`Placing ${ghostName(ed.ghost.items)}: ${mode === 'drag' ? 'release' : 'click'} in the scene to place, Esc cancels`);
@@ -179,7 +181,8 @@ export function poseGhost(): void {
     const own = hit.k === S.sel, bx = own ? null : S.scene.box(hit.k);
     const bl = own ? S.dlo : [0, 1, 2].map((i) => r3(bx![i]! * BRZ_UNIT)), bh = own ? S.dhi : [0, 1, 2].map((i) => r3(bx![i + 3]! * BRZ_UNIT));
     const P = r.S.map((v, i) => v + r.D[i] * hit.s), a = hit.ax, outward = r.D[a] > 0 ? -1 : 1;
-    for (let i = 0; i < 3; i++) p[i] = i === a ? (outward > 0 ? bh[i] : r3(bl[i] - sz[i])) : snap(P[i] - sz[i] / 2, bl[i], st[i]);
+    const off = (i: number): number => (G.anchor ? G.anchor[i]! : sz[i] / 2);
+    for (let i = 0; i < 3; i++) p[i] = i === a ? (outward > 0 ? bh[i] : r3(bl[i] - sz[i])) : snap(P[i] - off(i), bl[i], st[i]);
   } else {
     // the ground plane, snapped to the drawn ground grid (it lines up with the focused brick's far corner)
     if (Math.abs(r.D[2]) < 1e-9) return;
@@ -187,7 +190,8 @@ export function poseGhost(): void {
     if (t < 0) return;
     const P = r.S.map((v, i) => v + r.D[i] * t);
     const ref = hasFocus() && !S.hidden.has(S.sel) ? [farOf(0, S.dlo, S.dhi), farOf(1, S.dlo, S.dhi)] : [0, 0];
-    p[0] = snap(P[0] - sz[0] / 2, ref[0], st[0]); p[1] = snap(P[1] - sz[1] / 2, ref[1], st[1]); p[2] = r3(gz);
+    const off = (i: number): number => (G.anchor ? G.anchor[i]! : sz[i] / 2);
+    p[0] = snap(P[0] - off(0), ref[0], st[0]); p[1] = snap(P[1] - off(1), ref[1], st[1]); p[2] = r3(gz);
   }
   p[2] = r3(p[2] + G.dz * st[2]);
   G.pose = p;
