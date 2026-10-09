@@ -11,6 +11,7 @@ import { drawInstances, syncInstances } from './instances.ts';
 import { drawGrid } from './grid.ts';
 import { drawExtras } from './extras.ts';
 import { drawGround, drawGroundBackdrop } from './ground.ts';
+import { bloomPass, drawGlow, drawMaterials, focusIsSpecial, hasGlow } from './matpass.ts';
 import { LIGHTING, lightDir } from './lighting.ts';
 import { nearOf, studPx } from './camera.ts';
 import { BOX_EDGE_COUNT, boxEB, boxIB } from './meshes/registry.ts';
@@ -47,13 +48,19 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
   const bumpFade = Math.max(0, Math.min(1, (studPx(0) * STEP / S.STEPS[0] / SHADE.BUMPS - 1.5) / 2.5));
   gl.uniform1f(u.uBump, SHADE.BUMP_STRENGTH * bumpFade);
   drawGroundBackdrop(ortho, view);           // the far ground plate, if an environment shows one
-  drawInstances(() => {
+  const drawFocus = (): void => {
     const b = S.bricks[S.sel];
-    if (!b) return;                          // empty scene
+    if (!b || focusIsSpecial()) return;      // empty scene, or glass / glow: drawMaterials has it
     drawBody(b, dlo, dhi);
-  });
+  };
+  drawInstances(drawFocus);
   drawExtras();                              // read-only dynamic grids (none unless a world placed some)
   drawGround();                              // the ground plate (off unless an environment is applied)
+  drawMaterials(dlo, dhi);                   // glow, then glass / translucent back to front (if any)
+  if (bloomPass && hasGlow()) {              // full build: the glow halo
+    bloomPass(w, h, () => { drawInstances(drawFocus); drawExtras(); drawGround(); }, () => drawGlow(dlo, dhi, 2));
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxIB);
+  }
   gl.uniform1f(u.uEdge, 1); gl.uniform1f(u.uFadeR, 0);
   // hovering another brick: a faint wash on the face under the cursor (click = focus it)
   if (!S.held && S.hoverBrick >= 0 && S.hoverBrick !== S.sel) {

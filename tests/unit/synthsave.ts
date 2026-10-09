@@ -45,6 +45,9 @@ export interface SynthBrick {
   orient?: number;
   color: [number, number, number];
   hidden?: boolean;
+  /** BMC_* material (default BMC_Plastic) and its intensity 0-10 (default 5) */
+  material?: string;
+  intensity?: number;
 }
 
 /** Bricks -> .brz bytes (grid 1). Component / wire counts per chunk can be faked through extra. */
@@ -58,9 +61,10 @@ export function synthSave(bricks: SynthBrick[], extra: { components?: Record<str
     chunks.get(k)!.push(b);
   }
   const cs = parseSchema(CHUNK), is = parseSchema(INDEX), gs = parseSchema(GLOBAL);
+  const mats = [...new Set(['BMC_Plastic', ...bricks.map((b) => b.material ?? 'BMC_Plastic')])];
   const files = new Map<string, Uint8Array>();
   files.set('World/0/GlobalData.schema', GLOBAL);
-  files.set('World/0/GlobalData.mps', encodeMps({ BasicBrickAssetNames: basic, ProceduralBrickAssetNames: proc, MaterialAssetNames: ['BMC_Plastic'] }, gs));
+  files.set('World/0/GlobalData.mps', encodeMps({ BasicBrickAssetNames: basic, ProceduralBrickAssetNames: proc, MaterialAssetNames: mats }, gs));
   files.set('World/0/Bricks/ChunkIndexShared.schema', INDEX);
   files.set('World/0/Bricks/ChunksShared.schema', CHUNK);
   const idx = { Chunk3DIndices: [] as object[], ChunkOffsets: [] as object[], ChunkSizes: [] as number[], NumBricks: [] as number[], NumComponents: [] as number[], NumWires: [] as number[] };
@@ -84,8 +88,8 @@ export function synthSave(bricks: SynthBrick[], extra: { components?: Record<str
       RelativePositions: list.map((b) => ({ X: b.pos[0] - centre[0]!, Y: b.pos[1] - centre[1]!, Z: b.pos[2] - centre[2]! })),
       Orientations: list.map((b) => b.orient ?? 16),
       VisibilityFlags: { Flags: flags },
-      MaterialIndices: list.map(() => 0),
-      ColorsAndAlphas: list.map((b) => ({ R: b.color[0], G: b.color[1], B: b.color[2], A: 5 })),
+      MaterialIndices: list.map((b) => mats.indexOf(b.material ?? 'BMC_Plastic')),
+      ColorsAndAlphas: list.map((b) => ({ R: b.color[0], G: b.color[1], B: b.color[2], A: b.intensity ?? 5 })),
       bColorsAreLinear: false,
     };
     files.set(`World/0/Bricks/Grids/1/Chunks/${key}.mps`, encodeMps(ch, cs));

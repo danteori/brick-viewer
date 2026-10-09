@@ -6,7 +6,7 @@ import { BRICK_FS, BRICK_VS } from './shaders/brick.ts';
 export const LOC = { aPos: 0, aNrm: 1, aSlope: 2, iCenter: 3, iScale: 4, iColor: 5, iFlags: 6, aPart: 7, aCap: 8 } as const;
 
 const UNIFORMS = ['uMVP', 'uShift', 'uEdge', 'uLine', 'uFadeC', 'uFadeR', 'uStudFade', 'uBevelMax', 'uBevelFit',
-  'uEye', 'uLight', 'uSun', 'uSky', 'uFloor', 'uExposure', 'uBump'] as const;
+  'uEye', 'uLight', 'uSun', 'uSky', 'uFloor', 'uExposure', 'uBump', 'uMat', 'uIntensity', 'uMatPass'] as const;
 export type UniformName = (typeof UNIFORMS)[number];
 export type Uniforms = Record<UniformName, WebGLUniformLocation | null>;
 

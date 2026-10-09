@@ -13,6 +13,7 @@ import { G, meshAttribs } from './draw.ts';
 import { brickFlags, type Brick, type V3 } from '../scene/brick.ts';
 import { boxVB, shapeBuffer, shapeCount } from './meshes/registry.ts';
 import { pickGrid, pickUpdate } from '../scene/spatial.ts';
+import { matCode } from './matcode.ts';
 
 export const INST_F = 13;
 export const INST_ATTRS: [number, number, number][] = [[LOC.iCenter, 3, 0], [LOC.iScale, 3, 12], [LOC.iColor, 3, 24], [LOC.iFlags, 4, 36]];
@@ -21,6 +22,8 @@ interface Group { mesh: WebGLBuffer; buf: WebGLBuffer; data: Float32Array; n: nu
 export const inst = {
   n: -1, data: new Float32Array(0), base: [0, 0, 0] as V3, all: true, dirty: new Set<number>(), sel: -1,
   isShaped: new Uint8Array(0), groupsDirty: true, groups: [] as Group[],
+  /** glass / translucent / glow bricks (not the focused one): drawn by matpass.ts, not from the buffers */
+  isSpecial: new Uint8Array(0), special: [] as number[], specialDirty: true,
   /** lowest brick bottom except the focused one (frame-independent), for the ground grid */
   groundAbs: Infinity,
   /** bumped whenever the instance data changed (hover re-pick key) */
@@ -47,10 +50,11 @@ const instShift = (): number[] => [0, 1, 2].map((i) => S.histOrigin[i] - inst.ba
 
 /** box slot k from bricks[k] (zeroed if shaped / focused) */
 function writeSlot(k: number, sh: readonly number[]): void {
-  const b = S.bricks[k], o = k * INST_F, shaped = !!b.shape;
-  if (shaped || k === S.sel) inst.data.fill(0, o, o + INST_F); else writeRecord(inst.data, o, b, b.lo, b.hi, sh);
+  const b = S.bricks[k], o = k * INST_F, special = matCode(b) > 0, shaped = !!b.shape && !special;
+  if (shaped || special || k === S.sel) inst.data.fill(0, o, o + INST_F); else writeRecord(inst.data, o, b, b.lo, b.hi, sh);
   if (shaped || inst.isShaped[k]) inst.groupsDirty = true;
-  inst.isShaped[k] = shaped ? 1 : 0;
+  if (special || inst.isSpecial[k]) inst.specialDirty = true;
+  inst.isShaped[k] = shaped ? 1 : 0; inst.isSpecial[k] = special ? 1 : 0;
 }
 
 function rebuildGroups(sh: readonly number[]): void {
@@ -59,7 +63,7 @@ function rebuildGroups(sh: readonly number[]): void {
   const groups = new Map<WebGLBuffer, number[]>();           // mesh buffer -> brick indices
   for (let k = 0; k < S.bricks.length; k++) {
     const b = S.bricks[k];
-    if (!b.shape || k === S.sel) continue;
+    if (!b.shape || k === S.sel || inst.isSpecial[k]) continue;
     const mesh = shapeBuffer(b, [b.hi[0] - b.lo[0], b.hi[1] - b.lo[1], b.hi[2] - b.lo[2]]);
     if (!groups.has(mesh)) groups.set(mesh, []);
     groups.get(mesh)!.push(k);
@@ -80,7 +84,7 @@ export function syncInstances(): void {
   let changed = false;
   if (inst.all || N !== inst.n) {
     inst.base = S.histOrigin.slice() as V3; inst.n = N; inst.sel = S.sel; inst.all = false; inst.dirty.clear();
-    inst.data = new Float32Array(N * INST_F); inst.isShaped = new Uint8Array(N);
+    inst.data = new Float32Array(N * INST_F); inst.isShaped = new Uint8Array(N); inst.isSpecial = new Uint8Array(N); inst.specialDirty = true;
     const sh = [0, 0, 0];
     for (let k = 0; k < N; k++) writeSlot(k, sh);
     gl.bindBuffer(gl.ARRAY_BUFFER, boxInstBuf);
@@ -101,6 +105,11 @@ export function syncInstances(): void {
     }
   }
   if (inst.groupsDirty) rebuildGroups(instShift());
+  if (inst.specialDirty) {
+    inst.special = [];
+    for (let k = 0; k < N; k++) if (inst.isSpecial[k] && k !== S.sel) inst.special.push(k);
+    inst.specialDirty = false;
+  }
   if (changed) {
     let m = Infinity;
     for (let k = 0; k < N; k++) if (k !== S.sel) m = Math.min(m, S.bricks[k].lo[2] + S.histOrigin[2]);

@@ -4,6 +4,7 @@
 
 import { SHADE } from '../../core/units.ts';
 import { TONEMAP_GLSL } from './tonemap.ts';
+import { MATERIALS_GLSL } from '../materials.ts';
 
 /** a GLSL float literal */
 export const glf = (v: number): string => { const s = String(+v); return /[.e]/.test(s) ? s : s + '.0'; };
@@ -76,7 +77,12 @@ const float RECESS_SHADE = VOID;
 // sun (x N.L), sky (ambient) and the floor (added, not x albedo)
 uniform vec3 uSun, uSky, uFloor;
 uniform float uExposure;
+// Special materials (src/render/materials.ts, wired in render/matpass.ts): 0 plastic (the path above
+// everything else uses), 1 glass, 2 translucent plastic, 3 glow. uMatPass: glass 0 = the multiply
+// pass, 1 = the reflection add pass; 2 = linear emission for the bloom buffer.
+uniform float uMat, uIntensity, uMatPass;
 ${TONEMAP_GLSL}
+${MATERIALS_GLSL}
 float smin(float a, float b, float k){ float h = clamp(0.5 + 0.5*(b-a)/k, 0.0, 1.0); return mix(b, a, h) - k*h*(1.0-h); }
 // Stud surface height (in stud widths) at cell coord c (-0.5..0.5): flat top, sloped sides, a
 // valley at the cell border, with every crease slightly rounded.
@@ -256,5 +262,25 @@ void main(){
   float bent = smoothstep(0.0, 0.02, 1.0 - dot(n, nG));
   float spec = pow(max(dot(n, normalize(L + uEye)), 0.0), 28.0) * 0.32 * bent;
   vec3 lit = (toLinear(vBase) * (uSky + uSun*d) + uFloor + spec) * shade;
+  if (uMat > 0.5) {
+    // Blended in display space over the tone-mapped scene (the forward pipeline has no linear
+    // buffer): glass multiplies what is behind by its transmission (approximately display-encoded)
+    // and adds the Fresnel sky reflection; translucent plastic alpha-blends its lit surface.
+    vec3 albedo = toLinear(vBase);
+    if (uMat < 1.5) {
+      float c = abs(dot(nG, normalize(uEye)));
+      float t = matLerp3(GLASS_TINT, uIntensity);
+      vec3 T = pow(1.0 - t + t*albedo, vec3(1.0/pow(max(c, 0.05), GLASS_PATH_EXP)));
+      float F = matFresnel(c);
+      fragColor = uMatPass < 0.5 ? vec4(pow((1.0 - F)*T, vec3(1.0/2.2)), 1.0) : vec4(ueFilmic(uExposure * F * uSky), 1.0);
+    } else if (uMat < 2.5) {
+      vec3 surf = (albedo * (uSky + uSun*d) + uFloor*TRANSLUCENT_FLOOR_SCALE) * shade;
+      fragColor = vec4(ueFilmic(uExposure * surf), translucentOpacity(uIntensity));
+    } else {
+      vec3 e = uExposure * glowColor(albedo, uIntensity);
+      fragColor = uMatPass > 1.5 ? vec4(e, 1.0) : vec4(ueFilmic(e), 1.0);
+    }
+    return;
+  }
   fragColor = vec4(ueFilmic(uExposure * lit), 1.0);
 }`;
