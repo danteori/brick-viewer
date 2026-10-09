@@ -3,7 +3,7 @@
 // an encode gives the original bytes. Kept in-house for that byte-identity (ARCHITECTURE.md 5).
 
 /** A decoded MessagePack value. Maps decode to a MsgMap: ordered [key, value] pairs. */
-export type MsgValue = null | boolean | number | string | Uint8Array | MsgValue[] | MsgMap;
+export type MsgValue = null | boolean | number | bigint | string | Uint8Array | MsgValue[] | MsgMap;
 
 /** A decoded MessagePack map: its [key, value] pairs in file order (an Array, so it iterates as pairs). */
 export class MsgMap extends Array<[MsgValue, MsgValue]> {}
@@ -42,10 +42,11 @@ export class MsgReader {
     return v;
   }
 
-  private be64(signed: boolean): number {
+  /** 64-bit ints: a number when it is exact, else a bigint (ids and hashes in i64 fields). */
+  private be64(signed: boolean): number | bigint {
     const v = signed ? this.dv.getBigInt64(this.p, false) : this.dv.getBigUint64(this.p, false);
     this.p += 8;
-    return Number(v);
+    return safeInt(v);
   }
 
   private arr(n: number): MsgValue[] {
@@ -165,6 +166,13 @@ export class ByteBuf {
   }
 }
 
+const MIN_SAFE = BigInt(Number.MIN_SAFE_INTEGER), MAX_SAFE = BigInt(Number.MAX_SAFE_INTEGER);
+
+/** A 64-bit value as a number when that is exact, else unchanged. */
+export function safeInt(v: bigint): number | bigint {
+  return v >= MIN_SAFE && v <= MAX_SAFE ? Number(v) : v;
+}
+
 /** Values the packer accepts for a single (non-container) MessagePack item. */
 export type Packable = null | undefined | boolean | number | bigint | string | Uint8Array;
 
@@ -173,7 +181,11 @@ export function pack(o: ByteBuf, x: Packable, isFloat = false): void {
   if (x === null || x === undefined) return o.byte(0xc0);
   if (x === true) return o.byte(0xc3);
   if (x === false) return o.byte(0xc2);
-  if (typeof x === 'bigint') x = Number(x);
+  if (typeof x === 'bigint') {
+    if (x >= MIN_SAFE && x <= MAX_SAFE) x = Number(x);
+    else if (x > 0n) { o.byte(0xcf); return o.big(false, x, false); }
+    else { o.byte(0xd3); return o.big(true, x, false); }
+  }
   if (typeof x === 'number') {
     if (isFloat || !Number.isInteger(x)) {
       o.byte(0xca);

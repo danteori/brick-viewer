@@ -45,3 +45,14 @@ describe('msgpack', () => {
     expect(dec(Uint8Array.from([0x82, 0xa1, 0x62, 0x01, 0xa1, 0x61, 0x02]))).toEqual([['b', 1], ['a', 2]]);
   });
 });
+
+describe('msgpack 64-bit', () => {
+  it('keeps 64-bit integers beyond 2^53 exact (as bigints)', () => {
+    for (const x of [-(2n ** 63n), -(2n ** 53n) - 7n, 2n ** 53n + 1n, 2n ** 64n - 1n]) {
+      const b = enc(x);
+      expect(b[0]).toBe(x < 0n ? 0xd3 : 0xcf);
+      expect(dec(b)).toBe(x);
+    }
+    expect(dec(enc(2n ** 40n))).toBe(2 ** 40);   // exact ones still read back as numbers
+  });
+});
