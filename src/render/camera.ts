@@ -19,8 +19,16 @@ export function initCamera(c: HTMLCanvasElement): void {
   updateDirs();
 }
 
-/** world point (Z up) -> 2D view-plane coords. GL x = X, GL y = Z, GL z = Y */
+/**
+ * World point (absolute, Z up) -> 2D view-plane coords relative to the render origin S.origin, the
+ * frame the camera (S.cam) lives in. GL x = X, GL y = Z, GL z = Y.
+ */
 export function toView(X: number, Y: number, Z: number, m: Mat4 = S.view): [number, number] {
+  return viewDir(X - S.origin[0], Y - S.origin[1], Z - S.origin[2], m);
+}
+
+/** A world direction (or an origin-relative point) -> view-plane coords. */
+export function viewDir(X: number, Y: number, Z: number, m: Mat4 = S.view): [number, number] {
   return [m[0] * X + m[4] * Z + m[8] * Y, m[1] * X + m[5] * Z + m[9] * Y];
 }
 
@@ -43,7 +51,7 @@ export function updateDirs(): void {
   updateNear(S.viewT);
   S.dirs.length = 0;
   for (let i = 0; i < 3; i++) {
-    const p = toView(i === 0 ? 1 : 0, i === 1 ? 1 : 0, i === 2 ? 1 : 0, S.viewT), L = Math.hypot(p[0], p[1]) || 1;
+    const p = viewDir(i === 0 ? 1 : 0, i === 1 ? 1 : 0, i === 2 ? 1 : 0, S.viewT), L = Math.hypot(p[0], p[1]) || 1;
     const v: [number, number] = [p[0] / L, -p[1] / L];
     S.dirs.push({ i, d: 1, v }, { i, d: -1, v: [-v[0], -v[1]] });
   }
@@ -77,7 +85,7 @@ export function fitHalf(l: readonly number[], h: readonly number[]): number {
 export function studPx(i: number): number {
   const cw = canvas.clientWidth || innerWidth, ch = canvas.clientHeight || innerHeight;
   const ppu = ch / (2 * S.cam.half * Math.max(cw ? ch / cw : 1, 1));   // px per view-plane unit
-  const v = toView(i === 0 ? 1 : 0, i === 1 ? 1 : 0, i === 2 ? 1 : 0);
+  const v = viewDir(i === 0 ? 1 : 0, i === 1 ? 1 : 0, i === 2 ? 1 : 0);
   return S.STEPS[i] * Math.hypot(v[0], v[1]) * ppu;                  // a plate's height for Z
 }
 

@@ -1,160 +1,283 @@
-// Instanced bodies (WebGL2 core instancing). Every brick except the focused one is drawn from
-// instance buffers: one draw for all the boxes and one per shape mesh. A record is INST_F floats:
-// centre (3), size (3), colour (3), flags (4), in GL axes. The box buffer has one slot per brick
-// index; shaped bricks and the focused brick leave theirs zero-sized (nothing rasterises). The
-// focused brick is drawn on its own from constants, at its index position, so coplanar ties
-// resolve as when every brick was its own draw. Positions stay in the frame they were uploaded in
-// (local + histOrigin - inst.base); recenter() only changes the uShift uniform.
-// Phase 2 replaces this with chunk-relative 24-byte instances.
+// Chunked instanced bodies (ARCHITECTURE.md 3.1 / 4). The scene is cut into render chunks of
+// CHUNK units (independent of the save's 2048-unit chunks); each chunk keeps, per mesh, one vertex
+// array object over its own instance buffer of 24-byte records (layout in shaders/brick.ts):
+//
+//   0  iPos   int16 x3 + spare   centre relative to the chunk's centre, units
+//   8  iHalf  uint16 x3 + word   local half-extents, units; word = orientation, top, micro, linear
+//  16  iColor uint8 x4           R, G, B as stored, intensity
+//  20  iMisc  uint8 x4           face mask, material, variant, flags (bit 0 selected)
+//
+// A draw gets uChunkOffset = chunk centre - render origin, computed in doubles, so positions stay
+// exact far from the origin. An edit re-packs only the chunks it touched (scene/sync.ts hands the
+// changed rows on); chunks outside the view are skipped.
+//
+// Left out of the buffers: the focused brick (drawn live from constants, first, as the legacy
+// viewer drew brick 0 first), hidden rows (a selection being moved: the ghost shows them), and
+// glass / translucent / glow bricks (render/matpass.ts draws those one by one).
+// Phase 3 adds hidden-face culling (the face mask is 0 for now) and parametric ramp meshes.
 
 import { S } from '../app/state.ts';
 import { LOC } from './gl.ts';
-import { G, meshAttribs } from './draw.ts';
-import { brickFlags, type Brick, type V3 } from '../scene/brick.ts';
-import { boxVB, shapeBuffer, shapeCount } from './meshes/registry.ts';
-import { pickGrid, pickUpdate } from '../scene/spatial.ts';
-import { matCode } from './matcode.ts';
+import { G, bindMesh } from './draw.ts';
+import { BOX_MESH, boxIB, meshOf, type Mesh } from './meshes/registry.ts';
+import { BRZ_UNIT } from '../core/units.ts';
+import { viewDir } from './camera.ts';
+import { addMirror } from '../scene/sync.ts';
+import { ASSETS, F_LINEAR, MATERIALS, worldHalfOf, type SceneStore } from '../scene/store.ts';
+import { topOf } from '../scene/view.ts';
+import { MAT_GLOW, matCode } from './matcode.ts';
 
-export const INST_F = 13;
-export const INST_ATTRS: [number, number, number][] = [[LOC.iCenter, 3, 0], [LOC.iScale, 3, 12], [LOC.iColor, 3, 24], [LOC.iFlags, 4, 36]];
+/** Render chunk size, units (about 50 studs). */
+export const CHUNK = 1024;
+export const REC = 24;
 
-interface Group { mesh: WebGLBuffer; buf: WebGLBuffer; data: Float32Array; n: number }
+interface Group { mesh: Mesh; vao: WebGLVertexArrayObject; buf: WebGLBuffer; n: number; cap: number }
+interface RChunk {
+  /** chunk centre, units */
+  c: [number, number, number];
+  ids: Set<number>;
+  groups: Map<Mesh, Group>;
+  dirty: boolean;
+  /** world box of what it holds, units (for culling) */
+  box: [number, number, number, number, number, number];
+  /** lowest brick bottom in it (units), Infinity when empty */
+  minZ: number;
+  /** glass / translucent / glow rows (drawn by matpass) */
+  special: number[];
+}
+
+/** The word bits of an asset (top style, micro), cached by asset table index. */
+const assetWord: number[] = [];
+const wordOf = (a: number): number => {
+  let w = assetWord[a];
+  if (w === undefined) { const t = topOf(ASSETS.name(a)); w = assetWord[a] = (t.top << 5) | (t.micro ? 128 : 0); }
+  return w;
+};
+const matOf: number[] = [];
+const materialCode = (m: number): number => (matOf[m] ??= matCode({ material: MATERIALS.name(m) }));
+
+/**
+ * The render chunks of one store. `opts.offset` (units, doubles) shifts the whole set (a dynamic
+ * grid's origin); `opts.scene` = it mirrors the scene (focus, hidden rows and selection apply).
+ */
+export class ChunkSet {
+  chunks = new Map<string, RChunk>();
+  private rowChunk: (RChunk | undefined)[] = [];
+  /** bumped whenever instance data changed */
+  rev = 0;
+  special: number[] = [];
+  private specialDirty = true;
+  /** lowest brick bottom except the focused one (units), Infinity when none */
+  minZ = Infinity;
+  private focus = -1;
+
+  constructor(public store: SceneStore, readonly opts: { scene: boolean; offset?: [number, number, number] } = { scene: true }) {
+    this.reset(store);
+  }
+
+  reset(s: SceneStore): void {
+    const gl = G.gl;
+    for (const ch of this.chunks.values()) for (const g of ch.groups.values()) { gl.deleteBuffer(g.buf); gl.deleteVertexArray(g.vao); }
+    this.chunks.clear(); this.rowChunk = []; this.store = s;
+    for (const id of s.ids()) this.place(id);
+    this.specialDirty = true; this.rev++;
+  }
+
+  private keyOf(id: number): [string, [number, number, number]] {
+    const s = this.store, k = [Math.floor(s.px[id]! / CHUNK), Math.floor(s.py[id]! / CHUNK), Math.floor(s.pz[id]! / CHUNK)];
+    return [k.join('_'), [k[0]! * CHUNK + CHUNK / 2, k[1]! * CHUNK + CHUNK / 2, k[2]! * CHUNK + CHUNK / 2]];
+  }
+
+  /** puts live row id into its chunk (marking old and new dirty) */
+  private place(id: number): void {
+    const old = this.rowChunk[id];
+    if (!this.store.alive(id)) {
+      if (old) { old.ids.delete(id); old.dirty = true; this.rowChunk[id] = undefined; }
+      return;
+    }
+    const [key, c] = this.keyOf(id);
+    let ch = this.chunks.get(key);
+    if (!ch) { ch = { c, ids: new Set(), groups: new Map(), dirty: true, box: [0, 0, 0, 0, 0, 0], minZ: Infinity, special: [] }; this.chunks.set(key, ch); }
+    if (old && old !== ch) { old.ids.delete(id); old.dirty = true; }
+    ch.ids.add(id); ch.dirty = true;
+    this.rowChunk[id] = ch;
+  }
+
+  changed(ids: ReadonlySet<number>): void { for (const id of ids) this.place(id); }
+
+  /** marks row id's chunk dirty (focus / selection / hidden changes) */
+  touch(id: number): void { const ch = this.rowChunk[id]; if (ch) ch.dirty = true; }
+
+  /** re-packs dirty chunks (once a frame, before drawing) */
+  sync(): void {
+    if (this.opts.scene && this.focus !== S.sel) { this.touch(this.focus); this.touch(S.sel); this.focus = S.sel; }
+    let any = false;
+    for (const [key, ch] of this.chunks) {
+      if (!ch.dirty) continue;
+      any = true;
+      if (!ch.ids.size) { this.drop(ch); this.chunks.delete(key); continue; }
+      this.pack(ch);
+    }
+    if (any) {
+      this.rev++; this.specialDirty = true;
+      let m = Infinity;
+      for (const ch of this.chunks.values()) m = Math.min(m, ch.minZ);
+      this.minZ = m;
+    }
+    if (this.specialDirty) {
+      this.special = [];
+      for (const ch of this.chunks.values()) for (const id of ch.special) this.special.push(id);
+      this.specialDirty = false;
+    }
+  }
+
+  private drop(ch: RChunk): void {
+    const gl = G.gl;
+    for (const g of ch.groups.values()) { gl.deleteBuffer(g.buf); gl.deleteVertexArray(g.vao); }
+    ch.groups.clear();
+  }
+
+  private pack(ch: RChunk): void {
+    const s = this.store, gl = G.gl, scene = this.opts.scene, sel = scene ? S.sel : -1;
+    const hidden = scene ? S.hidden : null, selection = scene ? S.selection : null;
+    const lists = new Map<Mesh, number[]>();
+    const box = ch.box;
+    box[0] = box[1] = box[2] = Infinity; box[3] = box[4] = box[5] = -Infinity;
+    ch.minZ = Infinity; ch.special = [];
+    for (const id of ch.ids) {
+      const o = s.orient[id]!, h = worldHalfOf(o, s.hx[id]!, s.hy[id]!, s.hz[id]!);
+      const x = s.px[id]!, y = s.py[id]!, z = s.pz[id]!;
+      box[0] = Math.min(box[0], x - h[0]); box[1] = Math.min(box[1], y - h[1]); box[2] = Math.min(box[2], z - h[2]);
+      box[3] = Math.max(box[3], x + h[0]); box[4] = Math.max(box[4], y + h[1]); box[5] = Math.max(box[5], z + h[2]);
+      if (id === sel) continue;
+      ch.minZ = Math.min(ch.minZ, z - h[2]);
+      if (hidden && hidden.size && hidden.has(id)) continue;
+      if (scene && materialCode(s.material[id]!) > 0) { ch.special.push(id); continue; }   // extras draw them as plastic, as before
+      const mesh = meshOf(s.shape[id]!, ASSETS.name(s.asset[id]!), s.hx[id]!, s.hy[id]!, s.hz[id]!);
+      let l = lists.get(mesh);
+      if (!l) lists.set(mesh, (l = []));
+      l.push(id);
+    }
+    // groups: re-use a mesh's buffer and vertex array when it is still there
+    for (const [mesh, g] of ch.groups) if (!lists.has(mesh)) { gl.deleteBuffer(g.buf); gl.deleteVertexArray(g.vao); ch.groups.delete(mesh); }
+    for (const [mesh, ids] of lists) {
+      const data = new ArrayBuffer(ids.length * REC), i16 = new Int16Array(data), u16 = new Uint16Array(data), u32 = new Uint32Array(data), u8 = new Uint8Array(data);
+      ids.forEach((id, j) => {
+        const b = j * REC, w = j * 12;
+        i16[w] = s.px[id]! - ch.c[0]; i16[w + 1] = s.py[id]! - ch.c[1]; i16[w + 2] = s.pz[id]! - ch.c[2]; i16[w + 3] = 0;
+        u16[w + 4] = s.hx[id]!; u16[w + 5] = s.hy[id]!; u16[w + 6] = s.hz[id]!;
+        u16[w + 7] = s.orient[id]! | wordOf(s.asset[id]!) | (s.flags[id]! & F_LINEAR ? 256 : 0);
+        u32[(b + 16) >> 2] = s.color[id]!;
+        u8[b + 20] = s.faceMask[id]!; u8[b + 21] = s.material[id]!; u8[b + 22] = 0; u8[b + 23] = selection && selection.has(id) ? 1 : 0;
+      });
+      let g = ch.groups.get(mesh);
+      if (!g) {
+        g = { mesh, vao: gl.createVertexArray()!, buf: gl.createBuffer()!, n: 0, cap: 0 };
+        ch.groups.set(mesh, g);
+        gl.bindVertexArray(g.vao);
+        bindMesh(mesh);
+        if (mesh === BOX_MESH) gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxIB);
+        gl.bindBuffer(gl.ARRAY_BUFFER, g.buf);
+        instancePointers(gl);
+        gl.bindVertexArray(null);
+      }
+      gl.bindBuffer(gl.ARRAY_BUFFER, g.buf);
+      if (ids.length > g.cap) { g.cap = Math.max(ids.length, g.cap * 2); gl.bufferData(gl.ARRAY_BUFFER, g.cap * REC, gl.DYNAMIC_DRAW); }
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, new Uint8Array(data));
+      g.n = ids.length;
+    }
+    ch.dirty = false;
+  }
+
+  /** Is chunk ch (its box) in the view? */
+  private visible(ch: RChunk, cull: ViewCull): boolean {
+    const b = ch.box, off = this.opts.offset;
+    const ox = off ? off[0] : 0, oy = off ? off[1] : 0, oz = off ? off[2] : 0;
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (let c = 0; c < 8; c++) {
+      const X = ((c & 1 ? b[3] : b[0]) + ox) * BRZ_UNIT - S.origin[0], Y = ((c & 2 ? b[4] : b[1]) + oy) * BRZ_UNIT - S.origin[1], Z = ((c & 4 ? b[5] : b[2]) + oz) * BRZ_UNIT - S.origin[2];
+      const v = viewDir(X, Y, Z), m = S.view, d = m[2]! * X + m[6]! * Z + m[10]! * Y;
+      x0 = Math.min(x0, v[0]); x1 = Math.max(x1, v[0]); y0 = Math.min(y0, v[1]); y1 = Math.max(y1, v[1]); z0 = Math.min(z0, d); z1 = Math.max(z1, d);
+    }
+    return x1 >= cull.x0 && x0 <= cull.x1 && y1 >= cull.y0 && y0 <= cull.y1 && z1 >= -cull.depth && z0 <= cull.depth;
+  }
+
+  /** Draws every visible chunk (the brick program's uniforms set; uBox off). */
+  draw(cull: ViewCull | null): void {
+    const gl = G.gl, u = G.u, o = S.origin, off = this.opts.offset;
+    gl.uniform4f(u.uBox, 0, 0, 0, 0);
+    for (const ch of this.chunks.values()) {
+      if (!ch.groups.size || (cull && !this.visible(ch, cull))) continue;
+      stats.chunks++;
+      const cx = ch.c[0] + (off ? off[0] : 0), cy = ch.c[1] + (off ? off[1] : 0), cz = ch.c[2] + (off ? off[2] : 0);
+      gl.uniform3f(u.uChunkOffset, cx * BRZ_UNIT - o[0], cz * BRZ_UNIT - o[2], cy * BRZ_UNIT - o[1]);
+      for (const g of ch.groups.values()) {
+        if (!g.n) continue;
+        gl.bindVertexArray(g.vao);
+        stats.draws++; stats.instances += g.n;
+        if (g.mesh === BOX_MESH) gl.drawElementsInstanced(gl.TRIANGLES, 36, gl.UNSIGNED_SHORT, 0, g.n);
+        else gl.drawArraysInstanced(gl.TRIANGLES, 0, g.mesh.count, g.n);
+      }
+    }
+    gl.bindVertexArray(null);
+  }
+
+  /** Frees every buffer. */
+  dispose(): void { for (const ch of this.chunks.values()) this.drop(ch); this.chunks.clear(); }
+}
+
+/** The 24-byte record's attribute pointers on the bound buffer (instanced). */
+function instancePointers(gl: WebGL2RenderingContext): void {
+  gl.enableVertexAttribArray(LOC.iPos); gl.vertexAttribIPointer(LOC.iPos, 4, gl.SHORT, REC, 0); gl.vertexAttribDivisor(LOC.iPos, 1);
+  gl.enableVertexAttribArray(LOC.iHalf); gl.vertexAttribIPointer(LOC.iHalf, 4, gl.UNSIGNED_SHORT, REC, 8); gl.vertexAttribDivisor(LOC.iHalf, 1);
+  gl.enableVertexAttribArray(LOC.iColor); gl.vertexAttribPointer(LOC.iColor, 4, gl.UNSIGNED_BYTE, true, REC, 16); gl.vertexAttribDivisor(LOC.iColor, 1);
+  gl.enableVertexAttribArray(LOC.iMisc); gl.vertexAttribIPointer(LOC.iMisc, 4, gl.UNSIGNED_BYTE, REC, 20); gl.vertexAttribDivisor(LOC.iMisc, 1);
+}
+
+/** The view rectangle (view-plane coords, relative to the render origin) and depth half-range. */
+export interface ViewCull { x0: number; x1: number; y0: number; y1: number; depth: number }
+
+/** Per-frame counters (test hook / benchmark): chunks and instanced draws drawn, instances in them. */
+export const stats = { chunks: 0, draws: 0, instances: 0 };
+
+/** The scene's chunks and what the rest of the renderer reads from them. */
 export const inst = {
-  n: -1, data: new Float32Array(0), base: [0, 0, 0] as V3, all: true, dirty: new Set<number>(), sel: -1,
-  isShaped: new Uint8Array(0), groupsDirty: true, groups: [] as Group[],
-  /** glass / translucent / glow bricks (not the focused one): drawn by matpass.ts, not from the buffers */
-  isSpecial: new Uint8Array(0), special: [] as number[], specialDirty: true,
-  /** lowest brick bottom except the focused one (frame-independent), for the ground grid */
+  set: null as ChunkSet | null,
+  /** glass / translucent / glow bricks (not the focused one): drawn by matpass.ts */
+  special: [] as number[],
+  /** lowest brick bottom except the focused one (absolute viewer units), for the ground grid */
   groundAbs: Infinity,
   /** bumped whenever the instance data changed (hover re-pick key) */
   rev: 0,
 };
-let boxInstBuf: WebGLBuffer;
 
-export function initInstances(): void { boxInstBuf = G.gl.createBuffer()!; }
-
-/** the brick list itself changed (load / scene undo / add / remove) */
-export const instAll = (): void => { inst.all = true; };
-/** brick k changed in place */
-export const markBrick = (k: number): void => { inst.dirty.add(k); };
-
-/** brick b's record at o in out, with faces l / h shifted by sh (into the upload frame) */
-export function writeRecord(out: Float32Array, o: number, b: Brick, l: readonly number[], h: readonly number[], sh: readonly number[]): void {
-  const l0 = l[0] + sh[0], l1 = l[1] + sh[1], l2 = l[2] + sh[2], h0 = h[0] + sh[0], h1 = h[1] + sh[1], h2 = h[2] + sh[2];
-  out[o] = (l0 + h0) / 2; out[o + 1] = (l2 + h2) / 2; out[o + 2] = (l1 + h1) / 2;
-  out[o + 3] = h0 - l0; out[o + 4] = h2 - l2; out[o + 5] = h1 - l1;
-  out[o + 6] = b.color[0]; out[o + 7] = b.color[1]; out[o + 8] = b.color[2];
-  const f = brickFlags(b); out[o + 9] = f[0]; out[o + 10] = f[1]; out[o + 11] = f[2]; out[o + 12] = f[3];
-}
-const instShift = (): number[] => [0, 1, 2].map((i) => S.histOrigin[i] - inst.base[i]);
-
-/** box slot k from bricks[k] (zeroed if shaped / focused) */
-function writeSlot(k: number, sh: readonly number[]): void {
-  const b = S.bricks[k], o = k * INST_F, special = matCode(b) > 0, shaped = !!b.shape && !special;
-  if (shaped || special || k === S.sel) inst.data.fill(0, o, o + INST_F); else writeRecord(inst.data, o, b, b.lo, b.hi, sh);
-  if (shaped || inst.isShaped[k]) inst.groupsDirty = true;
-  if (special || inst.isSpecial[k]) inst.specialDirty = true;
-  inst.isShaped[k] = shaped ? 1 : 0; inst.isSpecial[k] = special ? 1 : 0;
-}
-
-function rebuildGroups(sh: readonly number[]): void {
-  const gl = G.gl;
-  for (const g of inst.groups) gl.deleteBuffer(g.buf);
-  const groups = new Map<WebGLBuffer, number[]>();           // mesh buffer -> brick indices
-  for (let k = 0; k < S.bricks.length; k++) {
-    const b = S.bricks[k];
-    if (!b.shape || k === S.sel || inst.isSpecial[k]) continue;
-    const mesh = shapeBuffer(b, [b.hi[0] - b.lo[0], b.hi[1] - b.lo[1], b.hi[2] - b.lo[2]]);
-    if (!groups.has(mesh)) groups.set(mesh, []);
-    groups.get(mesh)!.push(k);
-  }
-  inst.groups = [...groups].map(([mesh, ks]) => {
-    const data = new Float32Array(ks.length * INST_F);
-    ks.forEach((k, j) => writeRecord(data, j * INST_F, S.bricks[k], S.bricks[k].lo, S.bricks[k].hi, sh));
-    const buf = gl.createBuffer()!; gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-    gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
-    return { mesh, buf, data, n: ks.length };
+export function initInstances(): void {
+  inst.set = new ChunkSet(S.scene);
+  addMirror({
+    reset: (s) => { inst.set!.reset(s); },
+    changed: (_s, ids) => { inst.set!.changed(ids); },
   });
-  inst.groupsDirty = false;
 }
 
-/** bring the buffers up to date with S.bricks (once a frame, before drawing) */
+/** marks row id's chunk for re-packing (selection or hidden state changed) */
+export const markBrick = (id: number): void => { inst.set?.touch(id); };
+
+/** bring the buffers up to date with the scene (once a frame, before drawing) */
 export function syncInstances(): void {
-  const gl = G.gl, N = S.bricks.length;
-  let changed = false;
-  if (inst.all || N !== inst.n) {
-    inst.base = S.histOrigin.slice() as V3; inst.n = N; inst.sel = S.sel; inst.all = false; inst.dirty.clear();
-    inst.data = new Float32Array(N * INST_F); inst.isShaped = new Uint8Array(N); inst.isSpecial = new Uint8Array(N); inst.specialDirty = true;
-    const sh = [0, 0, 0];
-    for (let k = 0; k < N; k++) writeSlot(k, sh);
-    gl.bindBuffer(gl.ARRAY_BUFFER, boxInstBuf);
-    gl.bufferData(gl.ARRAY_BUFFER, inst.data, gl.DYNAMIC_DRAW);
-    inst.groupsDirty = true; pickGrid.dirty = true; changed = true;
-  } else {
-    if (inst.sel !== S.sel) { inst.dirty.add(inst.sel); inst.dirty.add(S.sel); inst.sel = S.sel; }
-    if (inst.dirty.size) {
-      const sh = instShift();
-      gl.bindBuffer(gl.ARRAY_BUFFER, boxInstBuf);
-      for (const k of inst.dirty) {
-        if (!(k >= 0 && k < N)) continue;
-        writeSlot(k, sh);
-        gl.bufferSubData(gl.ARRAY_BUFFER, k * INST_F * 4, inst.data.subarray(k * INST_F, (k + 1) * INST_F));
-        pickUpdate(k);
-      }
-      inst.dirty.clear(); changed = true;
-    }
-  }
-  if (inst.groupsDirty) rebuildGroups(instShift());
-  if (inst.specialDirty) {
-    inst.special = [];
-    for (let k = 0; k < N; k++) if (inst.isSpecial[k] && k !== S.sel) inst.special.push(k);
-    inst.specialDirty = false;
-  }
-  if (changed) {
-    let m = Infinity;
-    for (let k = 0; k < N; k++) if (k !== S.sel) m = Math.min(m, S.bricks[k].lo[2] + S.histOrigin[2]);
-    inst.groundAbs = m; inst.rev++;
-  }
+  const set = inst.set!;
+  stats.chunks = stats.draws = stats.instances = 0;
+  set.sync();
+  inst.special = set.special;
+  inst.groundAbs = set.minZ * BRZ_UNIT;
+  inst.rev = set.rev;
 }
 
-/** per-instance arrays from buf (on) or back to constants */
-function instAttribs(buf: WebGLBuffer | null, on: boolean): void {
+/** Draw every brick: the focused one first (drawFocus, from constants), then the chunks. */
+export function drawInstances(drawFocus: () => void, cull: ViewCull | null = null): void {
   const gl = G.gl;
-  if (on) gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-  for (const [loc, n, off] of INST_ATTRS) {
-    if (on) { gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, n, gl.FLOAT, false, INST_F * 4, off); }
-    else gl.disableVertexAttribArray(loc);
-    gl.vertexAttribDivisor(loc, on ? 1 : 0);
-  }
+  drawFocus();
+  inst.set!.draw(cull);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxIB);
 }
 
-/**
- * Draw every brick (element array: the cube's triangles bound, body uniforms set). The boxes go in
- * index order with the focused brick (drawFocus, from constants) at its own place; the shape groups follow.
- */
-export function drawInstances(drawFocus: () => void): void {
-  const gl = G.gl, u = G.u, sh = instShift(), F = Math.min(S.sel, inst.n);
-  const shifted = (on: boolean): void => gl.uniform3f(u.uShift, on ? sh[0] : 0, on ? sh[2] : 0, on ? sh[1] : 0);
-  shifted(true);
-  meshAttribs(boxVB, false);
-  // a range of box slots: there's no base instance, so offset the instance pointers instead
-  const boxes = (k0: number, k1: number): void => {
-    if (k1 <= k0) return;
-    gl.bindBuffer(gl.ARRAY_BUFFER, boxInstBuf);
-    for (const [loc, n, off] of INST_ATTRS) {
-      gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, n, gl.FLOAT, false, INST_F * 4, k0 * INST_F * 4 + off);
-      gl.vertexAttribDivisor(loc, 1);
-    }
-    gl.drawElementsInstanced(gl.TRIANGLES, 36, gl.UNSIGNED_SHORT, 0, k1 - k0);
-  };
-  boxes(0, F);
-  instAttribs(null, false); shifted(false); drawFocus(); shifted(true); meshAttribs(boxVB, false);
-  boxes(F + 1, inst.n);
-  for (const g of inst.groups) {
-    meshAttribs(g.mesh, true); instAttribs(g.buf, true);
-    gl.drawArraysInstanced(gl.TRIANGLES, 0, shapeCount(g.mesh), g.n);
-  }
-  instAttribs(null, false);
-  meshAttribs(boxVB, false);
-  shifted(false);
-}
+export { MAT_GLOW };

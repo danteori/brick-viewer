@@ -18,14 +18,18 @@ import { renderFrame } from '../render/pipeline.ts';
 import { edgeTick, onDown, onMove, onRightDown, onUp, onWheel, orbitMove } from '../editor/resize.ts';
 import { histStep } from '../scene/history.ts';
 import { initGhost } from '../editor/ghost.ts';
-import { applyList } from '../editor/ops.ts';
+import { initOps } from '../editor/ops.ts';
+import { initSpatial } from '../scene/spatial.ts';
+import { selectBrick } from '../editor/resize.ts';
 import { initClipboard } from '../editor/clipboard.ts';
 import { initEditorInput } from '../editor/input.ts';
+import { initTools } from '../editor/tools.ts';
 import { $, mountDom } from '../ui/dom.ts';
 import { initStatus } from '../ui/status.ts';
 import { initSizePanel } from '../ui/panels/size.ts';
 import { initFilePanel, waitForOpeners } from '../ui/panels/file.ts';
 import { initProps, tickProps } from '../ui/panels/props.ts';
+import { initSelectionPanel, tickSelection } from '../ui/panels/selection.ts';
 import { initCataloguePanel } from '../ui/panels/catalogue.ts';
 import { drawDims, initDims } from '../ui/overlay/dims.ts';
 import { drawHud, initHud } from '../ui/overlay/hud.ts';
@@ -49,6 +53,7 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
   initDraw(gfx);
   initMeshes(gl);
   initInstances();
+  initSpatial();
   initGrid();
   gl.enable(gl.DEPTH_TEST);
   initStatus($('status'));
@@ -56,6 +61,7 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
   initCamera(canvas);
   initSizePanel();
   initDims(canvas);
+  selectBrick(S.scene.first());               // the startup brick
 
   // --- input, in the legacy order
   addEventListener('keydown', (e) => {
@@ -90,11 +96,13 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
   initSoundPanel();
   if (opts.features.brdbRead) initWorlds();
   initProps();
+  initSelectionPanel();
   initGhost(canvas);
-  S.hooks.applyList = applyList;
+  initOps();
   initClipboard([...document.querySelectorAll<HTMLButtonElement>('#pastemode button')]);
   initCataloguePanel();
   initEditorInput(canvas);
+  initTools(canvas);
   initWorldEnvironment();
   initPaintPanel();
   // full build: environment panel, .brdb worlds and the map (a separate chunk, never in lite)
@@ -112,6 +120,7 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
       drawHud();
       drawDims(sx, sy);
       tickProps();
+      tickSelection();
     }
     requestAnimationFrame(frame);
   };

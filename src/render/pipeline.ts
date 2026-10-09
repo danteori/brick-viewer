@@ -2,12 +2,13 @@
 // shader, then the overlays after it, sharing scene depth: hover wash, grab glow, ground grid,
 // resize ghost and the editor ghost. Draw order and state match the legacy frame() exactly.
 
-import { S } from '../app/state.ts';
+import { S, hasFocus } from '../app/state.ts';
 import { mul } from '../core/math.ts';
 import { BEVEL, BEVEL_FIT, SHADE, STEP } from '../core/units.ts';
 import type { V3 } from '../scene/brick.ts';
-import { G, drawBody, setBox } from './draw.ts';
-import { drawInstances, syncInstances } from './instances.ts';
+import { G, bodyShape, drawBody, setBox } from './draw.ts';
+import { drawInstances, syncInstances, type ViewCull } from './instances.ts';
+import { syncScene } from '../scene/sync.ts';
 import { drawGrid } from './grid.ts';
 import { drawExtras } from './extras.ts';
 import { drawGround, drawGroundBackdrop } from './ground.ts';
@@ -28,8 +29,11 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
   const [pl, ph] = proposedBox();
   const half = cam.half;
   const sx = 1 / (half * fx), sy = 1 / (half * fy);
-  const ortho = new Float32Array([sx, 0, 0, 0, 0, sy, 0, 0, 0, 0, -1 / 60, 0, -cam.x * sx, -cam.y * sy, 0, 1]);
+  // the GPU sees positions relative to the render origin, the frame the camera lives in
+  const cx = cam.x, cy = cam.y;
+  const ortho = new Float32Array([sx, 0, 0, 0, 0, sy, 0, 0, 0, 0, -1 / 60, 0, -cx * sx, -cy * sy, 0, 1]);
   const view = S.view;
+  const cull: ViewCull = { x0: cx - half * fx, x1: cx + half * fx, y0: cy - half * fy, y1: cy + half * fy, depth: 60 };
   gl.uniformMatrix4fv(u.uMVP, false, mul(ortho, view));
   gl.uniform3f(u.uEye, view[2], view[6], view[10]);   // view-space +z (toward the camera) in world/GL space
   { const P = LIGHTING[S.lighting]; gl.uniform3fv(u.uSun, P.sun); gl.uniform3fv(u.uSky, P.sky); gl.uniform3fv(u.uFloor, P.floor); gl.uniform1f(u.uExposure, P.exposure); }
@@ -38,6 +42,7 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
   // bodies: all but the focused one come from the instance buffers; the focused one is drawn live
+  syncScene();
   syncInstances();
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxIB);
   gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(1, 1);
@@ -49,22 +54,23 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
   gl.uniform1f(u.uBump, SHADE.BUMP_STRENGTH * bumpFade);
   drawGroundBackdrop(ortho, view);           // the far ground plate, if an environment shows one
   const drawFocus = (): void => {
-    const b = S.bricks[S.sel];
-    if (!b || focusIsSpecial()) return;      // empty scene, or glass / glow: drawMaterials has it
-    drawBody(b, dlo, dhi);
+    const b = S.focus;
+    if (!hasFocus() || !b || focusIsSpecial() || S.hidden.has(S.sel)) return;   // empty scene, glass / glow (drawMaterials has it), or being moved
+    drawBody(b, dlo, dhi, S.selection.has(S.sel) ? 1 : 0, bodyShape(b, dlo, dhi, S.scene.orient[S.sel]));
   };
-  drawInstances(drawFocus);
-  drawExtras();                              // read-only dynamic grids (none unless a world placed some)
+  drawInstances(drawFocus, cull);
+  drawExtras(cull);                          // read-only dynamic grids (none unless a world placed some)
   drawGround();                              // the ground plate (off unless an environment is applied)
   drawMaterials(dlo, dhi);                   // glow, then glass / translucent back to front (if any)
   if (bloomPass && hasGlow()) {              // full build: the glow halo
-    bloomPass(w, h, () => { drawInstances(drawFocus); drawExtras(); drawGround(); }, () => drawGlow(dlo, dhi, 2));
+    bloomPass(w, h, () => { drawInstances(drawFocus, cull); drawExtras(cull); drawGround(); }, () => drawGlow(dlo, dhi, 2));
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxIB);
   }
   gl.uniform1f(u.uEdge, 1); gl.uniform1f(u.uFadeR, 0);
   // hovering another brick: a faint wash on the face under the cursor (click = focus it)
-  if (!S.held && S.hoverBrick >= 0 && S.hoverBrick !== S.sel) {
-    const b = S.bricks[S.hoverBrick]; setBox(b.lo, b.hi);
+  if (!S.held && S.hoverBrick >= 0 && S.hoverBrick !== S.sel && S.scene.alive(S.hoverBrick)) {
+    const bx = S.scene.box(S.hoverBrick), U = 0.02;
+    setBox([bx[0]! * U, bx[1]! * U, bx[2]! * U], [bx[3]! * U, bx[4]! * U, bx[5]! * U]);
     gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.depthFunc(gl.LEQUAL); gl.depthMask(false);
     gl.uniform4f(u.uLine, 1, 1, 1, 0.07);

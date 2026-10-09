@@ -3,7 +3,7 @@
 // drag guide and the brick name label. An axis lights up while the drag is resizing it or its label
 // is being edited.
 
-import { S } from '../../app/state.ts';
+import { S, hasFocus } from '../../app/state.ts';
 import { ACCENT, THRESH } from '../../core/units.ts';
 import { farOf, nearOf, studPx, toView } from '../../render/camera.ts';
 import { grows, proposedBox, SNAP } from '../../editor/resize.ts';
@@ -72,8 +72,9 @@ function lockArrow(P: (X: number, Y: number, Z: number) => P2, i: number): strin
 /** Per frame, after rendering: hover pick, dimension lines, the size menu and the name label. */
 export function drawDims(sx: number, sy: number): void {
   const cw = canvas.clientWidth, ch = canvas.clientHeight, { cam } = S;
-  document.body.classList.toggle('empty', !S.bricks[S.sel]);   // empty scene: no dimension labels / name (CSS)
-  if (!S.bricks[S.sel]) { updateHover(canvas, sx, sy); if (shownDims) dimsEl.innerHTML = shownDims = ''; return; }
+  const none = !hasFocus() || S.hidden.has(S.sel);
+  document.body.classList.toggle('empty', none);   // empty scene (or the focus is being moved): no dimension labels / name (CSS)
+  if (none) { updateHover(canvas, sx, sy); if (shownDims) dimsEl.innerHTML = shownDims = ''; return; }
   const P = (X: number, Y: number, Z: number): P2 => { const v = toView(X, Y, Z); return [((v[0] - cam.x) * sx + 1) * cw / 2, (1 - (v[1] - cam.y) * sy) * ch / 2]; };
   const [l, u] = proposedBox();                         // dimensions show the size with the ghost applied
   boxCenterPx = P((l[0] + u[0]) / 2, (l[1] + u[1]) / 2, (l[2] + u[2]) / 2);
@@ -101,7 +102,7 @@ export function drawDims(sx: number, sy: number): void {
   const pu = (i: number): number => Math.round((u[i] - l[i]) / S.STEPS[i]);
   let top = 1e9;
   for (let c = 0; c < 8; c++) top = Math.min(top, P(c & 1 ? u[0] : l[0], c & 2 ? u[1] : l[1], c & 4 ? u[2] : l[2])[1]);
-  const label = displayName(S.bricks[S.sel], pu(0), pu(1), pu(2));
+  const label = displayName(S.focus!, pu(0), pu(1), pu(2));
   if (nameEl.textContent !== label) nameEl.textContent = label;
   nameEl.style.left = boxCenterPx[0] + 'px'; nameEl.style.top = (top - 14) + 'px';
 }

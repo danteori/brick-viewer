@@ -4,9 +4,10 @@ import { worldHalf } from '../../src/core/orient.ts';
 import { BRZ_UNIT } from '../../src/core/units.ts';
 import type { Brick, V3 } from '../../src/scene/brick.ts';
 import { pickGrid } from '../../src/scene/spatial.ts';
-import { inst } from '../../src/render/instances.ts';
+import { SceneStore } from '../../src/scene/store.ts';
+import { addBrick, brickView } from '../../src/scene/view.ts';
 import {
-  boxesOverlap, bricksCollide, focusChangeHits, freeGrowth, gridOf, orientedBox, sceneHit, toUnits, unitBox, type IBox,
+  boxesOverlap, bricksCollide, focusChangeHits, freeGrowth, gridOf, orientedBox, sceneHit, toUnits, touching, unitBox, type IBox,
 } from '../../src/scene/collision.ts';
 
 const shift = (b: IBox, d: readonly number[]): IBox => [b[0] + d[0], b[1] + d[1], b[2] + d[2], b[3] + d[0], b[4] + d[1], b[5] + d[2]];
@@ -61,6 +62,18 @@ describe('box overlap (integer Brickadia units)', () => {
   });
 });
 
+describe('connected (select connected)', () => {
+  it('counts face contact and overlap, not edges, corners or gaps', () => {
+    const a: IBox = [0, 0, 0, 20, 20, 12];
+    expect(touching(a, [20, 0, 0, 40, 20, 12])).toBe(true);      // side by side
+    expect(touching(a, [10, 10, 12, 30, 30, 24])).toBe(true);    // stacked, half over
+    expect(touching(a, [10, 10, 6, 30, 30, 18])).toBe(true);     // overlapping
+    expect(touching(a, [20, 20, 0, 40, 40, 12])).toBe(false);    // only an edge
+    expect(touching(a, [20, 20, 12, 40, 40, 24])).toBe(false);   // only a corner
+    expect(touching(a, [22, 0, 0, 40, 20, 12])).toBe(false);     // a gap
+  });
+});
+
 // --- scene queries through the pick grid
 const U = BRZ_UNIT;
 /** a brick from an integer-unit box */
@@ -68,10 +81,14 @@ const brick = (b: IBox, grid?: string): Brick => ({
   lo: [b[0] * U, b[1] * U, b[2] * U].map((v) => +v.toFixed(3)) as V3, hi: [b[3] * U, b[4] * U, b[5] * U].map((v) => +v.toFixed(3)) as V3,
   micro: false, color: [1, 0, 0], up: 1, ...(grid ? { grid } : {}),
 });
+let bricks: Brick[] = [];
 function setScene(list: Brick[], sel = 0, origin: V3 = [0, 0, 0]): void {
-  S.bricks.length = 0; for (const b of list) S.bricks.push(b); S.sel = sel; S.histOrigin = origin;
-  S.lo = S.bricks[sel].lo; S.hi = S.bricks[sel].hi;
-  pickGrid.dirty = true; inst.all = false; inst.dirty.clear(); inst.sel = sel;
+  const s = new SceneStore();
+  for (const b of list) addBrick(s, b);
+  S.scene = s; S.sel = sel; S.origin = origin; S.hidden = new Set();
+  S.focus = brickView(s, sel); S.lo = S.focus.lo; S.hi = S.focus.hi;
+  bricks = list.map((_, k) => (k === sel ? S.focus! : brickView(s, k)));
+  pickGrid.dirty = true;
 }
 const hitBox = (b: IBox, grid?: string, ignore?: number[]): number => sceneHit(brick(b).lo, brick(b).hi, { grid, ignore });
 
@@ -95,15 +112,18 @@ describe('scene collision', () => {
     expect(hitBox([0, 0, 0, 20, 20, 12], '5')).toBe(-1);
   });
 
-  it('honours ignore and the frame origin', () => {
+  it('honours ignore, hidden rows, and not the render origin', () => {
     expect(hitBox([45, 5, 0, 55, 15, 12], undefined, [1])).toBe(-1);
-    setScene(S.bricks.slice(), 0, [0.4, 0, 0]);                  // recentred by 2 studs: boxes are local, abs = local + origin
-    expect(sceneHit([0.8, 0, 0], [1.2, 0.4, 0.24])).toBe(1);     // brick 1's own local box
+    setScene(bricks.slice(), 0, [0.4, 0, 0]);                    // the render origin moved: queries are absolute
+    expect(sceneHit([0.8, 0, 0], [1.2, 0.4, 0.24])).toBe(1);     // brick 1's box
     expect(sceneHit([1.2, 0, 0], [1.6, 0.4, 0.24])).toBe(-1);    // just past it
+    S.hidden = new Set([1]);                                     // being moved: it doesn't block
+    expect(sceneHit([0.8, 0, 0], [1.2, 0.4, 0.24])).toBe(-1);
+    S.hidden = new Set();
   });
 
   it('stops a growing face at the last free step and skips overlaps the brick already had', () => {
-    const b = S.bricks[0];
+    const b = bricks[0]!;
     // grow +X in studs (0.2): the 2-stud gap to brick 1 fills, the third stud is refused
     expect(freeGrowth(b.lo, b.hi, 0, 1, 0.2, 0, 5)).toBe(2);
     expect(freeGrowth(b.lo, b.hi, 0, 1, 0.2, 1, 5)).toBe(2);   // already 1 stud out
@@ -111,8 +131,8 @@ describe('scene collision', () => {
     // grow +Y: grid 5's brick doesn't block
     expect(freeGrowth(b.lo, b.hi, 1, 1, 0.2, 0, 5)).toBe(5);
     // a loaded overlap: brick 3 sits inside the focus; growing up past it is still allowed
-    setScene([...S.bricks, brick([5, 5, 5, 15, 15, 20])]);
-    const f = S.bricks[0];
+    setScene([...bricks, brick([5, 5, 5, 15, 15, 20])]);
+    const f = bricks[0]!;
     expect(freeGrowth(f.lo, f.hi, 2, 1, 0.08, 0, 3)).toBe(0);   // the slab above holds brick 3's top: blocked
     expect(focusChangeHits(f.lo, f.hi, f.lo, [f.hi[0], f.hi[1], f.hi[2]])).toBe(false);   // unchanged box: its old overlap doesn't count
     expect(focusChangeHits(f.lo, f.hi, f.lo, [0.81, f.hi[1], f.hi[2]])).toBe(true);       // grows into brick 1

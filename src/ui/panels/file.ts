@@ -103,6 +103,6 @@ async function saveBrzClick(): Promise<void> {
     if (!r) { setStatus('Open a save first: Save .brz writes your edits back into the save you opened'); return; }
     const name = savedName(loadedName, '.brz');
     download(r.bytes, name);
-    setStatus(`Saved ${name} (${S.bricks.length} brick${S.bricks.length === 1 ? '' : 's'})` + (r.warnings.length ? ' · ' + r.warnings.join(' · ') : ''));
+    setStatus(`Saved ${name} (${S.scene.count} brick${S.scene.count === 1 ? '' : 's'})` + (r.warnings.length ? ' · ' + r.warnings.join(' · ') : ''));
   } catch (err) { setStatus(`Couldn't save: ${(err as Error).message}`); console.error(err); }
 }
