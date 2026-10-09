@@ -15,13 +15,15 @@ canvas { display:block; width:100%; height:100%; touch-action:none; }
 .dim input::selection { background:rgba(232,89,12,.45); color:#fff; }
 #ov, #dims { position:fixed; inset:0; width:100%; height:100%; pointer-events:none; color:var(--fg); }
 #side { position:fixed; left:12px; top:calc(12px + env(safe-area-inset-top, 0px)); display:flex; flex-direction:column; gap:8px; align-items:stretch; }
-#mode { display:flex; padding:3px; gap:3px; border-radius:10px; background:rgba(29,30,33,.88); border:1px solid rgba(255,255,255,.12);
+#mode, #tool { display:flex; padding:3px; gap:3px; border-radius:10px; background:rgba(29,30,33,.88); border:1px solid rgba(255,255,255,.12);
         box-shadow:0 6px 24px rgba(0,0,0,.35); }
-#mode button { flex:1; padding:6px 10px; border:0; border-radius:7px; background:none; color:#9a9ca3; cursor:pointer;
+#mode button, #tool button { flex:1; padding:6px 10px; border:0; border-radius:7px; background:none; color:#9a9ca3; cursor:pointer;
         font:600 12px/1.2 system-ui, sans-serif; }
-#mode button:hover { color:#eee; }
-#mode button[aria-pressed="true"] { background:#e8590c; color:#fff; }
-#mode button:focus-visible { outline:2px solid #fff; outline-offset:1px; }
+#mode button:hover, #tool button:hover { color:#eee; }
+#mode button[aria-pressed="true"], #tool button[aria-pressed="true"] { background:#e8590c; color:#fff; }
+#mode button:focus-visible, #tool button:focus-visible { outline:2px solid #fff; outline-offset:1px; }
+body[data-tool="move"] #c { cursor:move !important; }
+body[data-tool="paint"] #c { cursor:crosshair !important; }
 #mode button:disabled { opacity:.4; cursor:default; color:#9a9ca3; }   /* fixed-size rounds can't switch type */
 .dim.ro, .dim.ro:hover { cursor:default; border-color:rgba(201,204,211,.18); color:#9a9ca3; }   /* read-only size (rounds) */
 #menu .mrow.ro { cursor:default; } #menu .mrow.ro input { color:#9a9ca3; border-style:dashed; }
@@ -182,3 +184,19 @@ body.placing canvas { cursor:copy !important; }
 #mappanel .mapfit { padding:2px 8px; border-radius:6px; border:1px solid rgba(255,255,255,.18); background:#2b2c30; color:#eee; cursor:pointer; }
 #mapcanvas { width:100%; aspect-ratio:1; border-radius:8px; background:#1d1e21; cursor:crosshair; touch-action:none; }
 #mappanel .mapnote { font-size:11px; color:#9a9ca3; }
+/* Selection (E-01 / E-02): a section of Brick Properties above Paint, and the Shift+drag box */
+#props #seltoggle { display:flex; align-items:center; justify-content:space-between; gap:10px; width:100%; padding:6px 0 4px;
+  border-top:1px solid rgba(255,255,255,.07); font-weight:600; color:#c9ccd3; }
+#props #seltoggle:hover { color:#eee; }
+#props #selcount { margin-left:auto; font-weight:400; font-size:12px; color:#9a9ca3; font-variant-numeric:tabular-nums; }
+#props #selcount.on { color:#ffb070; font-weight:600; }
+#selbody { display:grid; gap:4px; padding:2px 0 8px; }
+#selbody .selrow { display:grid; grid-template-columns:repeat(4, 1fr); gap:4px; }
+#selbody .selrow.sel3 { grid-template-columns:repeat(3, 1fr); }
+#props #selbody button { padding:5px 4px; border-radius:7px; background:#2b2c30; border:1px solid rgba(255,255,255,.1); color:#c9ccd3;
+  font-size:11.5px; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+#props #selbody button:hover:not(:disabled) { color:#fff; border-color:#e8590c; }
+#props #selbody button:disabled { opacity:.4; cursor:default; }
+#marquee { position:fixed; z-index:3; pointer-events:none; border:1px dashed #ffb070; background:rgba(255,160,90,.12); }
+#marquee.remove { border-color:#ff7a66; background:rgba(255,90,70,.12); }
+#marquee[hidden] { display:none; }

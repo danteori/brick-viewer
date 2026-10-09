@@ -2,11 +2,11 @@
 // hue / saturation wheel, a brightness slider and a hex box). It reads the scene once a frame and
 // only touches the DOM when a shown string changes. Colours are display sRGB 0..1.
 
-import { S } from '../../app/state.ts';
+import { S, hasFocus } from '../../app/state.ts';
 import { hexOf, hsv2rgb, parseHex, rgb2hsv, type HSV, type RGB } from '../../core/colour.ts';
 import { brickType, fixedSize } from '../../scene/brick.ts';
 import { hist, histBegin, histEnd } from '../../scene/history.ts';
-import { proposedBox } from '../../editor/resize.ts';
+import { proposedBox, pushFocus } from '../../editor/resize.ts';
 import { displayName, fmtUnits, shapeLabel, stepKind } from '../names.ts';
 import { initAudio } from '../audio.ts';
 import { $ } from '../dom.ts';
@@ -68,10 +68,11 @@ export function initProps(): void {
 
 /** recolour the focused brick (one undo step per drag / pick) */
 export function setColor(c: RGB): void {
-  const b = S.bricks[S.sel];
-  if (!b) return;                  // empty scene
+  const b = S.focus;
+  if (!hasFocus() || !b) return;   // empty scene
   if (!(hist.open && hist.open.label === 'colour' && hist.open.sel === S.sel)) histBegin('colour');
-  b.color = c;                     // a fresh array (the startup brick's colour is shared); the focused brick draws live
+  b.color = c;                     // a fresh array; the focused brick draws live
+  pushFocus();
   syncSel = S.sel; syncHex = hexOf(c);
   showEditor();
 }
@@ -126,8 +127,8 @@ const TYPE_NAMES: Record<string, string> = { brick: 'Brick', plain: 'Tile', tile
 
 /** per-frame read-out */
 export function tickProps(): void {
-  const b = S.bricks[S.sel];
-  if (!b || pbody.hidden) return;
+  const b = S.focus;
+  if (!hasFocus() || !b || pbody.hidden) return;
   const [l, u] = proposedBox(), n = (i: number): number => Math.round((u[i] - l[i]) / S.STEPS[i]);   // size incl. the ghost
   put(out.name, displayName(b, n(0), n(1), n(2)));
   put(out.type, b.shape === 'special' || b.shape === 'micro' ? shapeLabel(b.asset)

@@ -1,6 +1,6 @@
 // The Bricks catalogue panel: drag an entry into the scene (or click it, then click to place).
 
-import { S } from '../../app/state.ts';
+import { S, hasFocus } from '../../app/state.ts';
 import { DEFAULT_COLOR, r3 } from '../../core/units.ts';
 import { cloneBrick, type Brick, type V3 } from '../../scene/brick.ts';
 import { CATALOGUE, iconSvg, type CatalogueEntry } from '../../editor/catalogue.ts';
@@ -9,7 +9,7 @@ import { $ } from '../dom.ts';
 
 const entryItems = (e: CatalogueEntry): Brick[] => [{
   micro: false, top: 'studs', tile: false, up: 1, ...cloneBrick(e.brick),
-  color: (S.bricks[S.sel] ? S.bricks[S.sel].color : DEFAULT_COLOR).slice(), lo: [0, 0, 0], hi: e.size.map(r3) as V3,
+  color: (hasFocus() && S.focus ? S.focus.color : DEFAULT_COLOR).slice(), lo: [0, 0, 0], hi: e.size.map(r3) as V3,
 }];
 
 export function initCataloguePanel(): void {

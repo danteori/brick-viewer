@@ -6,13 +6,15 @@ import { ELEV, S, YAW0 } from './state.ts';
 import { viewOf } from '../core/math.ts';
 import { camSignature, isoSettling, toView, updateCamera, updateDirs } from '../render/camera.ts';
 import { loadSave } from '../scene/load.ts';
-import { snapBrick } from '../scene/history.ts';
+import { brickView } from '../scene/view.ts';
 import { setPreset } from '../ui/panels/file.ts';
 import { statusText } from '../ui/status.ts';
 import { clip, startPaste } from '../editor/clipboard.ts';
 import type { Brick } from '../scene/brick.ts';
 import { ed } from '../editor/ghost.ts';
 import { selectBrick } from '../editor/resize.ts';
+import { setSelection } from '../editor/select.ts';
+import { inst, stats } from '../render/instances.ts';
 
 export interface BrickTest {
   ready: true;
@@ -23,24 +25,34 @@ export interface BrickTest {
   setPreset(p: string): void;
   settle(): Promise<number>;
   snapshot(): unknown;
-  /** world point (current frame, viewer units) -> CSS px */
+  /** world point (absolute viewer units) -> CSS px */
   project(x: number, y: number, z: number): [number, number];
-  /** the focused brick's faces in the current frame */
+  /** the focused brick's faces */
   focusBox(): { lo: number[]; hi: number[] };
-  /** brick k's faces in the current frame */
+  /** faces of brick k (k-th in list order) */
   brickBox(k: number): { lo: number[]; hi: number[] };
+  /** scene ids in list order (the order snapshot() lists bricks in) */
+  ids(): number[];
+  /** the selection as list indices (as snapshot() numbers bricks) */
+  selection(): number[];
+  /** replaces the selection with these scene ids */
+  select(ids: number[]): void;
+  /** every live brick by id: [id, lo, hi, colour] (ids are stable, unlike list indices) */
+  byId(): [number, number[], number[], number[]][];
+  /** last frame's render counters: chunks and draws drawn, instances, render chunks in all */
+  renderStats(): { chunks: number; draws: number; instances: number; total: number };
   /** put bricks on the clipboard (lo / hi relative to the group's low corner) and start pasting them */
   paste(items: Brick[]): void;
-  /** give brick k the focus (camera glides to it), keeping the zoom factor */
+  /** give brick k (k-th in list order) the focus (camera glides to it), keeping the zoom factor */
   focus(k: number): void;
 }
 
 /**
- * snapBrick without the fields the legacy viewer doesn't have (intensity, pass-through save data),
- * so the parity scripts compare like with like.
+ * A brick record without the fields the legacy viewer doesn't have (intensity, pass-through save
+ * data), so the parity scripts compare like with like.
  */
-function paritySnap(k: number): unknown {
-  const { intensity: _i, save: _s, ...rest } = snapBrick(k);
+function paritySnap(id: number): unknown {
+  const { intensity: _i, save: _s, ...rest } = brickView(S.scene, id);
   return rest;
 }
 
@@ -64,7 +76,7 @@ export function installTestHook(canvas: HTMLCanvasElement): void {
       const bin = atob(b64), u = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
       loadSave(u.buffer, name);
-      return { status: statusText(), bricks: S.bricks.length, zoom: S.zoomMul };
+      return { status: statusText(), bricks: S.scene.count, zoom: S.zoomMul };
     },
     setView({ k, pitchDeg, zoom, baseZoom }) {
       S.orbit.yaw = S.orbit.yawT = YAW0 + k * Math.PI / 2;
@@ -100,13 +112,19 @@ export function installTestHook(canvas: HTMLCanvasElement): void {
       return [((v[0] - cam.x) * sx + 1) * cw / 2, (1 - (v[1] - cam.y) * sy) * ch / 2];
     },
     focusBox: () => ({ lo: S.lo.slice(), hi: S.hi.slice() }),
-    brickBox: (k) => ({ lo: S.bricks[k].lo.slice(), hi: S.bricks[k].hi.slice() }),
+    brickBox: (k) => { const b = brickView(S.scene, S.scene.ordered()[k]!); return { lo: b.lo, hi: b.hi }; },
+    ids: () => S.scene.ordered(),
+    renderStats: () => ({ ...stats, total: inst.set?.chunks.size ?? 0 }),
+    selection: () => { const ids = S.scene.ordered(); return [...S.selection].map((id) => ids.indexOf(id)).sort((a, b) => a - b); },
     paste(items) { clip.items = items; startPaste(); },
-    focus(k) { const z = S.zoomMul; selectBrick(k); S.zoomMul = z; },
-    /** the scene as frame-independent records, plus the focus and the editor state */
+    focus(k) { const z = S.zoomMul; selectBrick(S.scene.ordered()[k]!); S.zoomMul = z; },
+    select: (ids) => setSelection(ids),
+    byId: () => S.scene.ordered().map((id) => { const b = brickView(S.scene, id); return [id, b.lo, b.hi, b.color]; }),
+    /** the scene as brick records (absolute) in list order, plus the focus and the editor state */
     snapshot() {
+      const ids = S.scene.ordered();
       return {
-        bricks: S.bricks.map((_, k) => paritySnap(k)), sel: S.sel,
+        bricks: ids.map(paritySnap), sel: Math.max(0, ids.indexOf(S.sel)),
         clip: clip.items, pasteMode: clip.mode, ghost: !!ed.ghost, status: statusText(), held: S.held, zoom: +S.zoomMul.toPrecision(10), active: document.activeElement?.id || document.activeElement?.tagName,
       };
     },

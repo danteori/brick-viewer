@@ -6,14 +6,14 @@
 import { S } from '../app/state.ts';
 import { fixedSize } from '../scene/brick.ts';
 import { pickRay } from '../scene/spatial.ts';
-import { inst } from '../render/instances.ts';
+import { sceneRev } from '../scene/sync.ts';
 import { isFixedAxis } from './resize.ts';
 import { cutKey } from '../render/cutaway.ts';
 
 export function updateHover(canvas: HTMLCanvasElement, sx: number, sy: number): void {
   const live = !S.noOverlay && !S.held && !S.orbit.dragging && S.mouse && S.mouseOnCanvas && !S.hooks.placing();   // no hover while placing a ghost
   const { cam, orbit } = S;
-  const key = live ? [S.mouse![0], S.mouse![1], cam.x, cam.y, sx, sy, orbit.yaw, orbit.pitch, S.sel, inst.rev, ...S.dlo, ...S.dhi, ...S.histOrigin, cutKey()].join() : '';
+  const key = live ? [S.mouse![0], S.mouse![1], cam.x, cam.y, sx, sy, orbit.yaw, orbit.pitch, S.sel, sceneRev, S.hidden.size, ...S.dlo, ...S.dhi, cutKey()].join() : '';
   if (key !== S.pickKey) {
     S.pickKey = key;
     S.hoverAxis = -1; S.hoverBrick = -1; S.hoverFace = -1;
@@ -21,7 +21,7 @@ export function updateHover(canvas: HTMLCanvasElement, sx: number, sy: number): 
       const cw = canvas.clientWidth, ch = canvas.clientHeight, m = S.mouse!;
       const hit = pickRay((2 * m[0] / cw - 1) / sx + cam.x, (1 - 2 * m[1] / ch) / sy + cam.y);
       if (hit) { S.hoverBrick = hit.k; S.hoverFace = hit.ax >= 0 ? hit.ax : 2; }
-      if (S.hoverBrick === S.sel && !fixedSize(S.bricks[S.sel]) && !isFixedAxis(S.hoverFace)) S.hoverAxis = S.hoverFace;   // fixed rounds / axes: no grab faces
+      if (S.tool === 'resize' && S.hoverBrick === S.sel && !fixedSize(S.focus) && !isFixedAxis(S.hoverFace)) S.hoverAxis = S.hoverFace;   // fixed rounds / axes, other tools: no grab faces
     }
   }
   canvas.style.cursor = orbit.dragging ? 'move' : S.held ? (S.lockAxis >= 0 ? 'grabbing' : 'default')

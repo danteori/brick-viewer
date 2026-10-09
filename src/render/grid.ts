@@ -1,10 +1,10 @@
 // Ground grid: one cell per stud, lines along GL x and z (world X and Y), y = 0, drawn with the body
-// path (aPos*iScale + iCenter) so iCenter places it under the scene. In microbrick mode a micro
-// subdivision goes underneath, faded out when its lines get too close on screen.
+// path as a single draw of a unit box (draw.ts setSingle) placed under the scene. In microbrick mode
+// a micro subdivision goes underneath, faded out when its lines get too close on screen.
 
 import { S } from '../app/state.ts';
 import { LOC } from './gl.ts';
-import { G } from './draw.ts';
+import { G, setSingle } from './draw.ts';
 import { farOf, studPx } from './camera.ts';
 import { inst } from './instances.ts';
 import { boxVB } from './meshes/registry.ts';
@@ -41,11 +41,11 @@ export function initGrid(): void {
 export function drawGrid(half: number, fy: number, canvasHeight: number): void {
   const { gl, u } = G, { dlo, dhi } = S;
   const gx = farOf(0, dlo, dhi), gy = farOf(1, dlo, dhi);
-  const groundZ = Math.min(dlo[2], inst.groundAbs - S.histOrigin[2]);
-  const gridAt = (x: number, z: number, y: number): void => { gl.vertexAttrib3f(LOC.iScale, 1, 1, 1); gl.vertexAttrib3f(LOC.iCenter, x, z, y); };
+  const groundZ = Math.min(dlo[2], inst.groundAbs);
+  const gridAt = (x: number, z: number, y: number): void => setSingle(x, y, z, 1, 1, 1, 16);
   gridAt(gx, groundZ, gy);
   gl.uniform4f(u.uLine, 0.9, 0.9, 0.92, 0.38);
-  gl.uniform3f(u.uFadeC, (dlo[0] + dhi[0]) / 2, 0, (dlo[1] + dhi[1]) / 2); gl.uniform1f(u.uFadeR, S.orbit.pitch > 0 ? half * 1.8 : 1e-6);
+  gl.uniform3f(u.uFadeC, (dlo[0] + dhi[0]) / 2 - S.origin[0], 0, (dlo[1] + dhi[1]) / 2 - S.origin[1]); gl.uniform1f(u.uFadeR, S.orbit.pitch > 0 ? half * 1.8 : 1e-6);
   gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false);
   if (S.micro) {
     const a = Math.max(0, Math.min(1, (studPx(0) - 3) / 6)) * 0.7;

@@ -1,6 +1,12 @@
 // The brick shader (GLSL ES 3.00): every body, the grid, the washes and the ghosts. Ported from
-// the legacy viewer's WebGL1 shader with core instancing; the shading maths is unchanged. Today's
-// forward pipeline: the tone map runs in this shader (TONEMAP_IN_SHADER in ARCHITECTURE.md 3.3).
+// the legacy viewer's WebGL1 shader; the shading maths is unchanged. Today's forward pipeline: the
+// tone map runs in this shader (TONEMAP_IN_SHADER in ARCHITECTURE.md 3.3).
+//
+// Orientation in the shader (ARCHITECTURE.md 3.1): meshes are built in the brick's LOCAL frame (the
+// stud side up) and the vertex shader turns them with the orientation byte's matrix, D[dir] * Rz(rot)
+// as in core/orient.ts. Shading runs in local space: the light and eye directions are turned into
+// the brick's frame once per vertex, so studs, undersides and bevels are one code path for all 24
+// orientations. Only the ramp slope's bump noise is evaluated in world axes, as it always was.
 
 import { SHADE } from '../../core/units.ts';
 import { TONEMAP_GLSL } from './tonemap.ts';
@@ -10,43 +16,88 @@ import { CUT_GLSL } from '../cutaway.ts';
 /** a GLSL float literal */
 export const glf = (v: number): string => { const s = String(+v); return /[.e]/.test(s) ? s : s + '.0'; };
 
+/** The orientation byte -> rotation (GL axes), shared by both stages: D[dir] * Rz(rot) as core/orient.ts. */
+const ORIENT_GLSL = `
+const vec3 OX[6] = vec3[6](vec3(0.0, 0.0, 1.0), vec3(0.0, 0.0, 1.0), vec3(0.0, 0.0, 1.0), vec3(0.0, 0.0, 1.0), vec3(1.0, 0.0, 0.0), vec3(-1.0, 0.0, 0.0));
+const vec3 OY[6] = vec3[6](vec3(0.0, -1.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(1.0, 0.0, 0.0), vec3(-1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0));
+const vec3 OZ[6] = vec3[6](vec3(1.0, 0.0, 0.0), vec3(-1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, -1.0, 0.0), vec3(0.0, 0.0, 1.0), vec3(0.0, 0.0, -1.0));
+// OX / OY / OZ[dir]: where local X, Y, Z point (save axes). The result's columns are where GL local
+// x (= local X), y (= local Z, the stud side) and z (= local Y) point, in GL axes (x = X, y = Z, z = Y).
+mat3 orientGL(uint o){
+  int d = int((o >> 2u) % 6u), r = int(o & 3u);
+  vec3 cx = OX[d], cy = OY[d];
+  vec3 x = r == 0 ? cx : r == 1 ? cy : r == 2 ? -cx : -cy;
+  vec3 y = r == 0 ? cy : r == 1 ? -cx : r == 2 ? -cy : cx;
+  return mat3(x.xzy, OZ[d].xzy, y.xzy);
+}`;
+
 export const BRICK_VS = `#version 300 es
 in vec3 aPos; in vec3 aNrm;
 in float aSlope;
 // Shape meshes only (BrickShapes.PART codes and cap coords); 0 elsewhere.
 in float aPart; in vec4 aCap;
 out float vPart; out vec4 vCap;
-// Per-brick data, in GL axes (x = X, y = Z up, z = Y). In the instanced draws these are per-instance
-// arrays; for single draws (focused brick, glow, ghost, grid) the arrays are off and they're
-// constants set with vertexAttrib.
-in vec3 iCenter; in vec3 iScale;
-in vec3 iColor;
-// studs (0/1), stud underside (0/1), stud axis, smooth tile top (0/1). The stud axis is the side the
-// studs face, in GL axes: +1 / -1 = up / down (GL y), +2 / -2 = +X / -X (GL x), +3 / -3 = +Y / -Y (GL z).
-in vec4 iFlags;
+// The 24-byte instance record (render/instances.ts), save axes (X, Y, Z up), integer units:
+//   iPos   centre relative to the draw's chunk (int16), w spare
+//   iHalf  local half-extents (uint16); w packed: bits 0-4 orientation byte, 5-6 top style
+//          (0 studs, 1 plain, 2 smooth), 7 micro (no studs, no underside), 8 linear colour bytes
+//   iColor R, G, B as stored, A = material intensity (unorm8)
+//   iMisc  face mask, material, shape variant, flags (bit 0 = selected)
+// The instanced draws read them per instance; single draws (focused brick, glow, ghost, grid,
+// washes) set them as constants and give the box's local GL size in uBox (w = 1).
+in ivec4 iPos; in uvec4 iHalf;
+in vec4 iColor;
+in uvec4 iMisc;
 uniform mat4 uMVP;
-uniform vec3 uShift;
+// the draw's origin relative to the render origin (GL axes, viewer units; computed in doubles)
+uniform vec3 uChunkOffset;
+// w > 0.5: a single draw of local GL size xyz, centred at uChunkOffset (iPos / iHalf.xyz unused)
+uniform vec4 uBox;
 uniform float uStudFade;
 uniform float uBevelMax;
 uniform float uBevelFit;
 out vec3 vN; out vec3 vW; out vec3 vL; out float vSlope;
 out vec3 vHalf; out vec3 vBase; out vec4 vFlags; out vec3 vBevel;
 out vec2 vBevelK;
+// the light and eye directions in the brick's frame; its orientation byte; x = linear colour, y = selected
+// No flat varyings: ANGLE on D3D11 emulates flat shading with a geometry shader that broke line
+// draws (the overlay outlines rendered as filled triangles). These are constant over a brick anyway.
+out float vOrient; out vec2 vMisc;
+// units per viewer unit (50), a uniform so the scale is a true, correctly rounded division
+uniform float uUnitDiv;
+${ORIENT_GLSL}
 // Bevel band width for a face L viewer units long along an axis:
 // W(L) = 0.43 / (0.957 + 0.86 / L) Brickadia units, which is uBevelMax at L = 20 units.
 float bevelW(float L){ return uBevelMax / (0.957 + 0.86 / max(L / 0.02, 0.5)); }
 void main(){
   vN = aNrm; vSlope = aSlope;
   vPart = aPart; vCap = aCap;
-  vec3 p = aPos * iScale + (iCenter - uShift);
+  bool single = uBox.w > 0.5;
+  uint w = iHalf.w;
+  mat3 R = orientGL(w & 31u);
+  vec3 size, lp, p;
+  if (single) {
+    size = uBox.xyz; lp = aPos * size;
+    p = R * lp + uChunkOffset;
+  } else {
+    // in whole units first: a box corner is centre +- half exactly, so bricks that share a face
+    // share its vertices bit for bit (no hairline cracks), then one scale into viewer units
+    vec3 hu = vec3(iHalf.xzy) * 2.0;
+    size = hu / uUnitDiv; lp = aPos * size;
+    p = (R * (aPos * hu) + vec3(iPos.xzy)) / uUnitDiv + uChunkOffset;
+  }
   vW = p;
-  vL = aPos * iScale;
-  vHalf = iScale * 0.5;
+  vL = lp;
+  vHalf = size * 0.5;
   vec3 fixedW = vec3(min(uBevelMax, 0.4*min(vHalf.x, min(vHalf.y, vHalf.z))));
-  vBevel = mix(fixedW, vec3(bevelW(iScale.x), bevelW(iScale.y), bevelW(iScale.z)), uBevelFit);
+  vBevel = mix(fixedW, vec3(bevelW(size.x), bevelW(size.y), bevelW(size.z)), uBevelFit);
   vBevelK = vec2(uBevelMax, uBevelFit);
-  vBase = iColor;
-  vFlags = vec4(iFlags.x*uStudFade, iFlags.y*uStudFade, iFlags.z, iFlags.w);
+  vBase = iColor.rgb;
+  uint top = (w >> 5u) & 3u;
+  float s = (w & 128u) != 0u ? 0.0 : 1.0;
+  vFlags = vec4((top == 0u ? s : 0.0)*uStudFade, s*uStudFade, 1.0, top == 2u ? s : 0.0);
+  vMisc = vec2((w & 256u) != 0u ? 1.0 : 0.0, (iMisc.w & 1u) != 0u ? 1.0 : 0.0);
+  vOrient = float(w & 31u);
   gl_Position = uMVP * vec4(p, 1.0);
 }`;
 
@@ -63,8 +114,13 @@ out vec4 fragColor;
 const float PITCH = 0.2, TOP = ${glf(SHADE.TOP)}, SLOPE = ${glf(SHADE.SLOPE)};
 const float ROUND = ${glf(SHADE.ROUND)};
 const float BEVEL_EDGE = ${glf(SHADE.BEVEL_EDGE)};
+// the light / eye in the brick's frame (turned by the vertex shader), its orientation, x = linear colour, y = selected
+in float vOrient; in vec2 vMisc;
 uniform vec3 uEye;
 uniform vec3 uLight;
+${ORIENT_GLSL}
+// the selection highlight (E-01), mixed over the tone-mapped colour
+const vec3 SEL_TINT = vec3(1.0, 0.62, 0.28); const float SEL_MIX = 0.42;
 in float vSlope;
 uniform float uBump;
 const float BUMPS = ${glf(SHADE.BUMPS)};
@@ -198,15 +254,18 @@ void main(){
   vec3 n = nG;
   bool slope = vSlope > 0.5;
   if (slope && uBump > 0.0) {
-    vec3 an = abs(nG);
+    // in world axes: the slope texture keeps the layout of the world-frame meshes it was tuned on
+    mat3 vR = orientGL(uint(vOrient + 0.5));
+    vec3 nW = vR * nG, lW = vR * vL;
+    vec3 an = abs(nW);
     vec3 w = an.z <= an.x && an.z <= an.y ? vec3(0.0, 0.0, 1.0) : an.x <= an.y ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
-    vec3 t = normalize(cross(nG, w));
-    w = normalize(cross(t, nG));
-    vec2 p = vec2(dot(vL, w)*0.8, dot(vL, t)) * (BUMPS/PITCH);
+    vec3 t = normalize(cross(nW, w));
+    w = normalize(cross(t, nW));
+    vec2 p = vec2(dot(lW, w)*0.8, dot(lW, t)) * (BUMPS/PITCH);
     const float E = 0.15;
     float gw = bumpHeight(p + vec2(E, 0.0)) - bumpHeight(p - vec2(E, 0.0));
     float gt = bumpHeight(p + vec2(0.0, E)) - bumpHeight(p - vec2(0.0, E));
-    n = normalize(n - uBump*(gw*w + gt*t)/(2.0*E));
+    n = transpose(vR) * normalize(nW - uBump*(gw*w + gt*t)/(2.0*E));
   }
   float uStuds = vFlags.x, uUnder = vFlags.y, uSmooth = vFlags.w;
   vec3 sd = axisDir(vFlags.z);
@@ -270,7 +329,9 @@ void main(){
       n = normalize(n + k * sign(vL));
     }
   }
-  vec3 L = normalize(uLight);
+  mat3 Rt = transpose(orientGL(uint(vOrient + 0.5)));
+  vec3 vLightL = Rt * uLight, vEyeL = Rt * uEye;   // the light and eye in the brick's frame
+  vec3 L = normalize(vLightL);
   float d = max(dot(n, L), 0.0);
   float bent = smoothstep(0.0, 0.02, 1.0 - dot(n, nG));
   // Specular anti-aliasing (U-10): where the shading normal changes faster than a pixel (the stud
@@ -281,16 +342,16 @@ void main(){
   vec3 dn = fwidth(n);
   float nv = max(dot(dn, dn) - SPEC_AA_T, 0.0), sk = 1.0 / (1.0 + SPEC_AA_K * nv);
   if (studTop) sk *= uStudFade;
-  float spec = pow(max(dot(n, normalize(L + uEye)), 0.0), 28.0) * 0.32 * bent * sk;
+  float spec = pow(max(dot(n, normalize(L + vEyeL)), 0.0), 28.0) * 0.32 * bent * sk;
   if (nv > 0.0) spec = min(spec, SPEC_AA_CAP);     // an aliased pixel's glint can't approach white on dark plastic
-  vec3 lit = (toLinear(vBase) * (uSky + uSun*d) + uFloor + spec) * shade;
+  vec3 albedo = vMisc.x > 0.5 ? vBase : toLinear(vBase);
+  vec3 lit = (albedo * (uSky + uSun*d) + uFloor + spec) * shade;
   if (uMat > 0.5) {
     // Blended in display space over the tone-mapped scene (the forward pipeline has no linear
     // buffer): glass multiplies what is behind by its transmission (approximately display-encoded)
     // and adds the Fresnel sky reflection; translucent plastic alpha-blends its lit surface.
-    vec3 albedo = toLinear(vBase);
     if (uMat < 1.5) {
-      float c = abs(dot(nG, normalize(uEye)));
+      float c = abs(dot(nG, normalize(vEyeL)));
       float t = matLerp3(GLASS_TINT, uIntensity);
       vec3 T = pow(1.0 - t + t*albedo, vec3(1.0/pow(max(c, 0.05), GLASS_PATH_EXP)));
       float F = matFresnel(c);
@@ -300,9 +361,9 @@ void main(){
       fragColor = vec4(ueFilmic(uExposure * surf), translucentOpacity(uIntensity));
     } else {
       vec3 e = uExposure * glowColor(albedo, uIntensity);
-      fragColor = uMatPass > 1.5 ? vec4(e, 1.0) : vec4(ueFilmic(e), 1.0);
+      fragColor = uMatPass > 1.5 ? vec4(e, 1.0) : vec4(mix(ueFilmic(e), SEL_TINT, vMisc.y * SEL_MIX), 1.0);
     }
     return;
   }
-  fragColor = vec4(ueFilmic(uExposure * lit), 1.0);
+  fragColor = vec4(mix(ueFilmic(uExposure * lit), SEL_TINT, vMisc.y * SEL_MIX), 1.0);
 }`;

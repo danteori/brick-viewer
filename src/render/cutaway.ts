@@ -16,6 +16,8 @@
 //
 // Cost: the brick program has a second variant compiled with CUT defined; the plain one (no
 // discard, so early depth testing stays on) is used whenever the cutaway is off.
+// When hidden-face culling (S-02, scene/cull.ts) starts dropping covered faces in the shader, the CUT
+// variant must draw them anyway: the hole exposes faces that are covered from outside.
 // Picking follows the same rule: a ray starts where it leaves the cone (cutStart), so hover and
 // clicks go through the hole to the bricks inside.
 
@@ -30,7 +32,7 @@ export const cut = {
   spread: 15,
 };
 
-/** World [X,Y,Z] (current frame) apex, axis toward the camera, base radius, tan(half-angle). */
+/** World [X,Y,Z] (absolute viewer units) apex, axis toward the camera, base radius, tan(half-angle). */
 function params(): { a: number[]; e: number[]; r0: number; t: number; level: number; side: number } {
   const lo = S.dlo, hi = S.dhi, m = S.view;
   const a = [0, 1, 2].map((i) => (lo[i] + hi[i]) / 2);
@@ -45,13 +47,13 @@ function params(): { a: number[]; e: number[]; r0: number; t: number; level: num
 const LEVEL_EPS = 1e-3;
 
 /** True when the cutaway is on and there is a focused brick to cut down to. */
-export const cutActive = (): boolean => cut.on && !!S.bricks[S.sel];
+export const cutActive = (): boolean => cut.on && S.sel >= 0 && S.scene.alive(S.sel);
 
 /** For the hover key: changes whenever the hole does. */
 export const cutKey = (): string => (cutActive() ? `${cut.size},${cut.spread}` : '');
 
 /**
- * The ray parameter where a ray S + s D (D = into the view, world [X,Y,Z], current frame) leaves the
+ * The ray parameter where a ray S + s D (D = into the view, world [X,Y,Z], absolute) leaves the
  * cone: every surface before it is cut away. -Infinity when nothing on this ray is cut.
  */
 export function cutStart(Sv: readonly number[], D: readonly number[]): number {
@@ -71,11 +73,12 @@ export function cutStart(Sv: readonly number[], D: readonly number[]): number {
 
 /** Sets the cut uniforms (call each frame while the CUT program is in use). */
 export function setCutUniforms(G: Gfx): void {
-  const { gl, u } = G, { a, r0, t, level, side } = params(), E = 1e-3, lo = S.dlo, hi = S.dhi;
-  gl.uniform3f(u.uCutA, a[0], a[2], a[1]);                        // GL axes: x = X, y = Z, z = Y
-  gl.uniform4f(u.uCutK, r0, t, level, side);
-  gl.uniform3f(u.uCutLo, lo[0] - E, lo[2] - E, lo[1] - E);
-  gl.uniform3f(u.uCutHi, hi[0] + E, hi[2] + E, hi[1] + E);
+  // the shader's positions are relative to the render origin, in GL axes (x = X, y = Z, z = Y)
+  const { gl, u } = G, { a, r0, t, level, side } = params(), E = 1e-3, lo = S.dlo, hi = S.dhi, o = S.origin;
+  gl.uniform3f(u.uCutA, a[0]! - o[0], a[2]! - o[2], a[1]! - o[1]);
+  gl.uniform4f(u.uCutK, r0, t, level - o[2], side);
+  gl.uniform3f(u.uCutLo, lo[0] - o[0] - E, lo[2] - o[2] - E, lo[1] - o[1] - E);
+  gl.uniform3f(u.uCutHi, hi[0] - o[0] + E, hi[2] - o[2] + E, hi[1] - o[1] + E);
 }
 
 /** The fragment test, compiled only into the CUT variant of the brick program. */

@@ -18,9 +18,9 @@ const visible = (): boolean => !!S.ground?.visible && S.orbit.pitch >= 0;
 
 /** The plate box `reach` view units each way around the focused brick, snapped to the stud grid. */
 function drawPlate(reach: number): void {
-  const g = S.ground!, o = S.histOrigin, E = Math.ceil(reach / STEP) * STEP;
-  const c = [0, 1].map((i) => Math.round(((S.dlo[i] + S.dhi[i]) / 2 + o[i]) / STEP) * STEP - o[i]);
-  const top = -o[2];
+  const g = S.ground!, E = Math.ceil(reach / STEP) * STEP;
+  const c = [0, 1].map((i) => Math.round(((S.dlo[i]! + S.dhi[i]!) / 2) / STEP) * STEP);
+  const top = 0;
   const lo: V3 = [c[0]! - E, c[1]! - E, top - PLATE], hi: V3 = [c[0]! + E, c[1]! + E, top];
   const plate: Brick = {
     lo, hi, micro: false, up: 1, top: g.studTexture ? 'studs' : 'smooth',

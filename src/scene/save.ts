@@ -15,8 +15,12 @@ import { BRZ_UNIT } from '../core/units.ts';
 import { extractBricks, rebuildFromLoaded, type PlainBrick } from '../format/world.ts';
 import { writeBrz, type FileMap } from '../format/brz.ts';
 import { srgbToLinearByte } from '../format/palette.ts';
+import { linearToSrgbByte } from '../format/stale.ts';
 import { localHalf, rampDir, sideCode, topStyle, type Brick } from './brick.ts';
 import { loadedFiles, loadedUnsupported, type SeqBrick } from './load.ts';
+import { plainOf } from './view.ts';
+import { remapBrickRefs } from './remap.ts';
+import type { SceneStore } from './store.ts';
 
 /** The save asset of a viewer brick. */
 export function assetOf(b: Brick): string {
@@ -50,7 +54,7 @@ export function orientOf(b: Brick): number {
 const byte = (v: number): number => Math.max(0, Math.min(255, Math.round(v * 255)));
 
 /**
- * A viewer brick (frame-independent faces: local + histOrigin) -> a save brick. `linear`: the
+ * A viewer brick (absolute faces, or faces offset by -origin) -> a save brick. `linear`: the
  * target chunks store linear colour bytes.
  */
 export function plainBrick(b: Brick, origin: readonly number[], linear: boolean): SeqBrick {
@@ -81,7 +85,7 @@ export function saveOrder(bricks: readonly SeqBrick[]): PlainBrick[] {
 }
 
 /** saveOrder, keeping seq. */
-const saveOrderSeq = (bricks: readonly SeqBrick[]): SeqBrick[] =>
+export const saveOrderSeq = (bricks: readonly SeqBrick[]): SeqBrick[] =>
   [...bricks.filter((b) => b.seq !== undefined).sort((a, b) => a.seq! - b.seq!), ...bricks.filter((b) => b.seq === undefined)];
 
 const CHUNK = 2048;
@@ -108,6 +112,21 @@ export function shiftedComponentChunks(template: FileMap, before: readonly Plain
   return [...has].filter((k) => (was.get(k) ?? []).join() !== (now.get(k) ?? []).join()).sort();
 }
 
+/**
+ * Every row of a store as a save brick, in list order, colour bytes converted for the target
+ * chunks (`linear`: they store linear bytes); a row's own bytes are kept when they already match.
+ */
+export function scenePlain(s: SceneStore, linear: boolean): SeqBrick[] {
+  return s.ordered().map((id) => {
+    const { linear: lin, ...pb } = plainOf(s, id);
+    if (lin !== linear) {
+      const f = linear ? srgbToLinearByte : linearToSrgbByte;
+      pb.color = [f(pb.color[0]), f(pb.color[1]), f(pb.color[2]), pb.color[3]];
+    }
+    return pb;
+  });
+}
+
 export interface SavedScene { files: FileMap; warnings: string[] }
 
 /**
@@ -118,10 +137,20 @@ export function sceneFiles(template: FileMap | null = loadedFiles): SavedScene |
   if (!template) return null;
   const { linear } = extractBricks(template);
   const lin = linear.length ? linear[0]! : false;
-  const scene = S.bricks.map((b) => plainBrick(b, S.histOrigin, lin) as SeqBrick).concat(loadedUnsupported);
-  const ordered = saveOrder(scene), out = rebuildFromLoaded(template, ordered);
-  const shifted = shiftedComponentChunks(template, extractBricks(template).bricks, scene);
-  if (shifted.length) out.warnings.push(`components / wires in chunk${shifted.length === 1 ? '' : 's'} ${shifted.join(', ')} may now point at other bricks (bricks there were added, removed or moved)`);
+  const scene = scenePlain(S.scene, lin).concat(loadedUnsupported);
+  return writeScene(template, scene);
+}
+
+/**
+ * Save bricks (with their load order, seq) written into a template: grid 1 rebuilt, then the
+ * components' and wires' brick indices moved along with their bricks (scene/remap.ts).
+ */
+export function writeScene(template: FileMap, scene: readonly SeqBrick[]): SavedScene {
+  const ordered = saveOrderSeq(scene), out = rebuildFromLoaded(template, ordered.map(({ seq: _s, ...pb }) => pb));
+  const r = remapBrickRefs(template, out.files, ordered);
+  out.files = r.files;
+  out.warnings = out.warnings.filter((w) => !/components \/ wires: they index bricks/.test(w));
+  if (r.problems.length) out.warnings.push(`components / wires: ${r.problems.length} reference${r.problems.length === 1 ? '' : 's'} could not follow their bricks (${r.problems[0]})`);
   return out;
 }
 
