@@ -63,4 +63,4 @@ the saves in `golden.config.json` (also git-ignored; see the script header).
 
 ## Licence
 
-TODO: not chosen yet.
+MIT; see [LICENSE](LICENSE). Bundled third-party code keeps its own licence (fzstd: MIT).
