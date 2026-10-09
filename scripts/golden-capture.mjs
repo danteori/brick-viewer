@@ -68,16 +68,43 @@ const renderer = await page.evaluate(() => {
 });
 console.log(`renderer: ${renderer}`);
 
-/** Waits until the iso ease and the camera glide have stopped. Returns frames waited (-1 = timed out). */
+// While the camera settles, draw calls are skipped (the camera maths doesn't depend on them), so
+// the few hundred frames an exact settle takes are cheap under SwiftShader. The legacy file is
+// untouched: this only patches the page's WebGL entry points.
+await page.evaluate(() => {
+  const patch = (proto, names) => {
+    for (const n of names) {
+      const orig = proto[n];
+      if (typeof orig !== 'function') continue;
+      proto[n] = function (...a) { if (!window.__skipDraws) return orig.apply(this, a); };
+    }
+  };
+  patch(WebGLRenderingContext.prototype, ['drawArrays', 'drawElements', 'clear']);
+  const ext = document.createElement('canvas').getContext('webgl')?.getExtension('ANGLE_instanced_arrays');
+  if (ext) patch(Object.getPrototypeOf(ext), ['drawArraysInstancedANGLE', 'drawElementsInstancedANGLE']);
+});
+
+/**
+ * Waits until the iso ease and the camera glide have stopped: cam unchanged (to 1e-12) for
+ * 6 frames. Sub-pixel camera drift shows in the fine grid lines, so near enough isn't. Then
+ * renders a few real frames. Returns frames waited (-1 = timed out).
+ */
 const settle = () => page.evaluate(async () => {
-  let prev = '', same = 0;
-  for (let i = 0; i < 3000; i++) {
-    await new Promise((r) => requestAnimationFrame(r));
-    const s = [cam.x, cam.y, cam.half].map((v) => v.toFixed(5)).join();
-    if (!isoSettling() && s === prev) { if (++same >= 3) return i; } else same = 0;
+  const raf = () => new Promise((r) => requestAnimationFrame(r));
+  window.__skipDraws = true;
+  // the glide can end in a 1-ulp two-frame cycle, so a repeat of either of the last two states counts
+  let prev = '', prev2 = '', same = 0, frames = -1;
+  for (let i = 0; i < 4000; i++) {
+    await raf();
+    // 1e-12 absolute: a glide toward 0 only creeps through denormals, and this is far below a pixel
+    const s = [cam.x, cam.y, cam.half, orbit.yaw, orbit.pitch].map((v) => Math.round(v * 1e12)).join();
+    if (!isoSettling() && (s === prev || s === prev2)) { if (++same >= 6) { frames = i; break; } } else same = 0;
+    prev2 = prev;
     prev = s;
   }
-  return -1;
+  window.__skipDraws = false;
+  for (let i = 0; i < 3; i++) await raf();
+  return frames;
 });
 
 const setView = (v, baseZoom) => page.evaluate(({ k, pitchDeg, zoom, baseZoom }) => {

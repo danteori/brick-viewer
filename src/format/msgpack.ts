@@ -2,8 +2,11 @@
 // choices as tools/brzwrite.py (smallest int form, every float as f32), so a decode followed by
 // an encode gives the original bytes. Kept in-house for that byte-identity (ARCHITECTURE.md 5).
 
-/** A decoded MessagePack value. Maps decode to ordered [key, value] pairs. */
-export type MsgValue = null | boolean | number | string | Uint8Array | MsgValue[] | [MsgValue, MsgValue][];
+/** A decoded MessagePack value. Maps decode to a MsgMap: ordered [key, value] pairs. */
+export type MsgValue = null | boolean | number | string | Uint8Array | MsgValue[] | MsgMap;
+
+/** A decoded MessagePack map: its [key, value] pairs in file order (an Array, so it iterates as pairs). */
+export class MsgMap extends Array<[MsgValue, MsgValue]> {}
 
 const textDecoder = new TextDecoder();
 const textEncoder = new TextEncoder();
@@ -51,8 +54,8 @@ export class MsgReader {
     return a;
   }
 
-  private map(n: number): [MsgValue, MsgValue][] {
-    const m: [MsgValue, MsgValue][] = [];
+  private map(n: number): MsgMap {
+    const m = new MsgMap();
     for (let i = 0; i < n; i++) m.push([this.next(), this.next()]);
     return m;
   }
@@ -91,6 +94,20 @@ export class MsgReader {
       case 0xdf: return this.map(this.be('getUint32', 4));
     }
     throw new Error(`MessagePack byte 0x${b.toString(16)} at ${this.p - 1} not supported`);
+  }
+
+  /** Header of a MessagePack map: its number of pairs. */
+  mapLen(): number {
+    const b = this.byte();
+    if (b >= 0x80 && b <= 0x8f) return b & 15;
+    if (b === 0xde) return this.be('getUint16', 2);
+    if (b === 0xdf) return this.be('getUint32', 4);
+    throw new Error(`expected a map at ${this.p - 1}`);
+  }
+
+  /** Peeks whether the next value is nil (without consuming anything else). */
+  peekNil(): boolean {
+    return this.u[this.p] === 0xc0;
   }
 
   /** Header of a MessagePack array: its length. */
@@ -193,6 +210,19 @@ export function pack(o: ByteBuf, x: Packable, isFloat = false): void {
     return o.bytes(x);
   }
   throw new TypeError('cannot pack ' + Object.prototype.toString.call(x));
+}
+
+/** f64 (0xcb). */
+export function packFloat64(o: ByteBuf, x: number): void {
+  o.byte(0xcb);
+  o.num('setFloat64', 8, x, false);
+}
+
+/** MessagePack map header. */
+export function mapHeader(o: ByteBuf, n: number): void {
+  if (n < 16) o.byte(0x80 | n);
+  else if (n < 65536) { o.byte(0xde); o.num('setUint16', 2, n, false); }
+  else { o.byte(0xdf); o.num('setUint32', 4, n, false); }
 }
 
 /** MessagePack array header. */

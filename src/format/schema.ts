@@ -1,34 +1,67 @@
 // .schema / .mps: data files are MessagePack laid out by a schema, which is itself MessagePack.
 //
-// A schema decodes to [enums, structs] (older saves) or [enums, ?, structs] (newer saves);
-// structs is a map {StructName: {Field: Type}} and the .mps file holds the LAST struct.
-// A Type is a primitive ("u8", "i16", "f32", "str", "bool", ...), a struct name (its fields follow
-// inline, one MessagePack value each), [T] (a MessagePack array of T) or [T, nil] (one bin of
-// packed little-endian T).
+// A schema decodes to [enums, structs] (before ~CL14860) or [enums, variants, structs] (after);
+// structs is a map {StructName: {Field: Type}}. A Type is
+//   - a primitive ("u8", "i16", "f32", "f64", "str", "bool", ...) or an asset ref ("object",
+//     "class", "weak_object", ...): one MessagePack value;
+//   - an enum name: one MessagePack value (its number);
+//   - a struct name: its fields follow inline, one value each;
+//   - a variant name (tagged union, from the variants table): the alternative index, then a value
+//     of that alternative's type;
+//   - [T]: a MessagePack array of T;   [T, nil]: one bin of packed little-endian T (nil = empty);
+//   - [T, N]: exactly N values of T, no header;   {K: V}: a MessagePack map.
+// Component and entity chunk files hold their SoA root struct followed by per-instance data
+// structs (see decodeSoa); every other .mps holds just the root.
 //
-// Ported from save-viewer.html (parseSchema / decodeMps) and tools/brzwriter.js (encodeMps /
-// schemaPathFor). encodeMps(decodeMps(x)) is byte-identical to x for every reference save.
+// Encoding follows the game (and brdb, the community's CC0 Rust reference): u8 values are
+// written as SIGNED ints (128..255 as 0xd0 / negative fixint, never 0xcc), whole-number floats
+// as ints (f32 within (-32768, 65535), f64 within (-2^31, 2^32 - 1)), other f32 as 0xca, and
+// f64 as 0xca when f32 holds it exactly, else 0xcb (that last step is where the game differs
+// from brdb, which always uses 0xcb). encode(decode(x)) is byte-identical to x for every
+// game-written reference save.
+//
+// Ported from save-viewer.html (parseSchema / decodeMps), tools/brzwriter.js (encodeMps /
+// schemaPathFor) and tools/survey_brz.py (variants, maps, fixed arrays, SoA data).
 
-import { ByteBuf, MsgReader, arrayHeader, pack, type MsgValue, type Packable } from './msgpack.ts';
+import { ByteBuf, MsgMap, MsgReader, arrayHeader, mapHeader, pack, packFloat64, type MsgValue, type Packable } from './msgpack.ts';
 
-export type SchemaType = string | [SchemaType] | [SchemaType, null];
+export type SchemaType =
+  | string
+  | { kind: 'array'; of: SchemaType }
+  | { kind: 'packed'; of: SchemaType }
+  | { kind: 'fixed'; of: SchemaType; n: number }
+  | { kind: 'map'; key: SchemaType; value: SchemaType };
 export type StructFields = [field: string, type: SchemaType][];
+
 export interface Schema {
+  /** Enum name -> raw table as stored. */
+  E: Map<string, MsgValue>;
+  /** Variant name -> alternative types (empty for 2-part schemas). */
+  V: Map<string, SchemaType[]>;
   /** Struct name -> ordered fields. */
   S: Map<string, StructFields>;
-  /** The struct an .mps file holds (the schema's last one). */
+  /** The struct an .mps file starts with: a known SoA root if present, else the last struct. */
   root: string;
 }
 
-/** Decoded .mps data: plain objects / arrays / numbers / strings, shaped by the schema. */
+/** Decoded .mps data: plain objects / arrays / numbers / strings / Maps, shaped by the schema. */
 export type MpsObject = Record<string, unknown>;
 
+/** A decoded variant value: which alternative, and its value. */
+export interface VariantValue {
+  variant: number;
+  type: string;
+  value: unknown;
+}
+
 /**
- * Bytes after the root struct. Component chunk files (Grids/N/Components/*.mps) follow their
- * root struct with per-component-type instance data that isn't decoded yet; decodeMps keeps it
- * here (a non-enumerable property of the root value) and encodeMps writes it back unchanged.
+ * Bytes after the root struct that weren't decoded (per-instance SoA data when decodeMps is
+ * used instead of decodeSoa). Kept as a non-enumerable property of the root value and written
+ * back unchanged by encodeMps.
  */
 export const MPS_TRAILER: unique symbol = Symbol('mpsTrailer');
+/** Marks a packed array that was stored as nil rather than an empty bin. */
+const PACKED_NIL: unique symbol = Symbol('packedNil');
 
 type GetFn = 'getUint8' | 'getInt8' | 'getUint16' | 'getInt16' | 'getUint32' | 'getInt32' | 'getFloat32' | 'getFloat64' | 'getBigUint64' | 'getBigInt64';
 type SetFn = 'setUint8' | 'setInt8' | 'setUint16' | 'setInt16' | 'setUint32' | 'setInt32' | 'setFloat32' | 'setFloat64' | 'setBigUint64' | 'setBigInt64';
@@ -43,34 +76,84 @@ const PRIM: Record<string, [number, GetFn, SetFn]> = {
   bool: [1, 'getUint8', 'setUint8'],
 };
 
-const asPairs = (v: MsgValue, what: string): [MsgValue, MsgValue][] => {
-  if (!Array.isArray(v)) throw new Error(`schema: ${what} is not a map`);
-  return v as [MsgValue, MsgValue][];
+/** SoA roots: these files carry per-instance data after the root (FORMAT.md 1.7). */
+const SOA_ROOTS = ['BRSavedComponentChunkSoA', 'BRSavedEntityChunkSoA', 'BRSavedBrickChunkSoA', 'BRSavedWireChunkSoA'];
+
+/** Older schemas name variants in lower case and carry no table; the later tables decode them (survey_brz.py). */
+const LEGACY_VARIANTS: Record<string, string[]> = {
+  wire_graph_variant: ['f64', 'i64', 'bool', 'weak_object', 'WireGraphExec', 'Vector', 'Rotator', 'Quat', 'str', 'LinearColor', 'WireGraphEnumWrapper'],
+  wire_graph_prim_math_variant: ['f64', 'i64', 'Vector', 'Rotator', 'Quat', 'LinearColor'],
+};
+/** Structs older schemas use without defining them. */
+const LEGACY_STRUCTS: Record<string, StructFields> = {
+  Vector: [['X', 'f64'], ['Y', 'f64'], ['Z', 'f64']],
+  Rotator: [['Pitch', 'f64'], ['Yaw', 'f64'], ['Roll', 'f64']],
+  Quat: [['X', 'f64'], ['Y', 'f64'], ['Z', 'f64'], ['W', 'f64']],
+  LinearColor: [['R', 'f32'], ['G', 'f32'], ['B', 'f32'], ['A', 'f32']],
+  WireGraphExec: [],
+};
+
+function parseType(t: MsgValue): SchemaType {
+  if (typeof t === 'string') return t;
+  if (t instanceof MsgMap) {
+    if (t.length !== 1) throw new Error('schema: a map type must have exactly one entry');
+    const [k, v] = t[0]!;
+    return { kind: 'map', key: parseType(k), value: parseType(v) };
+  }
+  if (Array.isArray(t)) {
+    if (t.length === 1) return { kind: 'array', of: parseType(t[0] as MsgValue) };
+    if (t.length === 2 && t[1] === null) return { kind: 'packed', of: parseType(t[0] as MsgValue) };
+    if (t.length === 2 && typeof t[1] === 'number') return { kind: 'fixed', of: parseType(t[0] as MsgValue), n: t[1] };
+  }
+  throw new Error(`schema: unsupported type ${JSON.stringify(t)}`);
+}
+
+const pairs = (v: MsgValue | undefined, what: string): [MsgValue, MsgValue][] => {
+  if (!(v instanceof MsgMap)) throw new Error(`schema: ${what} is not a map`);
+  return v;
 };
 
 /** Parses a .schema file (both the 2-part and the 3-part layout). */
 export function parseSchema(u8: Uint8Array): Schema {
   const top = new MsgReader(u8).next();
   if (!Array.isArray(top) || top.length < 2) throw new Error('schema: unexpected top level');
-  const structs = asPairs(top[top.length - 1] as MsgValue, 'struct table');
-  const S = new Map<string, StructFields>();
-  for (const [name, fields] of structs) S.set(String(name), asPairs(fields, `struct ${String(name)}`) as StructFields);
+  const E = new Map<string, MsgValue>(), V = new Map<string, SchemaType[]>(), S = new Map<string, StructFields>();
+  for (const [name, table] of pairs(top[0], 'enum table')) E.set(String(name), table);
+  if (top.length > 2 && !(Array.isArray(top[1]) && top[1].length === 0 && !(top[1] instanceof MsgMap))) {
+    for (const [name, alts] of pairs(top[1], 'variant table')) {
+      if (!Array.isArray(alts)) throw new Error(`schema: variant ${String(name)} is not a list`);
+      V.set(String(name), (alts as MsgValue[]).map(parseType));
+    }
+  }
+  const structs = pairs(top[top.length - 1], 'struct table');
+  for (const [name, fields] of structs) {
+    S.set(String(name), pairs(fields, `struct ${String(name)}`).map(([f, t]) => [String(f), parseType(t)]));
+  }
   const last = structs[structs.length - 1];
   if (!last) throw new Error('schema: no structs');
-  return { S, root: String(last[0]) };
+  const root = SOA_ROOTS.find((r) => S.has(r)) ?? String(last[0]);
+  return { E, V, S, root };
+}
+
+function structOf(schema: Schema, t: string): StructFields | undefined {
+  return schema.S.get(t) ?? LEGACY_STRUCTS[t];
+}
+
+function variantOf(schema: Schema, t: string): SchemaType[] | undefined {
+  return schema.V.get(t) ?? LEGACY_VARIANTS[t];
 }
 
 /** Byte size of one packed value of type t (primitives and structs of primitives). */
-function sizer(S: Map<string, StructFields>): (t: SchemaType) => number {
+function sizer(schema: Schema): (t: SchemaType) => number {
   const cache = new Map<string, number>();
   const size = (t: SchemaType): number => {
-    if (typeof t !== 'string') throw new Error('schema: array type inside a packed bin');
+    if (typeof t !== 'string') throw new Error('schema: container type inside a packed bin');
     const p = PRIM[t];
     if (p) return p[0];
     let n = cache.get(t);
     if (n === undefined) {
-      const fields = S.get(t);
-      if (!fields) throw new Error(`schema: unknown type ${t}`);
+      const fields = structOf(schema, t);
+      if (!fields) throw new Error(`schema: unknown packed type ${t}`);
       n = fields.reduce((s, [, ft]) => s + size(ft), 0);
       cache.set(t, n);
     }
@@ -79,56 +162,97 @@ function sizer(S: Map<string, StructFields>): (t: SchemaType) => number {
   return size;
 }
 
-/** Decodes an .mps file with its schema. */
-export function decodeMps<T = MpsObject>(u8: Uint8Array, schema: Schema): T {
-  const { S } = schema, r = new MsgReader(u8), packedSize = sizer(S);
-  const unpack = (t: SchemaType, dv: DataView, o: number): unknown => {
-    const name = t as string, p = PRIM[name];
+/** Schema-driven reader over one .mps byte array. */
+export class MpsDecoder {
+  readonly r: MsgReader;
+  private readonly packedSize: (t: SchemaType) => number;
+
+  constructor(readonly schema: Schema, readonly bytes: Uint8Array) {
+    this.r = new MsgReader(bytes);
+    this.packedSize = sizer(schema);
+  }
+
+  get done(): boolean {
+    return this.r.p >= this.bytes.length;
+  }
+
+  private unpack(t: string, dv: DataView, o: number): unknown {
+    const p = PRIM[t];
     if (p) {
       const x = dv[p[1]](o, true);
       return typeof x === 'bigint' ? Number(x) : x;
     }
     const out: MpsObject = {};
-    for (const [f, ft] of S.get(name)!) {
-      out[f] = unpack(ft, dv, o);
-      o += packedSize(ft);
+    for (const [f, ft] of structOf(this.schema, t)!) {
+      out[f] = this.unpack(ft as string, dv, o);
+      o += this.packedSize(ft);
     }
     return out;
-  };
-  const value = (t: SchemaType): unknown => {
-    if (Array.isArray(t)) {
-      if (t.length === 2) {
-        const bin = r.next();
-        if (!(bin instanceof Uint8Array)) throw new Error('mps: expected a bin for a packed array');
-        const k = packedSize(t[0]), n = bin.length / k, out: unknown[] = new Array(n);
-        const dv = new DataView(bin.buffer, bin.byteOffset, bin.byteLength);
-        for (let i = 0; i < n; i++) out[i] = unpack(t[0], dv, i * k);
-        return out;
+  }
+
+  value(t: SchemaType): unknown {
+    const r = this.r;
+    if (typeof t !== 'string') {
+      switch (t.kind) {
+        case 'packed': {
+          const bin = r.next();
+          if (bin === null) return Object.defineProperty([], PACKED_NIL, { value: true });
+          if (!(bin instanceof Uint8Array)) throw new Error('mps: expected a bin for a packed array');
+          const k = this.packedSize(t.of), n = bin.length / k, out: unknown[] = new Array(n);
+          const dv = new DataView(bin.buffer, bin.byteOffset, bin.byteLength);
+          for (let i = 0; i < n; i++) out[i] = this.unpack(t.of as string, dv, i * k);
+          return out;
+        }
+        case 'array': {
+          const n = r.arrayLen(), out: unknown[] = new Array(n);
+          for (let i = 0; i < n; i++) out[i] = this.value(t.of);
+          return out;
+        }
+        case 'fixed': {
+          const out: unknown[] = new Array(t.n);
+          for (let i = 0; i < t.n; i++) out[i] = this.value(t.of);
+          return out;
+        }
+        case 'map': {
+          const n = r.mapLen(), out = new Map<unknown, unknown>();
+          for (let i = 0; i < n; i++) {
+            const k = this.value(t.key);
+            out.set(k, this.value(t.value));
+          }
+          return out;
+        }
       }
-      const n = r.arrayLen(), out: unknown[] = new Array(n);
-      for (let i = 0; i < n; i++) out[i] = value(t[0]);
-      return out;
     }
-    const fields = S.get(t);
+    const fields = structOf(this.schema, t);
     if (fields) {
       const out: MpsObject = {};
-      for (const [f, ft] of fields) out[f] = value(ft);
+      for (const [f, ft] of fields) out[f] = this.value(ft);
       return out;
     }
-    return r.next();
-  };
-  const root = value(schema.root);
-  if (r.p < u8.length && root && typeof root === 'object') {
-    Object.defineProperty(root, MPS_TRAILER, { value: u8.slice(r.p), enumerable: false, writable: true, configurable: true });
+    const alts = variantOf(this.schema, t);
+    if (alts) {
+      const tag = r.next();
+      if (typeof tag !== 'number' || !alts[tag]) throw new Error(`mps: bad ${t} tag ${String(tag)} at ${r.p}`);
+      const alt = alts[tag]!;
+      return { variant: tag, type: typeof alt === 'string' ? alt : JSON.stringify(alt), value: this.value(alt) } satisfies VariantValue;
+    }
+    const x = r.next();   // primitives, str, enums and asset refs
+    // u8 is signed on the wire (255 is stored as -1): give back the byte value
+    return t === 'u8' && typeof x === 'number' && x < 0 && x >= -128 ? x + 256 : x;
   }
-  return root as T;
 }
 
-/** Inverse of decodeMps: a value shaped like its output -> .mps bytes. */
-export function encodeMps(value: unknown, schema: Schema): Uint8Array {
-  const { S } = schema, o = new ByteBuf(), packedSize = sizer(S);
-  const put = (t: SchemaType, x: unknown, dv: DataView, p: number): number => {
-    const name = t as string, prim = PRIM[name];
+/** Schema-driven writer. */
+export class MpsEncoder {
+  readonly o = new ByteBuf();
+  private readonly packedSize: (t: SchemaType) => number;
+
+  constructor(readonly schema: Schema) {
+    this.packedSize = sizer(schema);
+  }
+
+  private put(t: string, x: unknown, dv: DataView, p: number): number {
+    const prim = PRIM[t];
     if (prim) {
       const [k, , set] = prim;
       if (set === 'setBigUint64' || set === 'setBigInt64') dv[set](p, BigInt(x as number | bigint), true);
@@ -136,33 +260,156 @@ export function encodeMps(value: unknown, schema: Schema): Uint8Array {
       return p + k;
     }
     const rec = x as MpsObject;
-    for (const [f, ft] of S.get(name)!) p = put(ft, rec[f], dv, p);
+    for (const [f, ft] of structOf(this.schema, t)!) p = this.put(ft as string, rec[f], dv, p);
     return p;
-  };
-  const val = (t: SchemaType, x: unknown): void => {
-    if (Array.isArray(t)) {
-      const list = x as unknown[];
-      if (t.length === 2) {
-        const k = packedSize(t[0]), bin = new Uint8Array(list.length * k), dv = new DataView(bin.buffer);
-        for (let i = 0; i < list.length; i++) put(t[0], list[i], dv, i * k);
-        return pack(o, bin);
+  }
+
+  /** One scalar by its schema type (the game's / brdb's encoding rules). */
+  private scalar(t: string, x: unknown): void {
+    const o = this.o;
+    if (typeof x === 'number') {
+      if (t === 'u8' && x > 127 && x <= 255) return pack(o, x - 256);   // signed on the wire, never 0xcc
+      if (t === 'f32') {
+        if (Number.isInteger(x) && x > -32768 && x < 65535) return pack(o, x);
+        return pack(o, x, true);
       }
-      arrayHeader(o, list.length);
-      for (const e of list) val(t[0], e);
-      return;
+      if (t === 'f64') {
+        if (Number.isInteger(x) && x > -2147483648 && x < 4294967295) return pack(o, x);
+        // The game writes an f64 that f32 holds exactly as 0xca (CL12560 component data: a
+        // Vector's 1.5); brdb would write 0xcb. The game's bytes win.
+        if (Math.fround(x) === x) return pack(o, x, true);
+        return packFloat64(o, x);
+      }
     }
-    const fields = S.get(t);
+    pack(o, x as Packable);
+  }
+
+  value(t: SchemaType, x: unknown): void {
+    const o = this.o;
+    if (typeof t !== 'string') {
+      switch (t.kind) {
+        case 'packed': {
+          const list = x as unknown[];
+          if (list.length === 0 && (list as { [PACKED_NIL]?: boolean })[PACKED_NIL]) return pack(o, null);
+          const k = this.packedSize(t.of), bin = new Uint8Array(list.length * k), dv = new DataView(bin.buffer);
+          for (let i = 0; i < list.length; i++) this.put(t.of as string, list[i], dv, i * k);
+          return pack(o, bin);
+        }
+        case 'array': {
+          const list = x as unknown[];
+          arrayHeader(o, list.length);
+          for (const e of list) this.value(t.of, e);
+          return;
+        }
+        case 'fixed': {
+          const list = x as unknown[];
+          for (let i = 0; i < t.n; i++) this.value(t.of, list[i]);
+          return;
+        }
+        case 'map': {
+          const m = x as Map<unknown, unknown>;
+          mapHeader(o, m.size);
+          for (const [k, v] of m) { this.value(t.key, k); this.value(t.value, v); }
+          return;
+        }
+      }
+    }
+    const fields = structOf(this.schema, t);
     if (fields) {
       const rec = x as MpsObject;
-      for (const [f, ft] of fields) val(ft, rec[f]);
+      for (const [f, ft] of fields) this.value(ft, rec[f]);
       return;
     }
-    pack(o, x as Packable, t === 'f32' || t === 'f64');
-  };
-  val(schema.root, value);
+    const alts = variantOf(this.schema, t);
+    if (alts) {
+      const v = x as VariantValue;
+      pack(o, v.variant);
+      return this.value(alts[v.variant]!, v.value);
+    }
+    this.scalar(t, x);
+  }
+
+  done(): Uint8Array {
+    return this.o.done();
+  }
+}
+
+/** Decodes an .mps file's root struct. Anything after it is kept (see MPS_TRAILER). */
+export function decodeMps<T = MpsObject>(u8: Uint8Array, schema: Schema): T {
+  const d = new MpsDecoder(schema, u8);
+  const root = d.value(schema.root);
+  if (!d.done && root && typeof root === 'object') {
+    Object.defineProperty(root, MPS_TRAILER, { value: u8.slice(d.r.p), enumerable: false, writable: true, configurable: true });
+  }
+  return root as T;
+}
+
+/** Inverse of decodeMps: a value shaped like its output -> .mps bytes. */
+export function encodeMps(value: unknown, schema: Schema): Uint8Array {
+  const e = new MpsEncoder(schema);
+  e.value(schema.root, value);
   const trailer = value && typeof value === 'object' ? (value as { [MPS_TRAILER]?: Uint8Array })[MPS_TRAILER] : undefined;
-  if (trailer) o.bytes(trailer);
-  return o.done();
+  if (trailer) e.o.bytes(trailer);
+  return e.done();
+}
+
+/** One instance of SoA per-instance data. */
+export interface SoaInstance {
+  typeIndex: number;
+  /** Data struct name, or null when the type has none ("None" / missing). */
+  struct: string | null;
+  value: MpsObject | null;
+}
+
+export interface SoaFile {
+  root: MpsObject;
+  data: SoaInstance[];
+}
+
+/** Names GlobalData gives a component / entity type's data struct. */
+interface SoaNames {
+  ComponentTypeNames?: string[];
+  ComponentDataStructNames?: string[];
+  EntityTypeNames?: string[];
+  EntityDataClassNames?: string[];
+}
+
+function soaRuns(root: MpsObject, schema: Schema, global: SoaNames): { typeIndex: number; n: number; struct: string | null }[] | null {
+  const comp = schema.root === 'BRSavedComponentChunkSoA';
+  if (!comp && schema.root !== 'BRSavedEntityChunkSoA') return null;
+  const counters = root[comp ? 'ComponentTypeCounters' : 'TypeCounters'] as Record<string, number>[] | undefined;
+  const names = comp ? (global.ComponentDataStructNames ?? global.ComponentTypeNames) : (global.EntityDataClassNames ?? global.EntityTypeNames);
+  if (!counters || !names) return null;
+  return counters.map((c) => {
+    const ti = c.TypeIndex!, n = c[comp ? 'NumInstances' : 'NumEntities']!;
+    const st = names[ti];
+    return { typeIndex: ti, n, struct: st && st !== 'None' && structOf(schema, st) ? st : null };
+  });
+}
+
+/**
+ * Decodes a component / entity chunk fully: the SoA root, then one data struct per instance, in
+ * type-counter order, with struct names from GlobalData (Component/EntityDataClassNames).
+ * Other roots decode as decodeMps with an empty data list. Leftover bytes stay in MPS_TRAILER.
+ */
+export function decodeSoa(u8: Uint8Array, schema: Schema, global: SoaNames): SoaFile {
+  const d = new MpsDecoder(schema, u8);
+  const root = d.value(schema.root) as MpsObject, data: SoaInstance[] = [];
+  for (const run of soaRuns(root, schema, global) ?? []) {
+    for (let i = 0; i < run.n; i++) data.push({ typeIndex: run.typeIndex, struct: run.struct, value: run.struct ? (d.value(run.struct) as MpsObject) : null });
+  }
+  if (!d.done) Object.defineProperty(root, MPS_TRAILER, { value: u8.slice(d.r.p), enumerable: false, writable: true, configurable: true });
+  return { root, data };
+}
+
+/** Inverse of decodeSoa. */
+export function encodeSoa(file: SoaFile, schema: Schema): Uint8Array {
+  const e = new MpsEncoder(schema);
+  e.value(schema.root, file.root);
+  for (const inst of file.data) if (inst.struct) e.value(inst.struct, inst.value);
+  const trailer = (file.root as { [MPS_TRAILER]?: Uint8Array })[MPS_TRAILER];
+  if (trailer) e.o.bytes(trailer);
+  return e.done();
 }
 
 /**

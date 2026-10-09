@@ -20,3 +20,4 @@ references/
 
 # Local golden capture config: names private saves.
 golden.config.json
+.vitest/

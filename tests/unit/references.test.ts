@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { blake3, toHex } from '../../src/format/blake3.ts';
 import { bytesEqual, readBrzArchive, writeBrz } from '../../src/format/brz.ts';
-import { decodeMps, encodeMps, parseSchema, schemaPathFor } from '../../src/format/schema.ts';
+import { decodeMps, decodeSoa, encodeMps, encodeSoa, MPS_TRAILER, parseSchema, schemaPathFor } from '../../src/format/schema.ts';
 import { extractBricks, rebuildFromLoaded } from '../../src/format/world.ts';
 import { hasRefs, readRef, referenceSaves, REFS } from './refs.ts';
 
@@ -39,6 +39,20 @@ describe.skipIf(!hasRefs)(`reference saves (${REFS})`, () => {
         n++;
       }
       expect(n).toBeGreaterThan(0);
+    });
+
+    it('decodes component / entity chunks fully (per-instance data) and re-encodes them byte-identically', () => {
+      const gs = archive.files.get('World/0/GlobalData.schema'), gm = archive.files.get('World/0/GlobalData.mps');
+      if (!gs || !gm) return;
+      const global = decodeMps(gm, parseSchema(gs));
+      for (const [path, data] of archive.files) {
+        if (!/\/(Components|Entities)\/[^/]+\.mps$/.test(path) && !/Entities\/Chunks\//.test(path)) continue;
+        const schema = parseSchema(archive.files.get(schemaPathFor(path, archive.files)!)!);
+        const file = decodeSoa(data, schema, global);
+        const left = (file.root as { [MPS_TRAILER]?: Uint8Array })[MPS_TRAILER];
+        expect(left?.length ?? 0, `${path}: undecoded bytes`).toBe(0);
+        expect(bytesEqual(encodeSoa(file, schema), data), path).toBe(true);
+      }
     });
 
     it('container round-trips (method 0, hashes recomputed)', () => {
