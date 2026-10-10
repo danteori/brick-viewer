@@ -2,7 +2,7 @@
 // listener order (it decides which handler sees an event first), and runs the frame loop.
 
 import { S } from './state.ts';
-import { loadFullUi, type FeatureFlags } from './features.ts';
+import { loadFaceCull, loadFullUi, type FeatureFlags } from './features.ts';
 import { initWorlds } from './worlds.ts';
 import { initWorldEnvironment } from './environment.ts';
 import { initPaintPanel } from '../ui/panels/paint.ts';
@@ -13,7 +13,6 @@ import { createGfx } from '../render/gl.ts';
 import { initDraw } from '../render/draw.ts';
 import { initMeshes } from '../render/meshes/registry.ts';
 import { initInstances } from '../render/instances.ts';
-import { initFaceCull } from '../render/facecull.ts';
 import { initGrid } from '../render/grid.ts';
 import { initCamera, updateCamera } from '../render/camera.ts';
 import { renderFrame } from '../render/pipeline.ts';
@@ -55,7 +54,7 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
   initDraw(gfx);
   initMeshes(gl);
   initInstances();
-  initFaceCull();
+  if (loadFaceCull) void loadFaceCull().then((m) => m.initFaceCull());   // full build only
   initSpatial();
   initGrid();
   gl.enable(gl.DEPTH_TEST);

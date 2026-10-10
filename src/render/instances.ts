@@ -625,8 +625,12 @@ export function initInstances(): void {
 /** marks row id's chunk for re-packing (selection or hidden state changed) */
 export const markBrick = (id: number): void => { inst.set?.touch(id); };
 
+/** Run first by syncInstances (after syncScene): render/facecull.ts follows the hidden set here. */
+export const beforeSync: (() => void)[] = [];
+
 /** bring the buffers up to date with the scene (once a frame, before drawing) */
 export function syncInstances(): void {
+  for (const f of beforeSync) f();
   const set = inst.set!;
   stats.chunks = stats.draws = stats.instances = 0;
   lodFrame();

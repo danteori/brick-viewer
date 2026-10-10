@@ -12,7 +12,7 @@ import { S } from '../app/state.ts';
 import { addMirror } from '../scene/sync.ts';
 import { FaceCuller, FULL_BOX_ASSETS, type CullBrick } from '../scene/cull.ts';
 import { ASSETS, Kind, MATERIALS, worldHalfOf, type SceneStore } from '../scene/store.ts';
-import { markBrick } from './instances.ts';
+import { beforeSync, markBrick } from './instances.ts';
 
 const NONE: CullBrick = { pos: [0, 0, 0], half: [0, 0, 0], shape: 'none', fullBox: false };
 
@@ -68,6 +68,7 @@ function update(s: SceneStore, ids: Iterable<number>): void {
 }
 
 export function initFaceCull(): void {
+  beforeSync.push(syncFaceCull);
   addMirror({
     reset: (s) => {
       culler = null; store = s;

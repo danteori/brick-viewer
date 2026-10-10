@@ -56,6 +56,14 @@ export const loadFullUi: (() => Promise<{ mountFullUi(): void }>) | null = IS_LI
   ? null
   : () => import('./full-ui.ts');
 
+/**
+ * Hidden-face culling (src/render/facecull.ts + scene/cull.ts, ~9 KB min), or null in lite: it
+ * saves GPU work on big builds, which the lite build's size budget can't afford to carry.
+ */
+export const loadFaceCull: (() => Promise<{ initFaceCull(): void }>) | null = IS_LITE
+  ? null
+  : () => import('../render/facecull.ts');
+
 export const FEATURES: Readonly<FeatureFlags> = Object.freeze({
   brzRead: true,
   brzWriteRaw: true,

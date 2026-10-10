@@ -10,7 +10,6 @@ import { G, bodyShape, drawBody, setBox } from './draw.ts';
 import { drawInstances, inst, setFarLod, setShowHidden, syncInstances, type ViewCull } from './instances.ts';
 import { lodLevel, lodSettings } from './lod.ts';
 import { syncScene } from '../scene/sync.ts';
-import { syncFaceCull } from './facecull.ts';
 import { drawGrid } from './grid.ts';
 import { drawExtras, extrasDepth } from './extras.ts';
 import { drawGround, drawGroundBackdrop } from './ground.ts';
@@ -56,7 +55,6 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
   // bodies: all but the focused one come from the instance buffers; the focused one is drawn live
   perfMark('sync');
   syncScene();
-  syncFaceCull();
   syncInstances();
   // depth range: +-60 view units as before, or enough to hold the whole scene (big builds zoomed out)
   const reach = Math.max(inst.set!.depthReach(), extrasDepth(), Math.abs(view[2]! * (dlo[0]! - S.origin[0]) + view[6]! * (dlo[2]! - S.origin[2]) + view[10]! * (dlo[1]! - S.origin[1])));
