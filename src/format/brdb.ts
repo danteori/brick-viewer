@@ -10,8 +10,9 @@
 //
 // Unchanged chunks keep the bytes they were written with even after a later save replaced the
 // shared .schema, so BrdbTree.asWrittenWith hands out the schema live at a chunk's created_at
-// (survey_brz.schema_for). Writers: writeNewWorld (port of brdb.py write_brdb) and
-// appendRevision (save into an opened world). Both need an SqlBackend (sqljs.ts).
+// (survey_brz.schema_for). Writers: writeNewWorldFile (pure TS, sqlitewrite.ts; both builds),
+// writeNewWorld (the same rows through an SqlBackend, port of brdb.py write_brdb) and
+// appendRevision (save into an opened world; needs an SqlBackend, sqljs.ts).
 // BrdbWorld copies the whole database into sql.js; brdblazy.ts reads the same tables page by
 // page instead (no wasm, contents on demand) on the shared BrdbFileTable / BrdbTree.
 
@@ -20,6 +21,7 @@ import { bytesEqual, type FileMap } from './brz.ts';
 import type { SaveView } from './saveview.ts';
 import type { SqlBackend, SqlDb, SqlValue } from './sql.ts';
 import { reencodeForTarget, type ReencodeOptions } from './stale.ts';
+import { writeSqlite } from './sqlitewrite.ts';
 import { fileMapView } from './saveview.ts';
 import { zstdDecompress } from './zstd.ts';
 
@@ -512,4 +514,45 @@ export function appendRevision(world: BrdbWorld, files: ReadonlyMap<string, Uint
   } finally {
     db.close();
   }
+}
+
+/**
+ * writeNewWorld without an SQL engine: the same rows and ids, written as a fresh SQLite file by the
+ * pure-TS writer (sqlitewrite.ts), so the lite build can save worlds too. Blobs are raw unless an
+ * encoder is given (the game loads raw blobs).
+ */
+export function writeNewWorldFile(files: ReadonlyMap<string, Uint8Array> | Iterable<[string, Uint8Array]>, opts: BrdbWriteOptions = {}): Uint8Array {
+  const t = Math.floor(opts.when ?? nowSeconds());
+  const blobs: [number, SqlValue[]][] = [], folders: [number, SqlValue[]][] = [], fileRows: [number, SqlValue[]][] = [];
+  const blobIds = new Map<string, number>(), folderIds = new Map<string, number>();
+  for (const [p, content] of entriesOf(files)) {
+    const dirs = p.split('/'), name = dirs.pop()!;
+    let parent: number | null = null;
+    for (let i = 0; i < dirs.length; i++) {
+      const key = dirs.slice(0, i + 1).join('/');
+      let id = folderIds.get(key);
+      if (id === undefined) { id = folders.length + 1; folders.push([id, [null, parent, dirs[i]!, t, null]]); folderIds.set(key, id); }
+      parent = id;
+    }
+    const hash = blake3(content), key = content.length + ':' + Array.from(hash, (b) => b.toString(16).padStart(2, '0')).join('');
+    let cid = blobIds.get(key);
+    if (cid === undefined) {
+      const z = opts.zstd ? opts.zstd(content) : null;
+      const [comp, body] = z && z.length < content.length ? [1, z] : [0, content];
+      cid = blobs.length + 1;
+      blobs.push([cid, [null, comp, content.length, body.length, null, hash, body]]);
+      blobIds.set(key, cid);
+    }
+    fileRows.push([fileRows.length + 1, [null, parent, name, cid, t, null]]);
+  }
+  const [blobsT, blobsI, revT, foldersT, foldersI, filesT, filesI] = BRDB_CREATE as [string, string, string, string, string, string, string];
+  return writeSqlite([
+    { type: 'table', name: 'blobs', sql: blobsT, rows: blobs },
+    { type: 'index', name: 'blobs_size_hash', table: 'blobs', sql: blobsI, columns: [2, 5] },
+    { type: 'table', name: 'revisions', sql: revT, rows: [[1, [null, 'Initial Revision', t]], [2, [null, 'Manual Save', t]]] },
+    { type: 'table', name: 'folders', sql: foldersT, rows: folders },
+    { type: 'index', name: 'folders_parent_name_deleted', table: 'folders', sql: foldersI, columns: [1, 2, 4] },
+    { type: 'table', name: 'files', sql: filesT, rows: fileRows },
+    { type: 'index', name: 'files_parent_name_deleted', table: 'files', sql: filesI, columns: [1, 2, 5] },
+  ]);
 }

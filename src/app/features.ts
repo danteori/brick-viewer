@@ -18,11 +18,12 @@ export interface FeatureFlags {
   brzWriteRaw: boolean;
   /** .brz write with zstd (lazy wasm). */
   brzWriteZstd: boolean;
-  /** .brdb write and the sql.js read fallback (lazy wasm; full only). */
+  /** The sql.js .brdb read fallback and revision appends (lazy wasm; full only). */
   brdb: boolean;
   /**
    * .brdb read through the lazy page reader (src/format/brdblazy.ts, no wasm, ~22 KB min / ~8 KB
-   * gzip): open a world and its revisions in both builds.
+   * gzip): open a world and its revisions in both builds. "Save as new world" (the pure-TS
+   * SQLite writer, sqlitewrite.ts) is in both builds too.
    */
   brdbRead: boolean;
   /** HDR pipeline: shadows, SSAO, bloom, AA, sky; quality tiers. */
@@ -50,7 +51,7 @@ export const loadBrdbBackend: (() => Promise<SqlBackend>) | null = IS_LITE
 
 /**
  * The full build's extra UI (src/app/full-ui.ts: the Environment panel, .brdb worlds with revisions
- * and dynamic grids, save as a new world, and the Map with its tile worker), or null in lite.
+ * and dynamic grids, and the Map with its tile worker), or null in lite.
  */
 export const loadFullUi: (() => Promise<{ mountFullUi(): void }>) | null = IS_LITE
   ? null

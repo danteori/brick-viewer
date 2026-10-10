@@ -1,10 +1,14 @@
 // S-08: .brdb worlds open through the lazy page reader (File.slice, no wasm) in both builds, with
-// revision switching; Save .brz from a world loads the rest of the tree first. Uses a synthetic
+// revision switching; Save .brz from a world loads the rest of the tree first; "Save as new world"
+// (pure-TS writer, both builds) downloads a .brdb that sql.js and the lazy reader both read back. Uses a synthetic
 // two-revision world made here with sql.js in Node, so it needs no private data.
 
 import { expect, test, type Page } from '@playwright/test';
 import { appendRevision, BrdbWorld, writeNewWorld } from '../../src/format/brdb.ts';
+import { readFileSync } from 'node:fs';
+import { LazyBrdbWorld } from '../../src/format/brdblazy.ts';
 import { readBrz } from '../../src/format/brz.ts';
+import { bytesSource } from '../../src/format/sqlitelazy.ts';
 import { nodeSql } from '../unit/brdb-helpers.ts';
 import { synthSave } from '../unit/synthsave.ts';
 
@@ -45,6 +49,22 @@ for (const [label, path] of [['full', '/?test'], ['lite', '/lite.html?test']] as
     await page.locator('#savebrz').click();
     expect((await dl).suggestedFilename()).toBe('synthetic (edited).brz');
     await expect(status(page)).toContainText('Saved');
+    await expect(page.locator('#savebrdb')).toHaveText('Save as new world (.brdb)');
+    const dw = page.waitForEvent('download');
+    await page.locator('#savebrdb').click();
+    const saved = await dw;
+    expect(saved.suggestedFilename()).toBe('synthetic (edited).brdb');
+    const bytes = new Uint8Array(readFileSync((await saved.path())!));
+    const sql = await nodeSql(), back = BrdbWorld.open(sql, bytes, { verify: true });
+    try {
+      expect(back.revisions.map((r) => r.description)).toEqual(['Initial Revision', 'Manual Save']);
+      const db = sql.open(bytes);
+      expect(db.query('PRAGMA integrity_check')).toEqual([['ok']]);
+      db.close();
+    } finally { back.close(); }
+    const lazy = await LazyBrdbWorld.open(bytesSource(bytes));
+    expect(lazy.schemaMatches).toBe(true);
+    expect(lazy.tree().paths().length).toBeGreaterThan(0);
     expect(wasm).toEqual([]);                                            // no sql.js: the lazy reader did it all
     expect(errors).toEqual([]);
   });
