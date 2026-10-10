@@ -52,7 +52,7 @@ npm run dev        # http://localhost:5173  (lite entry: http://localhost:5173/l
 npm run build        # both builds
 npm run build:full   # dist/       multi-file app
 npm run build:lite   # dist-lite/  brick-viewer.html, one self-contained file (works offline)
-npm run size         # lite size budget (300 KB)
+npm run size         # lite size budget (450 KB)
 npm run site         # site/ = what GitHub Pages serves: /, /lite/brick-viewer.html, /legacy/save-viewer.html
 ```
 

@@ -126,9 +126,10 @@ export function selectSameType(id: number): number {
 
 /**
  * Flood from `seed` over bricks touching face to face (or overlapping), within the same grid.
- * Returns the connected ids (seed included). `limit` caps the result.
+ * Returns the connected ids (seed included). `limit` caps the result; `accept` (when given) must
+ * pass for a brick to join (and to be flooded through).
  */
-export function connectedFrom(seed: readonly number[], limit = Infinity): number[] {
+export function connectedFrom(seed: readonly number[], limit = Infinity, accept?: (id: number) => boolean): number[] {
   syncScene();
   const s = S.scene, seen = new Set<number>(), queue: number[] = [], a = new Array<number>(6), b = new Array<number>(6);
   for (const id of seed) if (s.alive(id) && !seen.has(id)) { seen.add(id); queue.push(id); }
@@ -139,7 +140,7 @@ export function connectedFrom(seed: readonly number[], limit = Infinity): number
     for (const k of boxQuery(lo, hi, 0)) {
       if (seen.has(k) || !s.alive(k) || s.grid[k] !== s.grid[id]) continue;
       s.box(k, b);
-      if (!touching(a, b)) continue;
+      if (!touching(a, b) || (accept && !accept(k))) continue;
       seen.add(k); queue.push(k);
     }
   }

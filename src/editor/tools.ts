@@ -8,7 +8,9 @@
 //   Paint   click paints the brick under the cursor with the current paint (colour, material,
 //           intensity: the palette's PaintModel); dragging paints every brick the cursor passes
 //           over, picking along the path between pointer events so fast strokes skip nothing.
-//           One stroke = one undo step, each brick painted once. Alt+click = eyedropper.
+//           One stroke = one undo step, each brick painted once. Alt+click = fill paint (the
+//           connected bricks of the clicked brick's colour and material, editor/fill.ts), as the
+//           game's painter; Ctrl+click = eyedropper.
 // Neither Move nor Paint ever resizes.
 
 import { S, type EditTx } from '../app/state.ts';
@@ -24,6 +26,7 @@ import { initAudio, playClick, playSelect } from '../ui/audio.ts';
 import { setStatus } from '../ui/status.ts';
 import { saveString, loadString } from '../app/settings.ts';
 import { isTyping } from './input.ts';
+import { fillPaint } from './fill.ts';
 
 export type Tool = 'resize' | 'move' | 'paint';
 /** middle-click vs middle-drag: at most this many px of movement and this many ms */
@@ -125,7 +128,8 @@ export function initTools(c: HTMLCanvasElement): void {
     e.stopImmediatePropagation(); e.preventDefault();
     initAudio();
     const h = pickAt(e.clientX, e.clientY);
-    if (e.altKey) { if (h) { eyedropBrick(h.id); playSelect(); } return; }
+    if (e.altKey) { if (h) void fillPaint(h.id); return; }
+    if (e.ctrlKey || e.metaKey) { if (h) { eyedropBrick(h.id); playSelect(); } return; }
     histEnd();
     stroke = { tx: txBegin('paint', []), done: new Set(), last: [e.clientX, e.clientY] };
     if (h) paintId(h.id);
