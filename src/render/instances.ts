@@ -258,6 +258,7 @@ export class ChunkSet {
 
   /** Builds block b's coarse sets for LOD `level` (render/lod.ts). */
   private buildBlock(b: LBlock, level: number): LodSet {
+    const t = performance.now();
     let L = b.lv[level];
     if (!L) L = b.lv[level] = { dirty: true, groups: new Map(), sgroups: new Map() };
     this.coarse(b, L.groups, (ch) => ch.lists, level);
@@ -267,6 +268,8 @@ export class ChunkSet {
       this.coarse(b, g, (ch) => ch.slists.get(m), level);
     }
     lodStats.built++;
+    const ms = performance.now() - t;
+    lodStats.ms += ms; lodStats.maxMs = Math.max(lodStats.maxMs, ms);
     L.dirty = false;
     return L;
   }
@@ -513,8 +516,8 @@ export interface ViewCull { x0: number; x1: number; y0: number; y1: number; dept
 
 /** Per-frame counters (test hook / benchmark): chunks and instanced draws drawn, instances in them. */
 export const stats = { chunks: 0, draws: 0, instances: 0 };
-/** Far-LOD counters: coarse sets built so far. */
-export const lodStats = { built: 0 };
+/** Far-LOD counters: coarse sets built so far, their total and longest build (ms). */
+export const lodStats = { built: 0, ms: 0, maxMs: 0 };
 /** The key the cells group sits under in a block's groups (any object that is not a real mesh). */
 const LOD_CELLS = { buf: null, count: 36, layout: 0, key: 'lod-cells' } as unknown as Mesh;
 
