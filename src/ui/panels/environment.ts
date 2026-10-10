@@ -19,10 +19,10 @@ import {
 export type PanelWorldKind = 'Plate' | 'Space';
 
 export interface EnvironmentPanelOptions {
-  /** Starting environment (default: the placeholder default for `kind`). */
+  /** Starting environment (default: the game's default for `kind`). */
   env?: Environment;
   kind?: PanelWorldKind;
-  /** What "Reset to default" restores, per kind (default: the built-in placeholder). */
+  /** What "Reset to default" restores, per kind (default: the game's built-in default). */
   defaults?: Partial<Record<PanelWorldKind, Environment>>;
   /** Called (at most once per animation frame) with a fresh copy after every edit, load or reset. */
   onChange?: (env: Environment) => void;

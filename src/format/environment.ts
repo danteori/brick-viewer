@@ -146,53 +146,55 @@ export interface Environment {
 }
 
 // ---------------------------------------------------------------------------------- defaults
-// PLACEHOLDER defaults: a neutral clear late-morning, chosen for this viewer. They are NOT the
-// game's built-in default environment; load a .bp (or a world) to get a real one, and the panel's
-// "Reset to default" can be pointed at it (setDefault). Key order is the order the game writes.
-const col = (r: number, g: number, b: number, a = 1): LinearColor => ({ r, g, b, a });
+// The game's built-in default environment (Plate worlds), as it writes it: float32 values, hence
+// f(). cloudSpeedMultiplier isn't in the game's default file; 1 is assumed. The Space (universe)
+// defaults are this viewer's own neutral values (no stock universe preset is known). Key order is
+// the order the game writes.
+const f = Math.fround;
+const col = (r: number, g: number, b: number, a = 1): LinearColor => ({ r: f(r), g: f(g), b: f(b), a: f(a) });
 
 export const DEFAULT_SKY: Readonly<SkyGroup> = {
-  timeOfDay: 9.5,
+  timeOfDay: f(9.6),
   animateTimeOfDay: false,
   dayLength: 30,
   nightLength: 15,
-  sunAngle: 315,
-  sunScale: 0.8,
+  sunAngle: 300,
+  sunScale: f(0.85),
   sunHorizonScaleMultiplier: 1,
-  sunlightColor: col(1, 0.85, 0.72),
+  sunlightColor: col(1, 0.806952, 0.768151),
   skyIntensity: 1,
-  skyColor: col(0.08, 0.25, 1),
-  moonPhase: 0,
-  moonScale: 1,
-  moonlightIntensity: 0.5,
-  moonlightColor: col(0.55, 0.62, 0.9),
-  starsIntensity: 8,
-  starsColor: col(0.8, 0.85, 1),
+  skyColor: col(0, 0.171441, 1),
+  moonPhase: f(0.4),
+  moonScale: f(0.7),
+  moonlightIntensity: f(0.4),
+  moonlightColor: col(0.517647, 0.6, 0.866667),
+  starsIntensity: 10,
+  starsColor: col(0.74902, 0.85098, 1),
   auroraIntensity: 0,
-  cloudCoverage: 0.2,
+  cloudCoverage: 0.25,
   rain: 0,
   snow: 0,
   dust: 0,
   thunder: 0,
-  wind: 0.15,
-  windDirection: 0,
+  wind: f(0.2),
+  windDirection: 1,
   cloudSpeedMultiplier: 1,
   bCloseLightning: true,
-  rainVolume: 0.6,
+  rainVolume: f(0.65),
   closeThunderVolume: 1,
-  distantThunderVolume: 0.5,
-  windVolume: 0.6,
-  clearFogDensity: 0.01,
-  cloudyFogDensity: 0.2,
-  clearFogHeightFalloff: 0.1,
-  cloudyFogHeightFalloff: 0.05,
-  fogColor: col(0.45, 0.6, 0.9),
+  distantThunderVolume: f(0.4),
+  windVolume: f(0.65),
+  clearFogDensity: f(0.01),
+  cloudyFogDensity: 0.25,
+  clearFogHeightFalloff: f(0.09),
+  cloudyFogHeightFalloff: f(0.04),
+  fogColor: col(0.502887, 0.679543, 1),
 };
 
 export const DEFAULT_GROUND_PLATE: Readonly<GroundPlateGroup> = {
   variance: 0,
   varianceBrickSize: 1,
-  groundColor: col(0.05, 0.18, 0.05),
+  groundColor: col(0.042311, 0.212231, 0.042311),
   groundAccentColor: col(0, 0, 0),
   isVisible: true,
   bUseStudTexture: true,
@@ -200,13 +202,13 @@ export const DEFAULT_GROUND_PLATE: Readonly<GroundPlateGroup> = {
 
 export const DEFAULT_WATER: Readonly<WaterGroup> = {
   waterHeight: 0,
-  waterAbsorption: { x: 0.005, y: 0.001, z: 0.0003 },
-  waterScattering: { x: 0.00001, y: 0.00002, z: 0.00004 },
-  waterFogIntensity: 0.00015,
-  waterFogAmbientColor: col(0.1, 0.35, 0.7),
-  waterFogAmbientScale: 0.3,
-  waterFogScatteringColor: col(0.45, 0.9, 0.7),
-  waterFogScatteringScale: 2,
+  waterAbsorption: { x: f(0.0065), y: f(0.000708), z: f(0.000196) },
+  waterScattering: { x: f(7e-6), y: f(1.8e-5), z: f(3.1e-5) },
+  waterFogIntensity: f(0.0002),
+  waterFogAmbientColor: col(0.1, 0.409524, 0.75),
+  waterFogAmbientScale: 0.25,
+  waterFogScatteringColor: col(0.5, 1, 0.75),
+  waterFogScatteringScale: 3,
 };
 
 export const DEFAULT_AMBIENCE: Readonly<AmbienceGroup> = {

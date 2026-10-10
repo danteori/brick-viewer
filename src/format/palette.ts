@@ -11,6 +11,8 @@
 // line, keys b,g,r,a then name / description, no trailing newline), so a game-written file round-trips
 // byte for byte. Files from other tools (key order r,g,b,a) parse the same; JSON key order doesn't matter.
 
+import { DEFAULT_PALETTE_DESCRIPTION, DEFAULT_PALETTE_GROUPS } from './default-palette.ts';
+
 export type Rgb8 = [number, number, number];
 
 export interface PaletteColour {
@@ -128,27 +130,13 @@ export function serialisePalette(p: Palette): string {
   ].join(NL);
 }
 
-// --- Placeholder ---------------------------------------------------------------------------------
+// --- Default -------------------------------------------------------------------------------------
 
-/**
- * The palette the public build starts with: generated greys and hue rows, NOT the game's palette.
- * Users load a real palette by uploading its .bp. Built from sRGB targets, stored linear like a file.
- */
-export function placeholderPalette(): Palette {
-  const hsv = (h: number, s: number, v: number): Rgb8 => {
-    const f = (n: number): number => { const k = (n + h / 60) % 6; return v - v * s * Math.max(0, Math.min(k, 4 - k, 1)); };
-    return [f(5), f(3), f(1)].map((c) => Math.round(c * 255)) as Rgb8;
-  };
-  const hues = Array.from({ length: 12 }, (_, i) => i * 30);
-  const row = (name: string, cols: Rgb8[]): PaletteGroup => ({ name, colors: cols.map(srgbToPaletteColour) });
+/** The game's default palette (2021), a fresh copy (callers may change it). */
+export function defaultPalette(): Palette {
   return {
-    description: 'Placeholder palette (generated). Upload a .bp to use your own.',
-    groups: [
-      row('Greys', Array.from({ length: 12 }, (_, i) => { const v = Math.round(255 * (1 - i / 11)); return [v, v, v] as Rgb8; })),
-      row('Bright', hues.map((h) => hsv(h, 0.85, 0.95))),
-      row('Soft', hues.map((h) => hsv(h, 0.4, 1))),
-      row('Deep', hues.map((h) => hsv(h, 0.8, 0.55))),
-    ],
+    description: DEFAULT_PALETTE_DESCRIPTION,
+    groups: DEFAULT_PALETTE_GROUPS.map(([name, cols]) => ({ name, colors: cols.map(([r, g, b]) => ({ r, g, b, a: 255 })) })),
   };
 }
 
