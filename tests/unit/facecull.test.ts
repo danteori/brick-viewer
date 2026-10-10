@@ -10,7 +10,7 @@ import { FACE_NX, FACE_PX, FULLY_HIDDEN } from '../../src/scene/cull.ts';
 
 const brick = (s: SceneStore, x: number, y = 0, z = 6, material?: string): number => {
   const id = s.alloc();
-  putPlain(s, id, { asset: 'PB_DefaultBrick', size: [5, 5, 6], pos: [x, y, z], orient: 16, color: [200, 200, 200], material }, false);
+  putPlain(s, id, { asset: 'PB_DefaultBrick', size: [5, 5, 6], pos: [x, y, z], orient: 16, color: [200, 200, 200, 5], material: material ?? 'BMC_Plastic' }, false);
   return id;
 };
 

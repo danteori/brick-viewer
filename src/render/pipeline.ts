@@ -7,7 +7,8 @@ import { mul } from '../core/math.ts';
 import { BEVEL, BEVEL_FIT, SHADE, STEP } from '../core/units.ts';
 import type { V3 } from '../scene/brick.ts';
 import { G, bodyShape, drawBody, setBox } from './draw.ts';
-import { drawInstances, inst, syncInstances, type ViewCull } from './instances.ts';
+import { drawInstances, inst, setFarLod, syncInstances, type ViewCull } from './instances.ts';
+import { lodLevel, lodSettings } from './lod.ts';
 import { syncScene } from '../scene/sync.ts';
 import { syncFaceCull } from './facecull.ts';
 import { drawGrid } from './grid.ts';
@@ -53,6 +54,8 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
   const reach = Math.max(inst.set!.depthReach(), extrasDepth(), Math.abs(view[2]! * (dlo[0]! - S.origin[0]) + view[6]! * (dlo[2]! - S.origin[2]) + view[10]! * (dlo[1]! - S.origin[1])));
   const zr = reach * 1.05 + 1 > 60 ? reach * 1.05 + 1 : 60;
   if (zr !== 60) { ortho[10] = -1 / zr; cull.depth = zr; gl.uniformMatrix4fv(u.uMVP, false, mul(ortho, view)); }
+  // far LOD (render/lod.ts) by how many device pixels a stud (0.2 view units) is
+  setFarLod(lodSettings.on ? lodLevel(0.2 * h / (2 * half * fy)) : 0);
   perfMark('opaque');
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxIB);
   gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(1, 1);
