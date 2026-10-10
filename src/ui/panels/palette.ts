@@ -11,29 +11,20 @@
 //   // host, on a brick click while panel.eyedropper is on:  panel.eyedrop(fieldsOfThatBrick)
 //
 // Palettes: the panel starts with the remembered uploaded palette, else the default one
-// (loadDefaultPalette: the generic placeholder in builds; a private git-ignored fixture in dev).
+// (loadDefaultPalette: the game's 2021 default palette).
 // "Upload palette (.bp)" reads a ColorPalette preset; "Reset to default" forgets the upload.
 
 import {
-  paletteColourToSrgb, PaletteError, parsePalette, placeholderPalette, serialisePalette, type Palette,
+  paletteColourToSrgb, PaletteError, parsePalette, defaultPalette, serialisePalette, type Palette,
 } from '../../format/palette.ts';
 import {
   hexOfRgb8, materialLabel, MATERIALS, MAX_INTENSITY, type PaintFields, type PaintModel, type Rgb8,
 } from '../../editor/paint.ts';
 
 export const PALETTE_KEY = 'brickViewer.palette';
-/** Served by the dev server only (vite.config.ts), from the git-ignored .local/ folder. */
-const DEV_PALETTE_URL = '__local/palette.bp';
-
 /** The palette "Reset to default" goes back to. */
 export async function loadDefaultPalette(): Promise<Palette> {
-  if (import.meta.env.DEV) {
-    try {
-      const r = await fetch(DEV_PALETTE_URL);
-      if (r.ok) return parsePalette(await r.text());
-    } catch { /* no local fixture: use the placeholder */ }
-  }
-  return placeholderPalette();
+  return defaultPalette();
 }
 
 export interface PalettePanelOptions {
@@ -166,7 +157,7 @@ export function mountPalettePanel(root: HTMLElement, opts: PalettePanelOptions):
   root.append(panel);
 
   // --- state
-  let palette: Palette = placeholderPalette();
+  let palette: Palette = defaultPalette();
   let swatches: { btn: HTMLButtonElement; rgb: Rgb8 }[] = [];
   let eye = false;
 
@@ -280,6 +271,6 @@ export function mountPalettePanel(root: HTMLElement, opts: PalettePanelOptions):
   let saved: Palette | null = null;
   try { const s = storage?.getItem(PALETTE_KEY); if (s) saved = parsePalette(s); } catch { saved = null; }
   if (saved) api.setPalette(saved);
-  else void Promise.resolve(getDefault()).then((p) => { if (!saved) api.setPalette(p); }, () => { /* keep the placeholder */ });
+  else void Promise.resolve(getDefault()).then((p) => { if (!saved) api.setPalette(p); }, () => { /* keep the built-in default */ });
   return api;
 }

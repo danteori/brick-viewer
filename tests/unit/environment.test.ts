@@ -206,3 +206,17 @@ describe.skipIf(!files.length)('reference presets', () => {
     expect(exact).toBeGreaterThan(0);
   });
 });
+
+// The built-in defaults are the game's stock default environment: some reference preset holds
+// exactly these values (every Plate group; cloudSpeedMultiplier is ours, the game's file lacks it).
+describe.skipIf(!files.length)('built-in default', () => {
+  it('equals a reference stock default preset', () => {
+    const want = defaultEnvironment('Plate').groups;
+    const match = files.some((p) => {
+      const g = parseEnvironment(readFileSync(p, 'utf8')).groups;
+      const sky = g.sky ? { ...g.sky, cloudSpeedMultiplier: want.sky!.cloudSpeedMultiplier } : undefined;
+      try { expect({ ...g, sky }).toEqual(want); return true; } catch { return false; }
+    });
+    expect(match).toBe(true);
+  });
+});
