@@ -16,6 +16,7 @@ import { histEnd, histPush, sceneSnap } from './history.ts';
 import { selectBrick } from '../editor/resize.ts';
 import { FLAG_NAMES, SceneStore } from './store.ts';
 import { putPlain, supportedAsset } from './view.ts';
+import { fastStore } from './fastload.ts';
 import { fitHalf, ZOOM_MAX } from '../render/camera.ts';
 import { setStatus } from '../ui/status.ts';
 import { attachComponents, loadOrderOf, type LoadOrder } from './compmodel.ts';
@@ -99,6 +100,16 @@ export function bricksFromFiles(files: FileMap): { bricks: Brick[]; report: Omit
 
 /** Save files -> a SceneStore of grid 1's drawable bricks, plus the bricks it can't draw (with their load order). */
 export function storeFromFiles(files: FileMap): { store: SceneStore; report: Omit<LoadReport, 'name' | 'drawn'>; unsupported: SeqBrick[]; order: LoadOrder } {
+  const grids = [...new Set([...files.keys()].map((k) => k.match(/^World\/0\/Bricks\/Grids\/([^/]+)\//)?.[1]).filter(Boolean))];
+  let extraGrids = 0;
+  for (const g of grids) if (g !== '1') extraGrids++;
+  if (!grids.includes('1')) return { store: new SceneStore(), report: { skipped: 0, skippedTypes: {}, sideways: 0, extraGrids }, unsupported: [], order: loadOrderOf([]) };
+  const f = fastStore(files);
+  return { store: f.store, report: { skipped: f.skipped, skippedTypes: f.skippedTypes, sideways: f.sideways, extraGrids }, unsupported: f.unsupported, order: f.order };
+}
+
+/** storeFromFiles by way of a PlainBrick per brick (the reference the fast path is tested against). */
+export function storeFromFilesPlain(files: FileMap): { store: SceneStore; report: Omit<LoadReport, 'name' | 'drawn'>; unsupported: SeqBrick[]; order: LoadOrder } {
   const skippedTypes: Record<string, number> = {}, unsupported: SeqBrick[] = [];
   let skipped = 0, sideways = 0, extraGrids = 0;
   const grids = [...new Set([...files.keys()].map((k) => k.match(/^World\/0\/Bricks\/Grids\/([^/]+)\//)?.[1]).filter(Boolean))];

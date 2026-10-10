@@ -28,6 +28,14 @@ export function setExtraStores(grids: { store: SceneStore; origin: [number, numb
 
 export const extraCount = (): number => extra.count;
 
+/** How far the shown extras reach along the view axis (viewer units; see ChunkSet.depthReach). */
+export function extrasDepth(): number {
+  if (!extra.sets.length || (extra.owner && extra.owner !== S.scene)) return 0;
+  let r = 0;
+  for (const s of extra.sets) { s.sync(); r = Math.max(r, s.depthReach()); }
+  return r;
+}
+
 /** Draws the extras (call with the body uniforms set and the cube's element array bound). */
 export function drawExtras(cull: ViewCull | null = null): void {
   if (!extra.sets.length || (extra.owner && extra.owner !== S.scene)) return;

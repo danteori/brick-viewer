@@ -7,7 +7,7 @@ const LITE_RULE = {
 };
 
 export default tseslint.config(
-  { ignores: ['node_modules/', 'dist/', 'dist-lite/', 'site/', 'legacy/', 'test-results/', 'playwright-report/', 'tests/golden/'] },
+  { ignores: ['node_modules/', 'dist/', 'dist-lite/', 'site/', 'legacy/', 'test-results/', 'playwright-report/', 'tests/golden/', '.local/'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

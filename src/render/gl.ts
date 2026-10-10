@@ -11,7 +11,7 @@ export const LOC = { aPos: 0, aNrm: 1, aSlope: 2, iPos: 3, iHalf: 4, iColor: 5, 
 
 const UNIFORMS = ['uMVP', 'uChunkOffset', 'uBox', 'uUnitDiv', 'uEdge', 'uLine', 'uFadeC', 'uFadeR', 'uStudFade', 'uBevelMax', 'uBevelFit',
   'uEye', 'uLight', 'uSun', 'uSky', 'uFloor', 'uExposure', 'uBump', 'uMat', 'uIntensity', 'uMatPass',
-  'uSpecAA', 'uCutA', 'uCutK', 'uCutLo', 'uCutHi', 'uCutOff', 'uCutEdge'] as const;
+  'uSpecAA', 'uCutA', 'uCutK', 'uCutLo', 'uCutHi', 'uCutOff', 'uCutEdge', 'uShowHidden'] as const;
 export type UniformName = (typeof UNIFORMS)[number];
 export type Uniforms = Record<UniformName, WebGLUniformLocation | null>;
 
