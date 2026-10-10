@@ -150,7 +150,7 @@ export function mountPalettePanel(root: HTMLElement, opts: PalettePanelOptions):
   paintBtn.hidden = !opts.onPaint;
 
   const key = (k: string, what: string): HTMLElement => el('span', {}, el('kbd', { text: k }), what);
-  const keys = el('div', { class: 'bvp-keys', 'aria-label': 'Paint tool keys' }, key('Click / drag', 'Paint'), key('Alt+click', 'Pick'));
+  const keys = el('div', { class: 'bvp-keys', 'aria-label': 'Paint tool keys' }, key('Click / drag', 'Paint'), key('Alt+click', 'Fill Paint'), key('Ctrl+click', 'Pick'));
   const panel = el('section', { class: 'bv-palette', 'aria-label': 'Paint' },
     el('div', { class: 'bvp-title', text: 'Color' }),
     where,
