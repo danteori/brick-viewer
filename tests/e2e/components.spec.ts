@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import { writeBrz } from '../../src/format/brz.ts';
 import { save } from '../unit/comp-fixture.ts';
 
-test.describe.configure({ timeout: 120_000 });
+test.describe.configure({ timeout: 240_000 });   // SwiftShader renders every frame on the CPU
 
 interface Comps { instances: [string, string, string][]; wires: string[]; dirty: boolean; refused: number; drawn: { wires: number; ports: number } }
 interface Api {
