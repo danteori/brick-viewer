@@ -16,7 +16,7 @@ export interface SqliteTable {
   name: string;
   /** The CREATE TABLE statement, stored verbatim. */
   sql: string;
-  /** [rowid, column values]; the INTEGER PRIMARY KEY column (if any) must be null here. Any order. */
+  /** [rowid, column values]; the INTEGER PRIMARY KEY column (if any) must be null here. Any order; rowids unique. */
   rows: [rowid: number, values: SqlValue[]][];
 }
 
@@ -33,7 +33,6 @@ const enc = new TextEncoder();
 
 /** SQLite varint (big-endian base 128, 9th byte takes 8 bits). Numbers here stay below 2^53. */
 function varint(out: number[], v: number): void {
-  if (v < 0 || v > Number.MAX_SAFE_INTEGER) throw new RangeError(`varint out of range: ${v}`);
   if (v < 0x80) { out.push(v); return; }
   const b: number[] = [];
   while (v > 0) { b.push(v % 128); v = Math.floor(v / 128); }
@@ -46,14 +45,14 @@ function serial(v: SqlValue): [number, Uint8Array] {
   if (v === null) return [0, new Uint8Array(0)];
   if (typeof v === 'bigint') v = Number(v);
   if (typeof v === 'number') {
-    if (!Number.isSafeInteger(v)) throw new TypeError(`only integers can be written, not ${v}`);
-    if (v === 0) return [8, new Uint8Array(0)];
-    if (v === 1) return [9, new Uint8Array(0)];
-    const [t, n] = v >= -128 && v < 128 ? [1, 1] : v >= -32768 && v < 32768 ? [2, 2] : v >= -8388608 && v < 8388608 ? [3, 3]
-      : v >= -2147483648 && v < 2147483648 ? [4, 4] : v >= -(2 ** 47) && v < 2 ** 47 ? [5, 6] : [6, 8];
+    if (!Number.isSafeInteger(v)) throw new TypeError('not an integer: ' + v);
+    if (v === 0 || v === 1) return [v + 8, new Uint8Array(0)];
+    // serial types 1..6 hold 1, 2, 3, 4, 6, 8 byte big-endian two's complement
+    let t = 1, n = 1;
+    while (v < -(2 ** (8 * n - 1)) || v >= 2 ** (8 * n - 1)) { t++; n = [1, 2, 3, 4, 6, 8][t - 1]!; }
     const b = new Uint8Array(n);
-    let x = BigInt.asUintN(n * 8, BigInt(v));
-    for (let i = n - 1; i >= 0; i--) { b[i] = Number(x & 0xffn); x >>= 8n; }
+    let x = v < 0 ? v + 2 ** (8 * n) : v;   // exact below 2^53; an 8-byte negative isn't needed here
+    for (let i = n - 1; i >= 0; i--) { b[i] = x % 256; x = Math.floor(x / 256); }
     return [t, b];
   }
   if (typeof v === 'string') { const b = enc.encode(v); return [b.length * 2 + 13, b]; }
@@ -126,7 +125,7 @@ class Pager {
     dv.setUint16(base + 3, cells.length);
     cells.forEach((c, i) => {
       end -= c.length;
-      if (end < base + hsize + 2 * cells.length) throw new Error('sqlite writer: page overflow');
+      if (end < base + hsize + 2 * cells.length) throw new Error('sqlite writer: page overflow')   // also: a schema too big for page 1;
       pg.set(c, end); dv.setUint16(base + hsize + 2 * i, end);
     });
     dv.setUint16(base + 5, end);
@@ -232,7 +231,6 @@ export function writeSqlite(objects: readonly SqliteObject[], opts: { userVersio
   for (const o of objects) {
     if (o.type === 'table') {
       const rows = [...o.rows].sort((a, b) => a[0] - b[0]);
-      for (let i = 1; i < rows.length; i++) if (rows[i]![0] === rows[i - 1]![0]) throw new Error(`${o.name}: duplicate rowid ${rows[i]![0]}`);
       tables.set(o.name, rows);
       master.push([master.length + 1, ['table', o.name, o.name, tableTree(pg, rows), o.sql]]);
     } else {
@@ -244,7 +242,6 @@ export function writeSqlite(objects: readonly SqliteObject[], opts: { userVersio
   }
   // page 1: the schema table (it must fit one page: a handful of CREATE statements)
   const cells = master.map(([id, v]) => { const payload = record(v), pre: number[] = []; varint(pre, payload.length); varint(pre, id); return pg.spill(pre, payload, false); });
-  if (cells.reduce((s, c) => s + c.length + 2, 0) > PAGE - 100 - 8) throw new Error('sqlite writer: schema too big for page 1');
   pg.page(1, 0x0d, cells);
 
   const n = pg.pages.length, out = new Uint8Array(n * PAGE);

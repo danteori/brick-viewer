@@ -115,8 +115,9 @@ function plane3(p: V3, q: V3, r: V3, inside: V3): Plane {
   return [n[0], n[1], n[2], d];
 }
 
-const flipZ = (pc: Piece): Piece => ({ v: pc.v.map(([x, y, z]) => [x, y, -z]), n: pc.n.map(([x, y, z]) => [x, y, -z]), e: pc.e.map(([x, y, z]) => [x, y, -z]) });
-const swapXY = (pc: Piece): Piece => ({ v: pc.v.map(([x, y, z]) => [y, x, z]), n: pc.n.map(([x, y, z]) => [y, x, z]), e: pc.e.map(([x, y, z]) => [y, x, z]) });
+const mapPiece = (pc: Piece, f: (p: V3) => V3): Piece => ({ v: pc.v.map(f), n: pc.n.map(f), e: pc.e.map(f) });
+const flipZ = (pc: Piece): Piece => mapPiece(pc, ([x, y, z]) => [x, y, -z]);
+const swapXY = (pc: Piece): Piece => mapPiece(pc, ([x, y, z]) => [y, x, z]);
 
 const { RAMP_CREST, RAMP_LIP, ARCH_LEG, ARCH_CROWN, CAP_SEGMENTS, ROUND_TYPES, ROUND_SEGMENTS, ROUND_STUD_DIAMETER } = BrickShapes as unknown as {
   RAMP_CREST: number; RAMP_LIP: number; ARCH_LEG: number; ARCH_CROWN: number; CAP_SEGMENTS: number; ROUND_SEGMENTS: number; ROUND_STUD_DIAMETER: number;
@@ -215,12 +216,13 @@ function micro(shape: string): Gen | null {
   }
 }
 function microArc(shape: 'roundHalf' | 'roundCorner' | 'pole', h: V3): Piece {
-  const A = { roundHalf: { c: [-1, 0], a: 2, b: 1, t0: -Math.PI / 2, t1: Math.PI / 2, frac: 0.5 }, roundCorner: { c: [-1, -1], a: 2, b: 2, t0: 0, t1: Math.PI / 2, frac: 0.25 }, pole: { c: [0, 0], a: 1, b: 1, t0: 0, t1: 2 * Math.PI, frac: 1 } }[shape];
-  const R = Math.max(A.a * h[0], A.b * h[1]), seg = Math.max(2, Math.round(microRoundSegments(R) * A.frac));
+  // shapes.js MICRO_ARCS: centre (cx, cy), semi-axes (a, b), from angle t0 over `frac` of a turn
+  const [cx, cy, a, b, t0, frac] = shape === 'roundHalf' ? [-1, 0, 2, 1, -Math.PI / 2, 0.5] : shape === 'roundCorner' ? [-1, -1, 2, 2, 0, 0.25] : [0, 0, 1, 1, 0, 1];
+  const R = Math.max(a * h[0], b * h[1]), seg = Math.max(2, Math.round(microRoundSegments(R) * frac));
   const pts: [number, number][] = [];
-  for (let i = 0; i < seg + (A.frac < 1 ? 1 : 0); i++) {
-    const t = A.t0 + (A.t1 - A.t0) * i / seg;
-    pts.push([(A.c[0]! + A.a * Math.cos(t)) * h[0], (A.c[1]! + A.b * Math.sin(t)) * h[1]]);
+  for (let i = 0; i < seg + (frac < 1 ? 1 : 0); i++) {
+    const t = t0 + 2 * Math.PI * frac * i / seg;
+    pts.push([(cx + a * Math.cos(t)) * h[0], (cy + b * Math.sin(t)) * h[1]]);
   }
   if (shape === 'roundCorner') pts.push([-h[0], -h[1]]);              // back to the corner (the half round closes on its flat face)
   return prism(2, -h[2], h[2], pts);

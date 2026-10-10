@@ -136,7 +136,10 @@ export function serialisePalette(p: Palette): string {
 export function defaultPalette(): Palette {
   return {
     description: DEFAULT_PALETTE_DESCRIPTION,
-    groups: DEFAULT_PALETTE_GROUPS.map(([name, cols]) => ({ name, colors: cols.map(([r, g, b]) => ({ r, g, b, a: 255 })) })),
+    groups: DEFAULT_PALETTE_GROUPS.map(([name, hex]) => ({
+      name,
+      colors: (hex.match(/.{6}/g) ?? []).map((c) => ({ r: parseInt(c.slice(0, 2), 16), g: parseInt(c.slice(2, 4), 16), b: parseInt(c.slice(4), 16), a: 255 })),
+    })),
   };
 }
 
