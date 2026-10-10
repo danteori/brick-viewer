@@ -80,6 +80,7 @@ export function initWires(c: HTMLCanvasElement): void {
   svg.addEventListener('pointerover', (e) => showLabel(e.target as Element));
   svg.addEventListener('pointerout', () => { label.hidden = true; });
   onComponentsChange(() => { shownKey = ''; });
+  S.hooks.loaded.push(() => { wireView.from = null; wireView.selected = null; shownKey = ''; });
 }
 
 export function setWireView(on: boolean): void {
@@ -180,7 +181,7 @@ export function drawWires(sx: number, sy: number): void {
   if (!wireView.on) return;
   const m = componentsOf(S.scene), cw = canvas.clientWidth, ch = canvas.clientHeight;
   const sel = wireView.selected, f = wireView.from;
-  const key = [camSignature(), cw, ch, S.scene.rev, S.hidden.size, m?.version ?? -1, sel ? endKey(sel.s) + endKey(sel.t) : '', f ? `${f.row}/${f.comp}/${f.port.name}` : ''].join('|');
+  const key = [sceneId(), camSignature(), cw, ch, S.scene.rev, S.hidden.size, m?.version ?? -1, sel ? endKey(sel.s) + endKey(sel.t) : '', f ? `${f.row}/${f.comp}/${f.port.name}` : ''].join('|');
   if (key === shownKey) return;
   shownKey = key;
   if (!m) { svg.replaceChildren(); dots = []; wires = []; return; }
@@ -243,6 +244,14 @@ export function drawWires(sx: number, sy: number): void {
 }
 
 const f1 = (v: number): string => v.toFixed(1);
+const sceneIds = new WeakMap<object, number>();
+let nextScene = 1;
+/** A number per scene store (undoing a load brings another store back). */
+function sceneId(): number {
+  let id = sceneIds.get(S.scene);
+  if (!id) sceneIds.set(S.scene, (id = nextScene++));
+  return id;
+}
 const esc = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
 
 /** Scene rows that carry components (cached per model version and scene revision). */
