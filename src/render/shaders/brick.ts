@@ -63,6 +63,8 @@ out vec2 vBevelK;
 // No flat varyings: ANGLE on D3D11 emulates flat shading with a geometry shader that broke line
 // draws (the overlay outlines rendered as filled triangles). These are constant over a brick anyway.
 out float vOrient; out vec2 vMisc;
+out vec3 vLightL; out vec3 vEyeL;
+uniform vec3 uEye; uniform vec3 uLight;
 // units per viewer unit (50), a uniform so the scale is a true, correctly rounded division
 uniform float uUnitDiv;
 ${ORIENT_GLSL}
@@ -98,6 +100,8 @@ void main(){
   vFlags = vec4((top == 0u ? s : 0.0)*uStudFade, s*uStudFade, 1.0, top == 2u ? s : 0.0);
   vMisc = vec2((w & 256u) != 0u ? 1.0 : 0.0, (iMisc.w & 1u) != 0u ? 1.0 : 0.0);
   vOrient = float(w & 31u);
+  mat3 Rt = transpose(R);   // turned once per vertex, not per fragment (slow on software GL)
+  vLightL = Rt * uLight; vEyeL = Rt * uEye;
   gl_Position = uMVP * vec4(p, 1.0);
 }`;
 
@@ -116,8 +120,7 @@ const float ROUND = ${glf(SHADE.ROUND)};
 const float BEVEL_EDGE = ${glf(SHADE.BEVEL_EDGE)};
 // the light / eye in the brick's frame (turned by the vertex shader), its orientation, x = linear colour, y = selected
 in float vOrient; in vec2 vMisc;
-uniform vec3 uEye;
-uniform vec3 uLight;
+in vec3 vLightL; in vec3 vEyeL;
 ${ORIENT_GLSL}
 // the selection highlight (E-01), mixed over the tone-mapped colour
 const vec3 SEL_TINT = vec3(1.0, 0.62, 0.28); const float SEL_MIX = 0.42;
@@ -329,8 +332,6 @@ void main(){
       n = normalize(n + k * sign(vL));
     }
   }
-  mat3 Rt = transpose(orientGL(uint(vOrient + 0.5)));
-  vec3 vLightL = Rt * uLight, vEyeL = Rt * uEye;   // the light and eye in the brick's frame
   vec3 L = normalize(vLightL);
   float d = max(dot(n, L), 0.0);
   float bent = smoothstep(0.0, 0.02, 1.0 - dot(n, nG));

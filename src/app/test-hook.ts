@@ -15,6 +15,7 @@ import { ed } from '../editor/ghost.ts';
 import { selectBrick } from '../editor/resize.ts';
 import { setSelection } from '../editor/select.ts';
 import { inst, stats } from '../render/instances.ts';
+import { resizeBlock } from '../editor/resize.ts';
 
 export interface BrickTest {
   ready: true;
@@ -41,6 +42,8 @@ export interface BrickTest {
   byId(): [number, number[], number[], number[]][];
   /** last frame's render counters: chunks and draws drawn, instances, render chunks in all */
   renderStats(): { chunks: number; draws: number; instances: number; total: number };
+  /** refused edits so far and the last reason (the HUD shows it only briefly, so tests read it here) */
+  blocks(): { n: number; reason: string; age: number };
   /** put bricks on the clipboard (lo / hi relative to the group's low corner) and start pasting them */
   paste(items: Brick[]): void;
   /** give brick k (k-th in list order) the focus (camera glides to it), keeping the zoom factor */
@@ -115,6 +118,7 @@ export function installTestHook(canvas: HTMLCanvasElement): void {
     brickBox: (k) => { const b = brickView(S.scene, S.scene.ordered()[k]!); return { lo: b.lo, hi: b.hi }; },
     ids: () => S.scene.ordered(),
     renderStats: () => ({ ...stats, total: inst.set?.chunks.size ?? 0 }),
+    blocks: () => ({ n: resizeBlock.n, reason: resizeBlock.reason, age: performance.now() - resizeBlock.t }),
     selection: () => { const ids = S.scene.ordered(); return [...S.selection].map((id) => ids.indexOf(id)).sort((a, b) => a - b); },
     paste(items) { clip.items = items; startPaste(); },
     focus(k) { const z = S.zoomMul; selectBrick(S.scene.ordered()[k]!); S.zoomMul = z; },
