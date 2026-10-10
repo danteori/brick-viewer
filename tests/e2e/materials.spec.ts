@@ -1,4 +1,4 @@
-// L-02: glass, translucent plastic and glow draw without errors in both builds, and the full build
+// L-02 / U-15: glass, translucent plastic, glow, metallic and hologram draw without errors in both builds, and the full build
 // adds a bloom halo around a bright glow brick (lite skips bloom). Synthetic save, no private data.
 
 import { expect, test, type Page } from '@playwright/test';
@@ -13,6 +13,8 @@ const save = Buffer.from(synthSave([
   { asset: 'PB_DefaultBrick', size: [20, 20, 12], pos: [0, 0, 12], color: [255, 240, 200], material: 'BMC_Glow', intensity: 10 },
   { asset: 'PB_DefaultBrick', size: [20, 20, 12], pos: [400, 0, 12], color: [120, 180, 255], material: 'BMC_Glass', intensity: 0 },
   { asset: 'PB_DefaultBrick', size: [20, 20, 12], pos: [400, 60, 12], color: [255, 80, 80], material: 'BMC_TranslucentPlastic', intensity: 5 },
+  { asset: 'PB_DefaultBrick', size: [20, 20, 12], pos: [460, 0, 12], color: [220, 40, 40], material: 'BMC_Metallic', intensity: 10 },
+  { asset: 'PB_DefaultBrick', size: [20, 20, 12], pos: [460, 60, 12], color: [220, 0, 13], material: 'BMC_Hologram', intensity: 6 },
   { asset: 'PB_DefaultBrick', size: [40, 40, 6], pos: [400, 30, -6], color: [230, 230, 230] },
 ])).toString('base64');
 
@@ -41,7 +43,7 @@ async function halo(page: Page): Promise<{ near: number; errors: string[] }> {
   return { near, errors };
 }
 
-test('glass, translucent and glow render in both builds; only full blooms', async ({ page }) => {
+test('glass, translucent, glow, metallic and hologram render in both builds; only full blooms', async ({ page }) => {
   await page.goto('/lite.html?test');
   const lite = await halo(page);
   await page.goto('/?test');
