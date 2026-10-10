@@ -28,10 +28,4 @@ jobs:
       - name: Smoke test (Playwright, Chromium)
         run: |
           npx playwright install --with-deps chromium
-          npx playwright test tests/e2e/diag.spec.ts tests/e2e/collision.spec.ts --workers=1 --trace=on || true
-          npx playwright test tests/e2e/diag.spec.ts --workers=2 || true
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: test-results
-          path: test-results
+          npx playwright test
