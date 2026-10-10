@@ -28,7 +28,7 @@ import { ASSETS, F_LINEAR, MATERIALS, worldHalfOf, type SceneStore } from '../sc
 import { topOf } from '../scene/view.ts';
 import { MAT_GLASS, MAT_GLOW, MAT_TRANSLUCENT, matCode } from './matcode.ts';
 import { FULLY_HIDDEN } from '../scene/cull.ts';
-import { BLOCK, buildLod } from './lod.ts';
+import { BLOCK, buildLod, LOD_MERGED } from './lod.ts';
 
 /** Render chunk size, units (about 50 studs). */
 export const CHUNK = 1024;
@@ -258,6 +258,16 @@ export class ChunkSet {
 
   /** Coarse groups for the rows of `per` (chunk -> mesh -> rows) into `groups`, at LOD `level`. */
   private coarse(b: LBlock, groups: Map<Mesh, Group>, per: (ch: RChunk) => Map<Mesh, number[]> | undefined, level: number): void {
+    if (level === LOD_MERGED) {
+      // full detail, the block's chunks merged: one draw per mesh instead of one per (chunk, mesh)
+      const lists = new Map<Mesh, number[]>();
+      for (const ch of b.chunks) {
+        const l = per(ch);
+        if (l) for (const [mesh, ids] of l) { let o = lists.get(mesh); if (!o) lists.set(mesh, (o = [])); for (const id of ids) o.push(id); }
+      }
+      this.fill(b, groups, lists);
+      return;
+    }
     const all: number[] = [], meshes: Mesh[] = [];
     for (const ch of b.chunks) { const l = per(ch); if (l) for (const [mesh, ids] of l) for (const id of ids) { all.push(id); meshes.push(mesh); } }
     const L = buildLod(this.store, all, b.c, level);
