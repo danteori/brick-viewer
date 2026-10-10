@@ -5,7 +5,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { synthSave, type SynthBrick } from '../unit/synthsave.ts';
 
-test.describe.configure({ timeout: 120_000 });
+test.describe.configure({ timeout: 240_000 });   // SwiftShader on the CI runner: a full-res frame of this block takes seconds
 
 interface Api { hideUi(): void; loadSave(b64: string, name: string): { bricks: number }; settle(): Promise<number>; renderStats(): { draws: number; instances: number } }
 type W = { __brickTest: Api };
@@ -31,7 +31,9 @@ async function open(page: Page): Promise<string[]> {
   return errors;
 }
 
-const shot = async (page: Page): Promise<Buffer> => page.locator('canvas#c').screenshot();
+// a page screenshot clipped to the canvas: an element screenshot first waits for the element to be
+// "stable" over animation frames, which at software-GL frame times ran out the test's time on CI
+const shot = async (page: Page): Promise<Buffer> => page.screenshot({ clip: (await page.locator('canvas#c').boundingBox())! });
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Mod = any;
 /** A dev-server module by path (the instance the app runs), inside page.evaluate. */
