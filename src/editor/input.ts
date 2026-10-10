@@ -7,8 +7,11 @@ import { ed, endPlacing, ghostName, nudgeGhost, gsteps } from './ghost.ts';
 import { beginReorient, endReorient, reorienting, reorientMove, rotateTap } from './rotate.ts';
 import { placeGhost } from './ops.ts';
 import { clip, startPaste } from './clipboard.ts';
-import { clearSelection, marqueeSelect, selectAll, toggleSelect } from './select.ts';
-import { copySelection, cutSelection, deleteSelection, startMove } from './selectops.ts';
+import { clearSelection, marqueeSelect, selectAll, selector, toggleSelect } from './select.ts';
+import { G as Gfx, setBox } from '../render/draw.ts';
+import { BOX_EDGE_COUNT, boxEB, boxIB } from '../render/meshes/registry.ts';
+import { BRZ_UNIT } from '../core/units.ts';
+import { copySelection, cutSelection, deleteSelection } from './selectops.ts';
 import { MICRO } from '../core/units.ts';
 import { setStatus } from '../ui/status.ts';
 import { initAudio, playClick, playSelect } from '../ui/audio.ts';
@@ -38,12 +41,26 @@ function showBox(): void {
 export function selectionHud(): string {
   const n = S.selection.size;
   return n
-    ? `<b>${n} brick${n === 1 ? '' : 's'} selected</b> · M moves · Ctrl+C / Ctrl+X copy / cut · Delete removes · Shift+click adds or removes one · Shift+drag adds a box, Ctrl+Shift+drag removes · Esc clears`
-    : 'Shift+click a brick to select it · Shift+drag box-selects (Ctrl+Shift+drag removes) · Ctrl+A selects all · M moves the focused brick';
+    ? `<b>${n} brick${n === 1 ? '' : 's'} selected</b> · the Move tool (2 or M) drags them along an axis · Ctrl+C / Ctrl+X copy / cut · Delete removes · Shift+click adds or removes one · Shift+drag adds a box, Ctrl+Shift+drag removes · Esc clears`
+    : 'Shift+click a brick to select it · Shift+drag box-selects (Ctrl+Shift+drag removes) · Ctrl+A selects all · the Move tool (2 or M) moves the focused brick';
 }
 
 export function initEditorInput(canvas: HTMLCanvasElement): void {
   S.hooks.hud.push(selectionHud);
+  // the Box selector's box: an orange outline on top while it's active
+  S.hooks.draw.push(() => {
+    const bx = selector.box;
+    if (!bx) return;
+    const { gl, u } = Gfx, U = BRZ_UNIT;
+    gl.disable(gl.DEPTH_TEST); gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.uniform1f(u.uEdge, 1); gl.uniform1f(u.uFadeR, 0); gl.uniform4f(u.uLine, 1, 0.62, 0.28, 0.95);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxEB);
+    setBox(bx.b.slice(0, 3).map((v) => v * U), bx.b.slice(3).map((v) => v * U));
+    gl.drawElements(gl.LINES, BOX_EDGE_COUNT, gl.UNSIGNED_SHORT, 0);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxIB);
+    gl.enable(gl.DEPTH_TEST); gl.disable(gl.BLEND);
+    setBox(S.dlo, S.dhi);
+  });
   S.hooks.hud.push(() => {
     const G = ed.ghost;
     return G
@@ -116,7 +133,6 @@ export function initEditorInput(canvas: HTMLCanvasElement): void {
       return;
     }
     if (k === 'Delete') { e.preventDefault(); deleteSelection(); }
-    else if ((k === 'm' || k === 'M') && !e.repeat && !S.held) { e.preventDefault(); startMove(); }
     else if (k === 'Escape' && S.selection.size) { e.preventDefault(); clearSelection(); setStatus('Selection cleared'); }
   });
   // Shift+click toggles a brick in the selection; Shift+drag draws a box (Ctrl+Shift+drag removes)
@@ -146,7 +162,7 @@ export function initEditorInput(canvas: HTMLCanvasElement): void {
       playClick();
     } else if (b.id >= 0) {
       toggleSelect(b.id);
-      setStatus(`${S.selection.has(b.id) ? 'Selected' : 'Deselected'} a brick · ${S.selection.size} selected`);
+      setStatus(selector.mode === 'box' ? `Box: ${S.selection.size} brick${S.selection.size === 1 ? '' : 's'} fully inside` : `${S.selection.has(b.id) ? 'Selected' : 'Deselected'} a brick · ${S.selection.size} selected`);
       playSelect();
     }
   };

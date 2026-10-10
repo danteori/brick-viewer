@@ -3,8 +3,10 @@
 // the focused brick, so they stay enabled while there is one.
 
 import { S, hasFocus } from '../../app/state.ts';
-import { clearSelection, selectAll, selectConnected, selectSameColour, selectSameType } from '../../editor/select.ts';
-import { copySelection, cutSelection, deleteSelection, startMove } from '../../editor/selectops.ts';
+import { clearSelection, selectAll, selectConnected, selectSameColour, selectSameType, selector } from '../../editor/select.ts';
+import { loadString, saveString } from '../../app/settings.ts';
+import { copySelection, cutSelection, deleteSelection } from '../../editor/selectops.ts';
+import { setTool } from '../../editor/tools.ts';
 import { ed } from '../../editor/ghost.ts';
 import { initAudio, playClick, playSelect } from '../audio.ts';
 import { setStatus } from '../status.ts';
@@ -27,7 +29,7 @@ const ACTIONS: Record<string, () => void> = {
     setStatus(n ? `Selected ${n} connected brick${n === 1 ? '' : 's'} (touching face to face)` : 'Nothing to start from: focus or select a brick'); playSelect();
   },
   clear: () => { clearSelection(); setStatus('Selection cleared'); playClick(); },
-  move: () => startMove(),
+  move: () => setTool('move'),
   copy: () => { copySelection(); playClick(); },
   cut: () => cutSelection(),
   delete: () => deleteSelection(),
@@ -42,6 +44,19 @@ export function initSelectionPanel(): void {
     toggle.setAttribute('aria-expanded', String(open));
   });
   buttons = [...body.querySelectorAll<HTMLButtonElement>('button[data-sel]')];
+  // the Selector setting (Brick / Box), remembered
+  const modeBtns = [...body.querySelectorAll<HTMLButtonElement>('button[data-selector]')];
+  const setMode = (m: 'brick' | 'box'): void => {
+    selector.mode = m; selector.box = null;
+    for (const b of modeBtns) b.setAttribute('aria-pressed', String(b.dataset.selector === m));
+    saveString('brickViewer.selector', m);
+  };
+  const saved = loadString('brickViewer.selector');
+  setMode(saved === 'box' && !S.testMode ? 'box' : 'brick');
+  for (const b of modeBtns) b.addEventListener('click', () => {
+    setMode(b.dataset.selector as 'brick' | 'box'); initAudio(); playClick();
+    setStatus(b.dataset.selector === 'box' ? 'Selector: Box. Shift+click grows a box from the focused brick; every brick fully inside is selected' : 'Selector: Brick. Shift+click adds one brick at a time');
+  });
   for (const b of buttons) {
     b.addEventListener('click', () => {
       if (S.held || ed.ghost) return;
