@@ -8,10 +8,11 @@
 //
 // Rules the model enforces (FORMAT 1.8):
 //   - no fan-in: one wire per target port (the game rejects the whole save otherwise);
-//   - a wire may cross a microchip boundary only through the chip's I/O bricks: into a
-//     MicrochipInput's `RER_Input`, or out of a MicrochipOutput's `RER_Output` (the way the game's
-//     own chip I/O works). Game-written saves also hold some wires straight from outside to a gate
-//     inside a chip, so this check can be relaxed to a warning (`chipBoundary: 'warn'`);
+//   - a wire may LEAVE a microchip only from a MicrochipOutput's `RER_Output` (the way the game's
+//     own chip I/O works); that check can be relaxed to a warning (`chipBoundary: 'warn'`).
+//     ENTERING a chip one level down is allowed straight into a gate inside it (the game writes
+//     such wires, and the user confirmed they're fine), as well as into a MicrochipInput's
+//     `RER_Input`. Only a chip I/O brick's other ports stay off limits from outside;
 //   - both ends must be components the bricks really carry.
 // Saving keeps the bookkeeping in step: the target grid's ChunkIndex NumWires, and Owners
 // WireCounts, which count each wire against the owner of its TARGET brick (true in every save
@@ -293,12 +294,14 @@ export class WireGraph {
     if (cs === ct) return [];
     const intoChip = CHIP_INPUT.test(t.component) && t.port === CHIP_IN_PORT;
     const outOfChip = CHIP_OUTPUT.test(s.component) && s.port === CHIP_OUT_PORT;
+    // Straight from outside into a gate inside the chip is fine; into a chip I/O brick only via RER_Input.
+    const entersOk = intoChip || !(CHIP_INPUT.test(t.component) || CHIP_OUTPUT.test(t.component));
     const bad = (why: string): WireIssue[] => [{ code: 'chip-boundary', severity: this.boundarySeverity, message: `wire ${brickKey(s)} -> ${brickKey(t)} ${why}` }];
     // Down one level into a chip, up one level out of a chip, or chip -> sibling chip.
-    if (ct !== null && this.parentContext(ct) === cs) return intoChip ? [] : bad(`enters chip grid ${ct} without going through a MicrochipInput's ${CHIP_IN_PORT}`);
+    if (ct !== null && this.parentContext(ct) === cs) return entersOk ? [] : bad(`enters chip grid ${ct} on a chip I/O port other than a MicrochipInput's ${CHIP_IN_PORT}`);
     if (cs !== null && this.parentContext(cs) === ct) return outOfChip ? [] : bad(`leaves chip grid ${cs} without coming from a MicrochipOutput's ${CHIP_OUT_PORT}`);
     if (cs !== null && ct !== null && this.parentContext(cs) === this.parentContext(ct)) {
-      return intoChip && outOfChip ? [] : bad(`joins two chips without a MicrochipOutput -> MicrochipInput pair`);
+      return entersOk && outOfChip ? [] : bad(`joins two chips without leaving through a MicrochipOutput's ${CHIP_OUT_PORT}`);
     }
     return bad('crosses more than one microchip boundary');
   }
@@ -332,13 +335,16 @@ export class WireGraph {
 
   // ------------------------------------------------------------------ edits
 
-  /** Adds a wire after check(); throws WireError when there are errors (warnings are allowed). */
-  addWire(source: WireEnd, target: WireEnd): Wire {
-    const errors = this.check(source, target).filter((i) => i.severity === 'error');
+  /**
+   * Adds a wire after check(); throws WireError when there are errors (warnings are allowed).
+   * `force` skips the check (an undo putting back a wire the save already had).
+   */
+  addWire(source: WireEnd, target: WireEnd, opts: { force?: boolean; pending?: boolean } = {}): Wire {
+    const errors = opts.force ? [] : this.check(source, target).filter((i) => i.severity === 'error');
     if (errors.length) throw new WireError(errors);
     const s = { ...source, chunk: { ...source.chunk } }, t = { ...target, chunk: { ...target.chunk } };
     const ch = this.chunkFor(t);
-    const w = this.insert(s, t, false);
+    const w = this.insert(s, t, !!opts.pending);
     (sameChunk(s, t) ? ch.local : ch.remote).push(w);
     ch.dirty = true;
     for (const p of [s.port, t.port]) this.portIndex(p);

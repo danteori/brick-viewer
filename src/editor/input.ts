@@ -41,7 +41,7 @@ function showBox(): void {
 export function selectionHud(): string {
   const n = S.selection.size;
   return n
-    ? `<b>${n} brick${n === 1 ? '' : 's'} selected</b> · the Move tool (2 or M) drags them along an axis · Ctrl+C / Ctrl+X copy / cut · Delete removes · Shift+click adds or removes one · Shift+drag adds a box, Ctrl+Shift+drag removes · Esc clears`
+    ? `<b>${n} brick${n === 1 ? '' : 's'} selected</b> · the Move tool (2 or M) drags them along an axis · Ctrl+C / Ctrl+X copy / cut · Alt+X / Alt+Y mirror · Delete removes · Shift+click adds or removes one · Shift+drag adds a box, Ctrl+Shift+drag removes · Esc clears`
     : 'Shift+click a brick to select it · Shift+drag box-selects (Ctrl+Shift+drag removes) · Ctrl+A selects all · the Move tool (2 or M) moves the focused brick';
 }
 

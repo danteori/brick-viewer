@@ -25,12 +25,16 @@ import { selectBrick } from '../editor/resize.ts';
 import { initClipboard } from '../editor/clipboard.ts';
 import { initEditorInput } from '../editor/input.ts';
 import { initTools } from '../editor/tools.ts';
+import { initMirror } from '../editor/mirrortool.ts';
 import { $, mountDom } from '../ui/dom.ts';
 import { initStatus } from '../ui/status.ts';
 import { initSizePanel } from '../ui/panels/size.ts';
 import { initFilePanel, waitForOpeners } from '../ui/panels/file.ts';
+import { initSaveGame } from '../ui/panels/savegame.ts';
 import { initProps, tickProps } from '../ui/panels/props.ts';
 import { initSelectionPanel, tickSelection } from '../ui/panels/selection.ts';
+import { initComponentsPanel, tickComponents } from '../ui/panels/components.ts';
+import { drawWires, initWires } from '../ui/overlay/wires.ts';
 import { initCataloguePanel } from '../ui/panels/catalogue.ts';
 import { drawDims, initDims } from '../ui/overlay/dims.ts';
 import { drawHud, initHud } from '../ui/overlay/hud.ts';
@@ -62,6 +66,7 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
   initCamera(canvas);
   initSizePanel();
   initDims(canvas);
+  initWires(canvas);
   selectBrick(S.scene.first());               // the startup brick
 
   // --- input, in the legacy order
@@ -94,10 +99,12 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
   addEventListener('mousedown', (e) => { if (e.button === 2) onRightDown(); });
 
   initFilePanel();
+  initSaveGame();
   initSoundPanel();
   initViewPanel();
   if (opts.features.brdbRead) initWorlds();
   initProps();
+  initComponentsPanel();
   initSelectionPanel();
   initGhost(canvas);
   initOps();
@@ -105,6 +112,7 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
   initCataloguePanel();
   initEditorInput(canvas);
   initTools(canvas);
+  initMirror();
   initWorldEnvironment();
   initPaintPanel();
   // full build: environment panel, .brdb worlds and the map (a separate chunk, never in lite)
@@ -121,7 +129,9 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
       const { sx, sy } = renderFrame(w, h, canvas);
       drawHud();
       drawDims(sx, sy);
+      drawWires(sx, sy);
       tickProps();
+      tickComponents();
       tickSelection();
     }
     requestAnimationFrame(frame);

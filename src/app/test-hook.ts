@@ -16,6 +16,10 @@ import { selectBrick } from '../editor/resize.ts';
 import { setSelection } from '../editor/select.ts';
 import { inst, stats } from '../render/instances.ts';
 import { resizeBlock } from '../editor/resize.ts';
+import { componentsOf } from '../scene/compmodel.ts';
+import { brickKey } from '../scene/components.ts';
+import type { WireEnd } from '../scene/wires.ts';
+import { wireView } from '../ui/overlay/wires.ts';
 
 export interface BrickTest {
   ready: true;
@@ -48,6 +52,10 @@ export interface BrickTest {
   paste(items: Brick[]): void;
   /** give brick k (k-th in list order) the focus (camera glides to it), keeping the zoom factor */
   focus(k: number): void;
+  /** the scene's components and wires (C-02 / C-03): each instance as [brick key, type, data as JSON], each wire as "source -> target" */
+  components(): { instances: [string, string, string][]; wires: string[]; dirty: boolean; refused: number; drawn: { wires: number; ports: number } } | null;
+  /** list index of the scene row showing save brick `key` ("grid/x_y_z/index"), or -1 */
+  rowOfBrick(key: string): number;
 }
 
 /**
@@ -123,6 +131,24 @@ export function installTestHook(canvas: HTMLCanvasElement): void {
     paste(items) { clip.items = items; startPaste(); },
     focus(k) { const z = S.zoomMul; selectBrick(S.scene.ordered()[k]!); S.zoomMul = z; },
     select: (ids) => setSelection(ids),
+    components() {
+      const m = componentsOf(S.scene);
+      if (!m) return null;
+      const js = (x: unknown): string => JSON.stringify(x, (_k, v: unknown) => (v instanceof Map ? { $map: [...v] } : typeof v === 'bigint' ? `${v}n` : v)) ?? '';
+      const end = (e: WireEnd): string => `${brickKey(e)}/${e.component}.${e.port}`;
+      return {
+        instances: m.store.instances.map((c) => [brickKey(c.brickRef), c.type, js(c.data)] as [string, string, string]).sort((a, b) => (a.join() < b.join() ? -1 : 1)),
+        wires: m.wires.wires().map((w) => `${end(w.source)} -> ${end(w.target)}`).sort(),
+        dirty: m.dirty, refused: wireView.refused.n, drawn: { ...wireView.drawn },
+      };
+    },
+    rowOfBrick(key) {
+      const m = componentsOf(S.scene), [g, c, b] = key.split('/');
+      if (!m) return -1;
+      const [X, Y, Z] = c!.split('_').map(Number);
+      const row = m.rowOfRef({ grid: +g!, chunk: { X: X!, Y: Y!, Z: Z! }, brick: +b! });
+      return row < 0 ? -1 : S.scene.ordered().indexOf(row);
+    },
     byId: () => S.scene.ordered().map((id) => { const b = brickView(S.scene, id); return [id, b.lo, b.hi, b.color]; }),
     /** the scene as brick records (absolute) in list order, plus the focus and the editor state */
     snapshot() {
