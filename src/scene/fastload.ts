@@ -26,8 +26,11 @@ export interface FastLoad { store: SceneStore; skipped: number; skippedTypes: Re
 /** Save chunk size (units), for the LoadOrder (scene/compmodel.ts loadOrderOf). */
 const SAVE_CHUNK = 2048;
 
-/** Grid 1's bricks -> a new store (drawable ones), plus the ones the viewer can't draw. */
-export function fastStore(files: FileMap): FastLoad {
+/**
+ * Grid 1's bricks -> a new store (drawable ones), plus the ones the viewer can't draw. progress:
+ * called after each save chunk with the bricks read so far and the total (0 when the save doesn't say).
+ */
+export function fastStore(files: FileMap, progress?: (done: number, total: number) => void): FastLoad {
   const skippedTypes: Record<string, number> = {}, unsupported: (PlainBrick & { seq: number })[] = [];
   let skipped = 0, sideways = 0, seq = 0;
   // size the store from the chunk index's counts when it has them
@@ -54,7 +57,7 @@ export function fastStore(files: FileMap): FastLoad {
     seqChunk.push(lastC); seqIndex.push(oCounts[lastC]!++);
   };
   let flagIds: number[] = [];
-  let ctx!: WorldContext;
+  let ctx!: WorldContext, total = 0;
   forEachRawBrickChunk(files, (ch: RawBrickChunk, centre, linear) => {
     const g = ctx.global;
     // procedural types: asset name and size per type index above ProceduralBrickStartingIndex
@@ -119,10 +122,11 @@ export function fastStore(files: FileMap): FastLoad {
       store.srcOrder[id] = seq;
       if ((o >> 2) % 6 < 4) sideways++;
     }
+    progress?.(seq, total);
   }, {}, (c) => {
     // before the first chunk: size the store and register the flag fields in schema order
     ctx = c;
-    const total = c.ci?.NumBricks?.reduce((s, v) => s + v, 0) ?? 0;
+    total = c.ci?.NumBricks?.reduce((s, v) => s + v, 0) ?? 0;
     store = new SceneStore(Math.max(64, total));
     store.flagFields = c.flagFields.map((f) => FLAG_NAMES.id(f));
     flagIds = store.flagFields;

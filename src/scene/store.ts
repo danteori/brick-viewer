@@ -190,6 +190,33 @@ export class SceneStore {
     this.changed = new Set();
     return c;
   }
+
+  /** The columns and counters (no free rows, no pending changes: a freshly loaded store), e.g. to post from a worker. */
+  columns(): StoreColumns {
+    const { n, count, nextOrder, flagFields, px, py, pz, hx, hy, hz, orient, asset, shape, color, material, owner, origOwner, collision, flags, faceMask, grid, srcOrder, order } = this;
+    return { n, count, nextOrder, flagFields, px, py, pz, hx, hy, hz, orient, asset, shape, color, material, owner, origOwner, collision, flags, faceMask, grid, srcOrder, order };
+  }
+
+  /** A store over columns made elsewhere (SceneStore.columns, all the same length). */
+  static fromColumns(c: StoreColumns): SceneStore {
+    const s = new SceneStore(1);
+    s.cap = c.px.length;
+    s.n = c.n; s.count = c.count; s.nextOrder = c.nextOrder; s.flagFields = c.flagFields.slice();
+    s.px = c.px; s.py = c.py; s.pz = c.pz; s.hx = c.hx; s.hy = c.hy; s.hz = c.hz;
+    s.orient = c.orient; s.asset = c.asset; s.shape = c.shape; s.color = c.color; s.material = c.material;
+    s.owner = c.owner; s.origOwner = c.origOwner; s.collision = c.collision; s.flags = c.flags; s.faceMask = c.faceMask;
+    s.grid = c.grid; s.srcOrder = c.srcOrder; s.order = c.order;
+    return s;
+  }
+}
+
+/** A store's columns and counters (SceneStore.columns / fromColumns). */
+export interface StoreColumns {
+  n: number; count: number; nextOrder: number; flagFields: number[];
+  px: Int32Array; py: Int32Array; pz: Int32Array; hx: Uint16Array; hy: Uint16Array; hz: Uint16Array;
+  orient: Uint8Array; asset: Uint16Array; shape: Uint8Array; color: Uint32Array; material: Uint8Array;
+  owner: Uint16Array; origOwner: Uint16Array; collision: Uint16Array; flags: Uint8Array; faceMask: Uint8Array;
+  grid: Uint16Array; srcOrder: Int32Array; order: Float64Array;
 }
 
 // --- orientation: which world axis each local axis lies along (the |M| permutation of core/orient.ts)

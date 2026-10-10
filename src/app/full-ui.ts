@@ -6,6 +6,7 @@ import { S } from './state.ts';
 import { applyEnvironment, currentEnvironment, onWorldEnvironment } from './environment.ts';
 import { createEnvironmentPanel, type EnvironmentPanel, type PanelWorldKind } from '../ui/panels/environment.ts';
 import { loadedBrz } from '../scene/load.ts';
+import { installParse } from './parse.ts';
 import { histEnd } from '../scene/history.ts';
 import { MapTiler, drawMap, fitView, screenToWorld, worldToScreen, type MapView } from '../render/maptiles.ts';
 import { BRZ_UNIT } from '../core/units.ts';
@@ -22,6 +23,7 @@ const h = <K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string, 
 const stopDrag = (e: HTMLElement): void => { for (const t of ['pointerdown', 'dblclick', 'wheel']) e.addEventListener(t, (ev) => ev.stopPropagation()); };
 
 export function mountFullUi(): void {
+  installParse();                  // big saves load (and get culled) in a worker (S-01)
   initEnvironmentUi();
   initMap();
 }

@@ -5,7 +5,7 @@
 import { ELEV, S, YAW0 } from './state.ts';
 import { viewOf } from '../core/math.ts';
 import { camSignature, isoSettling, toView, updateCamera, updateDirs } from '../render/camera.ts';
-import { loadSave } from '../scene/load.ts';
+import { hasParser, loadSave, loadSaveAsync, loadSettings } from '../scene/load.ts';
 import { brickView } from '../scene/view.ts';
 import { setPreset } from '../ui/panels/file.ts';
 import { statusText } from '../ui/status.ts';
@@ -26,6 +26,8 @@ export interface BrickTest {
   renderer(): string;
   hideUi(): void;
   loadSave(b64: string, name: string): { status: string; bricks: number; zoom: number };
+  /** loads as opening a file does, through the parse worker when there is one (S-01; any size); cullMax = the main-thread face-culling cap meanwhile */
+  loadSaveWorker(b64: string, name: string, cullMax?: number): Promise<{ status: string; bricks: number; zoom: number; viaWorker: boolean }>;
   setView(a: { k: number; pitchDeg?: number; zoom?: number; baseZoom: number }): void;
   setPreset(p: string): void;
   settle(): Promise<number>;
@@ -88,6 +90,15 @@ export function installTestHook(canvas: HTMLCanvasElement): void {
       for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
       loadSave(u.buffer, name);
       return { status: statusText(), bricks: S.scene.count, zoom: S.zoomMul };
+    },
+    async loadSaveWorker(b64, name, cullMax) {
+      const bin = atob(b64), u = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+      const fc = (globalThis as { __faceCull?: { maxBricks: number } }).__faceCull, was = loadSettings.workerMinBytes, cap = fc?.maxBricks;
+      loadSettings.workerMinBytes = 0;
+      if (fc && cullMax !== undefined) fc.maxBricks = cullMax;
+      try { await loadSaveAsync(u, name); await raf(); } finally { loadSettings.workerMinBytes = was; if (fc && cap !== undefined) fc.maxBricks = cap; }
+      return { status: statusText(), bricks: S.scene.count, zoom: S.zoomMul, viaWorker: hasParser() };
     },
     setView({ k, pitchDeg, zoom, baseZoom }) {
       S.orbit.yaw = S.orbit.yawT = YAW0 + k * Math.PI / 2;

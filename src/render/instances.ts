@@ -20,7 +20,7 @@
 import { S } from '../app/state.ts';
 import { LOC } from './gl.ts';
 import { G, bindMesh } from './draw.ts';
-import { BOX_MESH, boxIB, meshOf, type Mesh } from './meshes/registry.ts';
+import { BOX_MESH, boxIB, familyOf, flushTable, meshOf, type Mesh } from './meshes/registry.ts';
 import { BRZ_UNIT } from '../core/units.ts';
 import { viewDir } from './camera.ts';
 import { addMirror } from '../scene/sync.ts';
@@ -28,7 +28,7 @@ import { ASSETS, F_LINEAR, MATERIALS, worldHalfOf, type SceneStore } from '../sc
 import { topOf } from '../scene/view.ts';
 import { MAT_GLASS, MAT_GLOW, MAT_TRANSLUCENT, matCode } from './matcode.ts';
 import { FULLY_HIDDEN } from '../scene/cull.ts';
-import { BLOCK, buildLod, CELL, LOD_LEVELS, LOD_MERGED, LOD_MERGED_BOX } from './lod.ts';
+import { BLOCK, buildLod, CELL, hidesCovered, LOD_LEVELS, LOD_MERGED, LOD_MERGED_BOX } from './lod.ts';
 
 /** Render chunk size, units (about 50 studs). */
 export const CHUNK = 1024;
@@ -60,6 +60,10 @@ interface RChunk {
   sblock: LBlock;
   lists: Map<Mesh, number[]>;
   slists: Map<number, Map<Mesh, number[]>>;
+  /** packed with a nonzero hidden-face mask on some row */
+  masked: boolean;
+  /** creation order (= the chunks map's insertion order) */
+  seq: number;
 }
 
 /** One far-LOD level of a block: its coarse opaque groups and coarse glow / glass groups. */
@@ -119,6 +123,8 @@ export class ChunkSet {
   /** bumped whenever instance data changed */
   rev = 0;
   special: number[] = [];
+  /** chunks holding glow rows (rebuilt with special) */
+  private glowChunks: RChunk[] = [];
   /** special rows per material code (index = MAT_*) */
   matCount = [0, 0, 0, 0];
   private specialDirty = true;
@@ -127,6 +133,7 @@ export class ChunkSet {
   /** box around every chunk (units, without the offset); lo > hi when empty */
   bounds = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
   private focus = -1;
+  private nextSeq = 0;
 
   constructor(public store: SceneStore, readonly opts: { scene: boolean; offset?: [number, number, number] } = { scene: true }) {
     this.reset(store);
@@ -159,7 +166,7 @@ export class ChunkSet {
     if (!ch) {
       const s = this.store, c: [number, number, number] = [Math.floor(s.px[id]! / CHUNK) * CHUNK + CHUNK / 2, Math.floor(s.py[id]! / CHUNK) * CHUNK + CHUNK / 2, Math.floor(s.pz[id]! / CHUNK) * CHUNK + CHUNK / 2];
       const block = this.blockAt(this.blocks, c, CHUNK * BLOCK), sblock = this.blockAt(this.sblocks, c, CHUNK * BLOCK * BLOCK);
-      ch = { c, ids: new Set(), groups: new Map(), dirty: true, box: [0, 0, 0, 0, 0, 0], minZ: Infinity, special: [], sgroups: new Map(), trans: new Map(), sortEye: [0, 0, 0], block, sblock, lists: new Map(), slists: new Map() };
+      ch = { c, ids: new Set(), groups: new Map(), dirty: true, box: [0, 0, 0, 0, 0, 0], minZ: Infinity, special: [], sgroups: new Map(), trans: new Map(), sortEye: [0, 0, 0], block, sblock, lists: new Map(), slists: new Map(), masked: false, seq: this.nextSeq++ };
       block.chunks.add(ch); sblock.chunks.add(ch);
       this.chunks.set(key, ch);
     }
@@ -205,6 +212,8 @@ export class ChunkSet {
       const mc = this.matCount, s = this.store;
       mc.fill(0);
       for (const ch of this.chunks.values()) for (const id of ch.special) { this.special.push(id); mc[materialCode(s.material[id]!)]!++; }
+      this.glowChunks = [];
+      for (const ch of this.chunks.values()) if (ch.sgroups.has(MAT_GLOW)) this.glowChunks.push(ch);
       this.specialDirty = false;
     }
   }
@@ -364,8 +373,9 @@ export class ChunkSet {
     const lists = new Map<Mesh, number[]>(), slists = new Map<number, Map<Mesh, number[]>>();
     const box = ch.box;
     box[0] = box[1] = box[2] = Infinity; box[3] = box[4] = box[5] = -Infinity;
-    ch.minZ = Infinity; ch.special = [];
+    ch.minZ = Infinity; ch.special = []; ch.masked = false;
     for (const id of ch.ids) {
+      if (s.faceMask[id]) ch.masked = true;
       const o = s.orient[id]!, h = worldHalfOf(o, s.hx[id]!, s.hy[id]!, s.hz[id]!);
       const x = s.px[id]!, y = s.py[id]!, z = s.pz[id]!;
       box[0] = Math.min(box[0], x - h[0]); box[1] = Math.min(box[1], y - h[1]); box[2] = Math.min(box[2], z - h[2]);
@@ -393,16 +403,38 @@ export class ChunkSet {
       let groups = ch.sgroups.get(m);
       if (!groups) ch.sgroups.set(m, (groups = new Map()));
       if (m === MAT_TRANSLUCENT) { for (const ids of l.values()) sortBackToFront(s, ids); ch.sortEye = eyeOf(); }
-      this.fill(ch, groups, l);
+      this.fill(ch, groups, l, m !== MAT_TRANSLUCENT);        // translucent rows stay per mesh (re-sorted per mesh)
     }
     ch.trans = slists.get(MAT_TRANSLUCENT) ?? new Map();
     ch.lists = lists; ch.slists = slists; this.staleBlock(ch.block); this.staleBlock(ch.sblock);
     ch.dirty = false;
   }
 
-  /** Makes `groups` hold exactly `lists` (mesh -> rows, in draw order), re-using buffers. */
-  private fill(ch: { c: readonly number[] }, groups: Map<Mesh, Group>, lists: Map<Mesh, number[]>): void {
+  /**
+   * Makes `groups` hold exactly `lists` (mesh -> rows, in draw order), re-using buffers. With
+   * `templates` (all but the per-mesh sorted translucent rows), every non-cube mesh joins its
+   * template family's group (meshes/registry.ts): one draw for all its meshes, rows in the lists'
+   * mesh order, each carrying its mesh's table slot.
+   */
+  private fill(ch: { c: readonly number[] }, groups: Map<Mesh, Group>, lists: Map<Mesh, number[]>, templates = true): void {
     const gl = G.gl;
+    let slots: Map<Mesh, number[]> | null = null;
+    if (templates) {
+      const fl = new Map<Mesh, number[]>();
+      slots = new Map();
+      for (const [mesh, ids] of lists) {
+        const f = familyOf(mesh), key = f ?? mesh;
+        let l = fl.get(key);
+        if (!l) fl.set(key, (l = []));
+        for (const id of ids) l.push(id);
+        if (f) {
+          let sl = slots.get(f);
+          if (!sl) slots.set(f, (sl = []));
+          for (let i = 0; i < ids.length; i++) sl.push(mesh.slot!);
+        }
+      }
+      lists = fl;
+    }
     for (const [mesh, g] of groups) if (!lists.has(mesh)) { gl.deleteBuffer(g.buf); gl.deleteVertexArray(g.vao); groups.delete(mesh); }
     for (const [mesh, ids] of lists) {
       let g = groups.get(mesh);
@@ -416,21 +448,22 @@ export class ChunkSet {
         instancePointers(gl);
         gl.bindVertexArray(null);
       }
-      this.upload(ch, g, ids);
+      this.upload(ch, g, ids, slots?.get(mesh));
     }
   }
 
-  /** Writes rows `ids` (all in chunk ch) into group g's buffer, in that order. */
-  private upload(ch: { c: readonly number[] }, g: Group, ids: readonly number[]): void {
+  /** Writes rows `ids` (all in chunk ch) into group g's buffer, in that order; `slots`: each row's template slot (family groups). */
+  private upload(ch: { c: readonly number[] }, g: Group, ids: readonly number[], slots?: readonly number[]): void {
     const gl = G.gl, s = this.store, selection = this.opts.scene ? S.selection : null, box = g.mesh === BOX_MESH;
     const data = new ArrayBuffer(ids.length * REC), i16 = new Int16Array(data), u16 = new Uint16Array(data), u32 = new Uint32Array(data), u8 = new Uint8Array(data);
     for (let j = 0; j < ids.length; j++) {
       const id = ids[j]!, b = j * REC, w = j * 12;
-      i16[w] = s.px[id]! - ch.c[0]; i16[w + 1] = s.py[id]! - ch.c[1]; i16[w + 2] = s.pz[id]! - ch.c[2]; i16[w + 3] = 0;
+      const slot = slots ? slots[j]! : 0;
+      i16[w] = s.px[id]! - ch.c[0]; i16[w + 1] = s.py[id]! - ch.c[1]; i16[w + 2] = s.pz[id]! - ch.c[2]; i16[w + 3] = slot & 32767;
       u16[w + 4] = s.hx[id]!; u16[w + 5] = s.hy[id]!; u16[w + 6] = s.hz[id]!;
       u16[w + 7] = s.orient[id]! | wordOf(s.asset[id]!) | (s.flags[id]! & F_LINEAR ? 256 : 0);
       u32[(b + 16) >> 2] = s.color[id]!;
-      u8[b + 20] = box ? s.faceMask[id]! & 63 : 0; u8[b + 21] = s.material[id]!; u8[b + 22] = 0; u8[b + 23] = selection && selection.has(id) ? 1 : 0;
+      u8[b + 20] = box ? s.faceMask[id]! & 63 : 0; u8[b + 21] = s.material[id]!; u8[b + 22] = slot >> 15; u8[b + 23] = selection && selection.has(id) ? 1 : 0;
     }
     gl.bindBuffer(gl.ARRAY_BUFFER, g.buf);
     if (ids.length > g.cap) { g.cap = Math.max(ids.length, g.cap * 2); gl.bufferData(gl.ARRAY_BUFFER, g.cap * REC, gl.DYNAMIC_DRAW); }
@@ -438,9 +471,9 @@ export class ChunkSet {
     g.n = ids.length;
   }
 
-  /** Is chunk ch (its box) in the view? */
-  private visible(ch: { box: readonly number[] }, cull: ViewCull): boolean {
-    const b = ch.box, off = this.opts.offset;
+  /** Box b's extent in the view (view-plane x, y and depth, relative to the render origin) into R. */
+  private viewRect(b: readonly number[], R: number[]): void {
+    const off = this.opts.offset;
     const ox = off ? off[0] : 0, oy = off ? off[1] : 0, oz = off ? off[2] : 0;
     let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, z0 = Infinity, z1 = -Infinity;
     for (let c = 0; c < 8; c++) {
@@ -448,7 +481,36 @@ export class ChunkSet {
       const v = viewDir(X, Y, Z), m = S.view, d = m[2]! * X + m[6]! * Z + m[10]! * Y;
       x0 = Math.min(x0, v[0]); x1 = Math.max(x1, v[0]); y0 = Math.min(y0, v[1]); y1 = Math.max(y1, v[1]); z0 = Math.min(z0, d); z1 = Math.max(z1, d);
     }
-    return x1 >= cull.x0 && x0 <= cull.x1 && y1 >= cull.y0 && y0 <= cull.y1 && z1 >= -cull.depth && z0 <= cull.depth;
+    R[0] = x0; R[1] = x1; R[2] = y0; R[3] = y1; R[4] = z0; R[5] = z1;
+  }
+
+  /** Is chunk ch (its box) in the view (and, with a mask, over one of its tiles)? */
+  private visible(ch: { box: readonly number[] }, cull: ViewCull): boolean {
+    const R = rect;
+    this.viewRect(ch.box, R);
+    if (!(R[1]! >= cull.x0 && R[0]! <= cull.x1 && R[3]! >= cull.y0 && R[2]! <= cull.y1 && R[5]! >= -cull.depth && R[4]! <= cull.depth)) return false;
+    return !cull.mask || maskHit(cull.mask, R);
+  }
+
+  /**
+   * The chunks passing `want` that are in the view, in the chunks map's (insertion) order. With
+   * many chunks only the coarse blocks in view are searched (a big, sparse build can have 100k+
+   * chunks but a few hundred coarse blocks), and the hits are sorted back into that order. A block out of view
+   * skips its chunks' tests (each block is tested once).
+   */
+  private inView(cull: ViewCull | null, want: (ch: RChunk) => boolean): RChunk[] {
+    const out: RChunk[] = [];
+    if (!cull) { for (const ch of this.chunks.values()) if (want(ch)) out.push(ch); return out; }
+    const seen = new Map<LBlock, boolean>();
+    const test = (ch: RChunk): void => {
+      if (!want(ch)) return;
+      let v = seen.get(ch.block);
+      if (v === undefined) seen.set(ch.block, (v = this.visible(ch.block, cull)));
+      if (v && this.visible(ch, cull)) out.push(ch);
+    };
+    if (this.chunks.size <= inViewSettings.direct) { for (const ch of this.chunks.values()) test(ch); return out; }
+    for (const sb of this.sblocks.values()) if (this.visible(sb, cull)) for (const ch of sb.chunks) test(ch);
+    return out.sort((a, b) => a.seq - b.seq);
   }
 
   /** Draws one chunk's (or block's) groups at its centre. */
@@ -456,13 +518,7 @@ export class ChunkSet {
     const gl = G.gl, u = G.u, o = S.origin, off = this.opts.offset;
     const cx = c[0]! + (off ? off[0] : 0), cy = c[1]! + (off ? off[1] : 0), cz = c[2]! + (off ? off[2] : 0);
     gl.uniform3f(u.uChunkOffset, cx * BRZ_UNIT - o[0], cz * BRZ_UNIT - o[2], cy * BRZ_UNIT - o[1]);
-    for (const g of groups.values()) {
-      if (!g.n) continue;
-      gl.bindVertexArray(g.vao);
-      stats.draws++; stats.instances += g.n;
-      if (g.mesh === BOX_MESH) gl.drawElementsInstanced(gl.TRIANGLES, 36, gl.UNSIGNED_SHORT, 0, g.n);
-      else gl.drawArraysInstanced(gl.TRIANGLES, 0, g.mesh.count, g.n);
-    }
+    for (const g of groups.values()) drawGroup(g);
   }
 
   /**
@@ -486,23 +542,17 @@ export class ChunkSet {
           this.drawGroups(ch.c, ch.groups);
         }
       }
+      endGroups();
     } else {
       // chunks in their own (insertion) order: the order decides which of two exactly coplanar
       // faces wins the depth test, so it stays as it always was. A block out of view skips its
       // chunks' tests (each block is tested once a frame).
-      const seen = new Map<LBlock, boolean>();
-      for (const ch of this.chunks.values()) {
-        if (!ch.groups.size) continue;
-        if (cull) {
-          let v = seen.get(ch.block);
-          if (v === undefined) seen.set(ch.block, (v = this.visible(ch.block, cull)));
-          if (!v || !this.visible(ch, cull)) continue;
-        }
+      for (const ch of this.inView(cull, (c) => c.groups.size > 0)) {
         stats.chunks++;
         this.drawGroups(ch.c, ch.groups);
       }
+      endGroups();
     }
-    gl.bindVertexArray(null);
   }
 
   /**
@@ -524,18 +574,9 @@ export class ChunkSet {
         for (const ch of b.chunks) if (ch.sgroups.has(m) && (!cull || this.visible(ch, cull))) list.push(ch);
       }
     } else {
-      const seen = new Map<LBlock, boolean>();          // chunk order kept, as in draw()
-      for (const ch of this.chunks.values()) {
-        if (!ch.sgroups.has(m)) continue;
-        if (cull) {
-          let v = seen.get(ch.block);
-          if (v === undefined) seen.set(ch.block, (v = this.visible(ch.block, cull)));
-          if (!v || !this.visible(ch, cull)) continue;
-        }
-        list.push(ch);
-      }
+      for (const ch of this.inView(cull, (c) => c.sgroups.has(m))) list.push(ch);   // chunk order kept, as in draw()
     }
-    if (!list.length) { gl.bindVertexArray(null); return; }
+    if (!list.length) { endGroups(); return; }
     if (sorted) {
       const e = eyeOf();
       for (const ch of list) {
@@ -551,15 +592,60 @@ export class ChunkSet {
     for (const ch of list) {
       const cx = ch.c[0] + (off ? off[0] : 0), cy = ch.c[1] + (off ? off[1] : 0), cz = ch.c[2] + (off ? off[2] : 0);
       gl.uniform3f(u.uChunkOffset, cx * BRZ_UNIT - o[0], cz * BRZ_UNIT - o[2], cy * BRZ_UNIT - o[1]);
-      for (const g of ch.sgroups.get(m)!.values()) {
-        if (!g.n) continue;
-        gl.bindVertexArray(g.vao);
-        stats.draws++; stats.instances += g.n;
-        if (g.mesh === BOX_MESH) gl.drawElementsInstanced(gl.TRIANGLES, 36, gl.UNSIGNED_SHORT, 0, g.n);
-        else gl.drawArraysInstanced(gl.TRIANGLES, 0, g.mesh.count, g.n);
-      }
+      for (const g of ch.sgroups.get(m)!.values()) drawGroup(g);
     }
-    gl.bindVertexArray(null);
+    endGroups();
+  }
+
+  /**
+   * The store's hidden-face masks changed wholesale (render/facecull.ts, worker masks): the far-LOD
+   * sets that drop covered faces are rebuilt, and chunks packed with masks re-packed (new masks may
+   * be all zero: those records must not keep hiding faces).
+   */
+  masksChanged(): void {
+    for (const map of [this.blocks, this.sblocks]) for (const b of map.values()) b.lv.forEach((L, level) => { if (L && hidesCovered(level)) L.dirty = true; });
+    for (const ch of this.chunks.values()) if (ch.masked) ch.dirty = true;
+  }
+
+  /**
+   * Is any glow row's chunk in the view? When none is, the glow and its bloom draw nothing (the
+   * bloom pass can be skipped: a frame without emission composites to exactly nothing).
+   */
+  glowInView(cull: ViewCull | null): boolean {
+    if (!this.matCount[MAT_GLOW]) return false;
+    if (!cull) return true;
+    const seen = new Map<LBlock, boolean>();
+    for (const ch of this.glowChunks) {
+      let v = seen.get(ch.block);
+      if (v === undefined) seen.set(ch.block, (v = this.visible(ch.block, cull)));
+      if (v && this.visible(ch, cull)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * The view for the bloom pass's depth-only bodies: `cull` narrowed to the screen tiles that glow
+   * rows' chunks in view cover (a mask of MASK_N x MASK_N tiles). Depth only matters where glow
+   * is drawn, and a body whose box covers none of those tiles can't hide any of it, so leaving it
+   * out changes nothing; null when no glow chunk is in view.
+   */
+  glowCull(cull: ViewCull): ViewCull | null {
+    if (!bloomCull.on) return null;
+    const N = MASK_N, w = (cull.x1 - cull.x0) / N, h = (cull.y1 - cull.y0) / N, bits = new Uint8Array(N * N), R = rect;
+    const seen = new Map<LBlock, boolean>();
+    let any = false;
+    for (const ch of this.glowChunks) {
+      let v = seen.get(ch.block);
+      if (v === undefined) seen.set(ch.block, (v = this.visible(ch.block, cull)));
+      if (!v || !this.visible(ch, cull)) continue;
+      this.viewRect(ch.box, R);
+      R[0] -= GLOW_PAD; R[1] += GLOW_PAD; R[2] -= GLOW_PAD; R[3] += GLOW_PAD;
+      const a0 = Math.max(0, Math.floor((R[0]! - cull.x0) / w)), a1 = Math.min(N - 1, Math.floor((R[1]! - cull.x0) / w));
+      const b0 = Math.max(0, Math.floor((R[2]! - cull.y0) / h)), b1 = Math.min(N - 1, Math.floor((R[3]! - cull.y0) / h));
+      for (let b = b0; b <= b1; b++) bits.fill(1, b * N + a0, b * N + a1 + 1);
+      any = true;
+    }
+    return any ? { ...cull, mask: { x0: cull.x0, y0: cull.y0, w, h, bits } } : null;
   }
 
   /** The farthest any chunk reaches along the view axis from the render origin (viewer units), 0 when empty. */
@@ -594,6 +680,28 @@ function sortBackToFront(s: SceneStore, ids: number[]): void {
   ids.sort((a, b) => d(a) - d(b));
 }
 
+/** Is the brick program in template mode (uPull = 1)? Only between drawGroup calls of one pass. */
+let pulling = false;
+
+/** Draws one instance group (a template family with uPull on; meshes/registry.ts). */
+function drawGroup(g: Group): void {
+  if (!g.n) return;
+  const gl = G.gl, fam = g.mesh.layout === 3;
+  if (fam) flushTable();                                // new meshes' rows (a cheap check when there are none)
+  if (fam !== pulling) { gl.uniform1f(G.u.uPull, fam ? 1 : 0); pulling = fam; }
+  gl.bindVertexArray(g.vao);
+  stats.draws++; stats.instances += g.n;
+  if (g.mesh === BOX_MESH) gl.drawElementsInstanced(gl.TRIANGLES, 36, gl.UNSIGNED_SHORT, 0, g.n);
+  else gl.drawArraysInstanced(gl.TRIANGLES, 0, g.mesh.count, g.n);
+}
+
+/** After a pass of drawGroup calls: template mode off, no vertex array bound. */
+function endGroups(): void {
+  const gl = G.gl;
+  if (pulling) { gl.uniform1f(G.u.uPull, 0); pulling = false; }
+  gl.bindVertexArray(null);
+}
+
 /** The 24-byte record's attribute pointers on the bound buffer (instanced). */
 function instancePointers(gl: WebGL2RenderingContext): void {
   gl.enableVertexAttribArray(LOC.iPos); gl.vertexAttribIPointer(LOC.iPos, 4, gl.SHORT, REC, 0); gl.vertexAttribDivisor(LOC.iPos, 1);
@@ -602,8 +710,29 @@ function instancePointers(gl: WebGL2RenderingContext): void {
   gl.enableVertexAttribArray(LOC.iMisc); gl.vertexAttribIPointer(LOC.iMisc, 4, gl.UNSIGNED_BYTE, REC, 20); gl.vertexAttribDivisor(LOC.iMisc, 1);
 }
 
-/** The view rectangle (view-plane coords, relative to the render origin) and depth half-range. */
-export interface ViewCull { x0: number; x1: number; y0: number; y1: number; depth: number }
+/**
+ * The view rectangle (view-plane coords, relative to the render origin) and depth half-range;
+ * `mask`, when set, the tiles of it that count (ChunkSet.glowCull), MASK_N a side.
+ */
+export interface ViewCull { x0: number; x1: number; y0: number; y1: number; depth: number; mask?: TileMask }
+interface TileMask { x0: number; y0: number; w: number; h: number; bits: Uint8Array }
+const MASK_N = 64;
+/** Up to direct chunks (test hook / bench: raise it to compare), inView tests every chunk in order rather than going through the coarse blocks. */
+export const inViewSettings = { direct: 2048 };
+/** Switch (test hook / bench): off = the bloom depth pass draws everything in view. */
+export const bloomCull = { on: true };
+/** view units added around each glow chunk's rectangle (far-LOD cells may reach a unit past their bricks) */
+const GLOW_PAD = 0.05;
+/** scratch view rectangle (viewRect) */
+const rect = [0, 0, 0, 0, 0, 0];
+/** Does view rectangle R (x0, x1, y0, y1) cover a set tile? Edges count (a rectangle touching a tile's border covers it). */
+function maskHit(m: TileMask, R: readonly number[]): boolean {
+  const N = MASK_N;
+  const a0 = Math.max(0, Math.floor((R[0]! - m.x0) / m.w)), a1 = Math.min(N - 1, Math.floor((R[1]! - m.x0) / m.w));
+  const b0 = Math.max(0, Math.floor((R[2]! - m.y0) / m.h)), b1 = Math.min(N - 1, Math.floor((R[3]! - m.y0) / m.h));
+  for (let b = b0; b <= b1; b++) for (let a = a0; a <= a1; a++) if (m.bits[b * N + a]) return true;
+  return false;
+}
 
 /** Per-frame counters (test hook / benchmark): chunks and instanced draws drawn, instances in them. */
 export const stats = { chunks: 0, draws: 0, instances: 0 };
@@ -632,6 +761,9 @@ export function initInstances(): void {
     changed: (_s, ids) => { inst.set!.changed(ids); },
   });
 }
+
+/** The scene's hidden-face masks changed wholesale (ChunkSet.masksChanged). */
+export const masksChanged = (): void => { inst.set?.masksChanged(); };
 
 /** marks row id's chunk for re-packing (selection or hidden state changed) */
 export const markBrick = (id: number): void => { inst.set?.touch(id); };

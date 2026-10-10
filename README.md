@@ -101,9 +101,9 @@ in both and compares the results.
 | `src/format/` | DOM-free save format code: MessagePack, BLAKE3, `.schema`/`.mps`, `.brz` read/write, bricks to and from save chunks, `.bp` environment presets, `.brdb` worlds (revisions, schema-at-time decoding, new-world and append-revision writers, stale-schema re-encoding), entities, colour palettes, the chunk-index overview and a lazy `.brz` reader |
 | `src/core/` | Units, matrices, colour helpers and the orientation byte to rotation table |
 | `src/scene/` | The brick record and its size rules, save loading and saving, picking / overlap grid, undo history, dynamic grids placed by their entities (`grids.ts`, `worldgrids.ts`) |
-| `src/render/` | WebGL2 renderer: the brick shader (GLSL 3.00, tone map in the shader), instancing, camera, lighting, grid, ground plate, read-only extra bricks (moving grids), shape meshes; map tiles (`maptiles.ts`, `tileraster.ts`) |
+| `src/render/` | WebGL2 renderer: the brick shader (GLSL 3.00, tone map in the shader), instancing (every non-box shape drawn from one shared vertex table, one draw per vertex-count family), far LOD, camera, lighting, grid, ground plate, read-only extra bricks (moving grids), shape meshes; map tiles (`maptiles.ts`, `tileraster.ts`) |
 | `src/env/` | Environment to lighting (the calibrated model) and the ground plate's look |
-| `src/workers/` | The map tile worker |
+| `src/workers/` | The map tile worker, and the parse worker (full build: big saves are read and face-culled off the main thread) |
 | `src/editor/` | Resizing, the placement ghost, catalogue data, copy/paste, place / delete, the paint model |
 | `src/ui/` | Page markup and styles, panels (size, file, Brick Properties, catalogue, paint / palette, environment), dimension overlay, HUD, names, sounds |
 | `src/app/` | Entry points (`main.full.ts`, `main.lite.ts`), `app.ts` (wiring and the frame loop), `state.ts` (the shared scene / camera state), the `?test` hook, `environment.ts` (the applied environment), `full-ui.ts` (full-build UI: environment panel, worlds, map; loaded lazily) and `features.ts`, the only file that may read the `__LITE__` build flag |

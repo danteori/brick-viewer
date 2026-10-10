@@ -23,7 +23,7 @@ import { fileMapView, type SaveView } from '../format/saveview.ts';
 import { writeBrz, type FileMap } from '../format/brz.ts';
 import { buildWorldModel, buildWorldModelLazy, type WorldModel } from '../scene/grids.ts';
 import { placedGridStore } from '../scene/worldgrids.ts';
-import { ensureLoadedFiles, loadedName, loadFiles } from '../scene/load.ts';
+import { ensureLoadedFiles, loadedName, loadFilesAsync } from '../scene/load.ts';
 import { download, savedName, sceneFiles } from '../scene/save.ts';
 import { setExtraStores } from '../render/extras.ts';
 import { openers } from '../ui/panels/file.ts';
@@ -186,7 +186,7 @@ async function loadRevision(w: OpenWorld, revisionId: number | null, name: strin
     failed && `${failed} unreadable`, staleFiles && `${staleFiles} file(s) in a newer layout left out (saving this world will fail)`].filter(Boolean).join(', ');
   const label = revisionId === null ? name : `${name} @ revision ${revisionId}`;
   loading = true;
-  try { loadFiles(files, label, writeBrz(files), note, complete); } finally { loading = false; }
+  try { if (!(await loadFilesAsync(files, label, writeBrz(files), note, complete))) return; } finally { loading = false; }
   extras.drain();
   setExtraStores(extras.count ? [{ store: extras, origin: [0, 0, 0] }] : [], S.scene);
 }
