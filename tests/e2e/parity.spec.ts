@@ -173,9 +173,7 @@ async function run(page: Page): Promise<{ step: string; snap: unknown }[]> {
   await click(page, await beside(page, 0, -0.3));
   await snap('place microbrick');
   console.log('DBG place point', JSON.stringify(await beside(page, 0, -0.3)));
-  console.log('DBG log
-' + (await page.evaluate(() => (window as unknown as { __log: string[] }).__log.filter((l) => !l.includes('pointermove') || true).slice(0, 80).join('
-'))));
+  console.log('DBG log ' + (await page.evaluate(() => (window as unknown as { __log: string[] }).__log.filter((l) => !l.includes('pointermove') || true).slice(0, 80).join(' || '))));
 
   // fold the side panels away so more of the scene is clickable, then zoom out (scroll down)
   await page.locator('#btoggle').click();
