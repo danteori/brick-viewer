@@ -158,11 +158,24 @@ async function run(page: Page): Promise<{ step: string; snap: unknown }[]> {
   await snap('place ramp');
 
   // catalogue: click Microbrick, turn it with R, click to place
-  await page.locator('.bitem', { hasText: /^Microbrick$/ }).click();
+  await page.evaluate(() => {
+    const w = window as unknown as { __log: string[] }; w.__log = [];
+    const d = (t: EventTarget | null): string => { const e = t as Element | null; return e ? `${e.tagName}#${e.id}.${(e.className as unknown as string)?.toString?.().slice(0, 30)}` : 'null'; };
+    for (const ty of ['pointermove', 'pointerdown', 'pointerup', 'click', 'scroll']) addEventListener(ty, (e) => { const p = e as PointerEvent; w.__log.push(`${performance.now().toFixed(0)} ${ty} ${d(e.target)} b=${p.buttons} ${p.clientX},${p.clientY} st=${document.getElementById('status')?.textContent}`); }, true);
+    new MutationObserver(() => w.__log.push(`status: ${document.getElementById('status')?.textContent}`)).observe(document.getElementById('status')!, { childList: true, subtree: true, characterData: true });
+  });
+  const mb = page.locator('.bitem', { hasText: /^Microbrick$/ });
+  console.log('DBG item box', JSON.stringify(await mb.boundingBox()), 'vp', JSON.stringify(await page.evaluate(() => [innerWidth, innerHeight, document.getElementById('bricks')?.getBoundingClientRect(), document.getElementById('bgrid')?.scrollTop])));
+  await mb.click();
+  console.log('DBG after item click', JSON.stringify(await page.evaluate(() => (window.__brickTest.snapshot() as { ghost: boolean; status: string }))) .slice(-300));
   // only with a ghost: without one the app's R turns the focused brick (E-05), which legacy can't
   if (await page.evaluate(() => (window.__brickTest.snapshot() as { ghost: boolean }).ghost)) await page.keyboard.press('r');
   await click(page, await beside(page, 0, -0.3));
   await snap('place microbrick');
+  console.log('DBG place point', JSON.stringify(await beside(page, 0, -0.3)));
+  console.log('DBG log
+' + (await page.evaluate(() => (window as unknown as { __log: string[] }).__log.filter((l) => !l.includes('pointermove') || true).slice(0, 80).join('
+'))));
 
   // fold the side panels away so more of the scene is clickable, then zoom out (scroll down)
   await page.locator('#btoggle').click();
