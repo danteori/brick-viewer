@@ -19,7 +19,7 @@ import { focusChangeHits } from '../scene/collision.ts';
 import { hist, histBegin, histEnd } from '../scene/history.ts';
 import { cameraBasisFromView, dragToWorldDir, reorientTo, rotateBy } from './reorient.ts';
 import { ed, ghostName, itemName, rotateItems } from './ghost.ts';
-import { keepZoom, pushFocus, resizeBlock, selectBrick } from './resize.ts';
+import { keepZoom, noteBlock, pushFocus, selectBrick } from './resize.ts';
 import { initAudio, playClick, playError } from '../ui/audio.ts';
 import { setStatus } from '../ui/status.ts';
 
@@ -56,7 +56,7 @@ function turnGhostItem(f: (o: number) => number): boolean {
 }
 
 function refuse(msg: string): void {
-  resizeBlock.t = performance.now(); resizeBlock.reason = 'overlaps a brick';
+  noteBlock('overlaps a brick');
   setStatus(msg); initAudio(); playError();
 }
 

@@ -42,10 +42,12 @@ export function proposedBox(): [V3, V3] {
 }
 
 /** The last refused resize (collision): the HUD shows it in red for a moment. */
-export const resizeBlock = { t: -1e9, reason: '' };
+export const resizeBlock = { t: -1e9, reason: '', n: 0 };
 export const BLOCK_SHOW_MS = 1500;
+/** Records a refused edit for the HUD note (n counts them, for tests). */
+export function noteBlock(reason: string): void { resizeBlock.t = performance.now(); resizeBlock.reason = reason; resizeBlock.n++; }
 function refuse(reason: string, partly = false): void {
-  resizeBlock.t = performance.now(); resizeBlock.reason = reason;
+  noteBlock(reason);
   setStatus(partly ? `Resize stopped: ${reason}` : `Can't resize: ${reason}`);
   initAudio(); playError();
 }
@@ -69,7 +71,7 @@ export function step(q: { i: number; d: number }): void {
     S.pendUnits = moveFree(i, was, was + q.d);
     if (S.pendUnits !== was) { S.grab[i] = 1; S.lastAxis = i; playResize(12 + Math.abs(S.pendUnits)); }
     else if (S.move.blocked) {
-      resizeBlock.t = performance.now(); resizeBlock.reason = S.move.blocked === 'components' ? 'carries components / wires (save chunk)' : 'overlaps a brick';
+      noteBlock(S.move.blocked === 'components' ? 'carries components / wires (save chunk)' : 'overlaps a brick');
       setStatus(S.move.blocked === 'components' ? "Move stopped: a brick with components / wires can't leave its 2048-unit chunk yet" : 'Move stopped: overlaps a brick');
       initAudio(); playError();
     }
