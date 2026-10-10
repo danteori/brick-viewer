@@ -4,12 +4,13 @@
 // size (their crest and lip don't scale), one per round asset, and the export-measured local
 // shapes ('special' / 'micro') per asset and local size.
 // Layouts: the cube 24 bytes (pos3 nrm3, indexed), ramps and crests 28 (+ slope flag), rounds and
-// the local shapes 48 (+ part, cap4). Phase 3 makes the ramp family parametric (one mesh per shape).
+// the local shapes 48 (+ part, cap4). Instanced draws read every non-cube mesh from the shared
+// template table instead (see "Shape templates" below), one draw per vertex-count family.
 
 import { BrickShapes, type ShapeMesh } from './shapes.js';
 import { RAMP_VERTS, rampMesh } from './ramp.ts';
 import { BOX_EDGES, BOX_TRIS, BOX_VERTS } from './box.ts';
-import { LOC } from '../gl.ts';
+import { LOC, PULL_UNIT } from '../gl.ts';
 import { BRZ_UNIT } from '../../core/units.ts';
 import { Kind } from '../../scene/store.ts';
 import { roundHalfOf } from '../../scene/view.ts';
@@ -19,15 +20,127 @@ let gl: WebGL2RenderingContext;
 export let boxVB: WebGLBuffer, boxIB: WebGLBuffer, boxEB: WebGLBuffer;
 export const BOX_EDGE_COUNT = BOX_EDGES.length;
 
-/** A mesh: its vertex buffer, vertex count and layout (0 cube, 1 pos+nrm+slope, 2 with part and cap). */
-export interface Mesh { buf: WebGLBuffer; count: number; layout: 0 | 1 | 2; key: string }
+/**
+ * A mesh: its vertex buffer, vertex count and layout (0 cube, 1 pos+nrm+slope, 2 with part and
+ * cap, 3 a template family: see below). `slot`: where its vertices sit in the template table, in
+ * units of SLOT vertices (-1 none yet, -2 none: the table is full), for instanced draws; `data` its
+ * interleaved vertices until they are copied there.
+ */
+export interface Mesh { buf: WebGLBuffer; count: number; layout: 0 | 1 | 2 | 3; key: string; slot?: number; data?: Float32Array }
 export let BOX_MESH: Mesh;
 
 const meshes = new Map<string, Mesh>();
 
+// ---------------------------------------------------------------------------------------------
+// Shape templates (S-05). Every ramp size, crest, wedge, corner, round and special shape used to be
+// its own mesh, so a chunk drew one instanced call per distinct mesh: thousands of draws a frame in
+// big builds, and each draw costs ~5 us of GPU on ANGLE / D3D11. Instead, every non-cube mesh's
+// vertices also go into one shared RGBA32F table texture (12 floats a vertex: pos3 nrm3 slope part
+// cap4, 3 texels), each mesh at an offset rounded to SLOT vertices and padded with zeros to its
+// family's vertex count. A family is a vertex-count class (FAMILY_COUNTS), so all sizes of a ramp,
+// crest, crest end, wedge or corner (36-54 vertices) share one family, rounds another, and so on.
+// The vertex shader (uPull) fetches vertex gl_VertexID of the instance's own mesh (its slot in
+// iPos.w / iMisc.z), so all of a family draws in one instanced call per chunk or block. The fetched
+// floats are the very ones the per-size vertex buffer holds (the fixed 1-stud crest and 1-micro lip
+// included), so the picture is the same; padding vertices are all zero, which makes degenerate
+// triangles that draw nothing.
+// ---------------------------------------------------------------------------------------------
+
+/** Table granularity: a mesh starts at a multiple of this many vertices. */
+export const SLOT = 8;
+/** Vertices per table row (3 texels each). */
+const ROW = 1024;
+/** Vertex-count classes: a family draws this many vertices per instance (meshes padded up to it). */
+const FAMILY_COUNTS = [24, 48, 64, 96, 128, 192, 256, 384, 512, 768, 1024, 1536, 2048, 3072, 4096];
+/** The highest slot index the instance record can carry (15 bits of iPos.w + 8 of iMisc.z). */
+const MAX_SLOT = (1 << 23) - 1;
+
+let tab: Float32Array = new Float32Array(0), tabRows = 0, tabUsed = 0, tabDirtyLo = Infinity, tabDirtyHi = -1, tabTex: WebGLTexture | null = null, tabTexRows = 0;
+let maxRows = 2048;
+const families = new Map<number, Mesh>();
+/** A zero-filled buffer for attribute 0 of family draws (it must stay an enabled array; the shader ignores it then). */
+export let pullVB: WebGLBuffer;
+let pullVBCount = 0;
+
+/** Switch (test hook / bench): off = one group per mesh, as before. */
+export const templateSettings = { on: true };
+
+/** The family count for a mesh of n vertices, or 0 when too big for any. */
+const familyCount = (n: number): number => { for (const c of FAMILY_COUNTS) if (n <= c) return c; return 0; };
+
+/** The family (layout 3 pseudo-mesh) a mesh draws with in instanced groups, or null (the cube, or no room in the table). */
+export function familyOf(m: Mesh): Mesh | null {
+  if (m.layout === 0 || m.layout === 3 || !templateSettings.on) return null;
+  const fc = familyCount(m.count);
+  if (!fc) return null;
+  if (m.slot === undefined || m.slot === -1) placeInTable(m, fc);
+  if (m.slot! < 0) return null;
+  let f = families.get(fc);
+  if (!f) {
+    if (fc > pullVBCount) { pullVBCount = fc; gl.bindBuffer(gl.ARRAY_BUFFER, pullVB); gl.bufferData(gl.ARRAY_BUFFER, fc * 4, gl.STATIC_DRAW); }
+    families.set(fc, (f = { buf: pullVB, count: fc, layout: 3, key: 'family|' + fc }));
+  }
+  return f;
+}
+
+const runs = new Map<Mesh, Mesh[]>();
+/**
+ * Group key n of family f: f itself for n = 0, else a stand-in with f's draw (instances.ts keeps
+ * several runs of one family apart in a chunk, to keep the draw order).
+ */
+export function familyRun(f: Mesh, n: number): Mesh {
+  if (!n) return f;
+  let l = runs.get(f);
+  if (!l) runs.set(f, (l = []));
+  return (l[n - 1] ??= { ...f, key: `${f.key}#${n}` });
+}
+
+/** Copies mesh m's vertices into the table (12 floats each), padded with zeros to fc vertices. */
+function placeInTable(m: Mesh, fc: number): void {
+  const at = Math.ceil(tabUsed / SLOT) * SLOT, end = at + fc, rows = Math.ceil(end / ROW);
+  if (at / SLOT > MAX_SLOT || rows > maxRows) { m.slot = -2; return; }
+  if (rows > tabRows) {
+    let r = Math.max(4, tabRows);
+    while (r < rows) r *= 2;
+    r = Math.min(r, maxRows);
+    const t = new Float32Array(r * ROW * 12); t.set(tab); tab = t; tabRows = r;
+  }
+  const src = m.data;
+  if (!src) { m.slot = -2; return; }
+  m.data = undefined;
+  if (m.layout === 2) tab.set(src, at * 12);
+  else for (let v = 0; v < m.count; v++) tab.set(src.subarray(v * 7, v * 7 + 7), (at + v) * 12);   // part and cap stay 0
+  m.slot = at / SLOT; tabUsed = end;
+  tabDirtyLo = Math.min(tabDirtyLo, Math.floor(at / ROW)); tabDirtyHi = Math.max(tabDirtyHi, rows - 1);
+}
+
+/** Uploads the template table's new rows (before a frame's instanced draws); keeps it bound on PULL_UNIT. */
+export function flushTable(): void {
+  if (tabDirtyHi < 0) return;
+  if (!tabTex) tabTex = gl.createTexture()!;
+  gl.activeTexture(gl.TEXTURE0 + PULL_UNIT);
+  gl.bindTexture(gl.TEXTURE_2D, tabTex);
+  if (tabTexRows !== tabRows) {
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, ROW * 3, tabRows, 0, gl.RGBA, gl.FLOAT, tab);
+    tabTexRows = tabRows;
+  } else {
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, tabDirtyLo, ROW * 3, tabDirtyHi - tabDirtyLo + 1, gl.RGBA, gl.FLOAT, tab.subarray(tabDirtyLo * ROW * 12, (tabDirtyHi + 1) * ROW * 12));
+  }
+  gl.activeTexture(gl.TEXTURE0);
+  tabDirtyLo = Infinity; tabDirtyHi = -1;
+}
+
+/** Template-table use (test hook / bench). */
+export const tableStats = (): { meshes: number; vertices: number; rows: number; families: number } => ({ meshes: [...meshes.values()].filter((m) => (m.slot ?? -1) >= 0).length, vertices: tabUsed, rows: tabRows, families: families.size });
+
 export function initMeshes(g: WebGL2RenderingContext): void {
   gl = g;
   meshes.clear();
+  families.clear(); runs.clear(); tab = new Float32Array(0); tabRows = tabUsed = tabTexRows = 0; tabDirtyLo = Infinity; tabDirtyHi = -1; tabTex = null;
+  maxRows = Math.min(4096, gl.getParameter(gl.MAX_TEXTURE_SIZE) as number);
+  if ((gl.getParameter(gl.MAX_TEXTURE_SIZE) as number) < ROW * 3) maxRows = 0;    // no table: every mesh draws on its own
+  pullVB = gl.createBuffer()!; pullVBCount = 0;
   boxVB = gl.createBuffer()!; gl.bindBuffer(gl.ARRAY_BUFFER, boxVB);
   gl.bufferData(gl.ARRAY_BUFFER, BOX_VERTS, gl.STATIC_DRAW);
   boxIB = gl.createBuffer()!; gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxIB);
@@ -46,7 +159,7 @@ export function initMeshes(g: WebGL2RenderingContext): void {
 function upload(key: string, data: Float32Array, count: number, layout: 1 | 2): Mesh {
   const buf = gl.createBuffer()!; gl.bindBuffer(gl.ARRAY_BUFFER, buf);
   gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
-  const m: Mesh = { buf, count, layout, key };
+  const m: Mesh = { buf, count, layout, key, data };
   meshes.set(key, m);
   return m;
 }

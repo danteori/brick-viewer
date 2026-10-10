@@ -4,7 +4,7 @@
 import { S } from '../../app/state.ts';
 import { lightFromBp } from '../../format/bp.ts';
 import { LIGHTING, type LightPreset } from '../../render/lighting.ts';
-import { ensureLoadedFiles, loadedName, loadSave } from '../../scene/load.ts';
+import { ensureLoadedFiles, loadedName, loadSaveAsync } from '../../scene/load.ts';
 import { download, savedName, sceneBrz } from '../../scene/save.ts';
 import { hist, setUndoLimit } from '../../scene/history.ts';
 import { initAudio, playClick } from '../audio.ts';
@@ -29,7 +29,7 @@ export async function openFile(f: File): Promise<void> {
     try { addBpPreset(JSON.parse(await f.text()), f.name); } catch (err) { setStatus(`Couldn't read ${f.name}: ${(err as Error).message}`); console.error(err); }
     return;
   }
-  try { loadSave(await f.arrayBuffer(), f.name); initAudio(); playClick(); }
+  try { if (await loadSaveAsync(await f.arrayBuffer(), f.name)) { initAudio(); playClick(); } }
   catch (err) { setStatus(`Couldn't open ${f.name}: ${(err as Error).message}`); console.error(err); }
 }
 

@@ -54,11 +54,14 @@ const count = (m: number): number => inst.set?.matCount[m] ?? 0;
 /** Few enough special bricks to draw them one by one (exactly as before instancing them). */
 const exact = (): boolean => count(MAT_GLASS) + count(MAT_TRANSLUCENT) + count(MAT_GLOW) <= EXACT_SPECIAL;
 
-/** True when this frame has a glow brick (the bloom pass then runs). */
+/** True when this frame shows a glow brick (the bloom pass then runs): one in a chunk in view (inst.cull), or the focused one. */
 export function hasGlow(): boolean {
-  if (count(MAT_GLOW)) return true;
+  if (count(MAT_GLOW) && inst.set!.glowInView(inst.cull)) return true;
   return hasFocus() && !!S.focus && matCode(S.focus) === MAT_GLOW;
 }
+
+/** The focused brick is shown and glows. */
+export const hasFocusGlow = (): boolean => hasFocus() && !!S.focus && !S.hidden.has(S.sel) && matCode(S.focus) === MAT_GLOW;
 
 /** The focused brick is drawn here, not with the plain bodies, when it has a special material. */
 export const focusIsSpecial = (): boolean => hasFocus() && !!S.focus && matCode(S.focus) > 0;

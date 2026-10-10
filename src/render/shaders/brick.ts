@@ -38,11 +38,11 @@ in float aSlope;
 in float aPart; in vec4 aCap;
 out float vPart; out vec4 vCap;
 // The 24-byte instance record (render/instances.ts), save axes (X, Y, Z up), integer units:
-//   iPos   centre relative to the draw's chunk (int16), w spare
+//   iPos   centre relative to the draw's chunk (int16), w low 15 bits of the template slot (uPull)
 //   iHalf  local half-extents (uint16); w packed: bits 0-4 orientation byte, 5-6 top style
 //          (0 studs, 1 plain, 2 smooth), 7 micro (no studs, no underside), 8 linear colour bytes
 //   iColor R, G, B as stored, A = material intensity (unorm8)
-//   iMisc  face mask, material, shape variant, flags (bit 0 = selected)
+//   iMisc  face mask, material, template slot bits 15-22 (uPull), flags (bit 0 = selected)
 // The instanced draws read them per instance; single draws (focused brick, glow, ghost, grid,
 // washes) set them as constants and give the box's local GL size in uBox (w = 1).
 in ivec4 iPos; in uvec4 iHalf;
@@ -71,26 +71,34 @@ uniform vec3 uEye; uniform vec3 uLight;
 uniform float uUnitDiv;
 // 1: draw hidden faces too (render/facecull.ts; the cutaway)
 uniform float uShowHidden;
+// 1: a template-family draw (render/meshes/registry.ts): the vertex comes from the table uVtx, at
+// the instance's mesh slot (iPos.w + iMisc.z << 15, in units of 8 vertices) + gl_VertexID, 3 texels
+// of 1024 vertices a row: pos3 nrm3, slope part, cap4. The mesh attributes are unused then.
+uniform float uPull;
+uniform highp sampler2D uVtx;
 ${ORIENT_GLSL}
 // Bevel band width for a face L viewer units long along an axis:
 // W(L) = 0.43 / (0.957 + 0.86 / L) Brickadia units, which is uBevelMax at L = 20 units.
 float bevelW(float L){ return uBevelMax / (0.957 + 0.86 / max(L / 0.02, 0.5)); }
-void main(){
-  vN = aNrm; vSlope = aSlope;
-  vPart = aPart; vCap = aCap;
+// The vertex maths, from one mesh vertex. main() calls it with the mesh attributes, exactly as it
+// always ran, or (uPull) with the vertex fetched from the template table: two copies of the same
+// code, so the plain path compiles as before.
+void vertex(vec3 mPos, vec3 mNrm, float mSlope, float mPart, vec4 mCap){
+  vN = mNrm; vSlope = mSlope;
+  vPart = mPart; vCap = mCap;
   bool single = uBox.w > 0.5;
   uint w = iHalf.w;
   mat3 R = orientGL(w & 31u);
   vec3 size, lp, p;
   if (single) {
-    size = uBox.xyz; lp = aPos * size;
+    size = uBox.xyz; lp = mPos * size;
     p = R * lp + uChunkOffset;
   } else {
     // in whole units first: a box corner is centre +- half exactly, so bricks that share a face
     // share its vertices bit for bit (no hairline cracks), then one scale into viewer units
     vec3 hu = vec3(iHalf.xzy) * 2.0;
-    size = hu / uUnitDiv; lp = aPos * size;
-    p = (R * (aPos * hu) + vec3(iPos.xzy)) / uUnitDiv + uChunkOffset;
+    size = hu / uUnitDiv; lp = mPos * size;
+    p = (R * (mPos * hu) + vec3(iPos.xzy)) / uUnitDiv + uChunkOffset;
   }
   vW = p;
   vL = lp;
@@ -113,10 +121,18 @@ void main(){
   // Full detail and the X-ray cutaway set uShowHidden = 1 and draw them (render/lod.ts hidesCovered).
   uint hid = single || uShowHidden > 0.5 ? 0u : iMisc.x;
   if (hid != 0u) {
-    vec3 nw = R * aNrm;
+    vec3 nw = R * mNrm;
     uint bit = abs(nw.x) > 0.5 ? (nw.x > 0.0 ? 1u : 2u) : abs(nw.z) > 0.5 ? (nw.z > 0.0 ? 4u : 8u) : (nw.y > 0.0 ? 16u : 32u);
     if ((hid & bit) != 0u) gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
   }
+}
+void main(){
+  if (uPull > 0.5) {
+    int v = ((iPos.w & 32767) | (int(iMisc.z) << 15)) * 8 + gl_VertexID;
+    ivec2 t = ivec2((v & 1023) * 3, v >> 10);
+    vec4 a = texelFetch(uVtx, t, 0), b = texelFetch(uVtx, t + ivec2(1, 0), 0);
+    vertex(a.xyz, vec3(a.w, b.xy), b.z, b.w, texelFetch(uVtx, t + ivec2(2, 0), 0));
+  } else vertex(aPos, aNrm, aSlope, aPart, aCap);
 }`;
 
 export const BRICK_FS = `#version 300 es

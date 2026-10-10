@@ -13,7 +13,7 @@ import { syncScene } from '../scene/sync.ts';
 import { drawGrid } from './grid.ts';
 import { drawExtras, extrasDepth } from './extras.ts';
 import { drawGround, drawGroundBackdrop } from './ground.ts';
-import { bloomPass, drawGlow, drawMaterials, focusIsSpecial, hasGlow } from './matpass.ts';
+import { bloomPass, drawGlow, drawMaterials, focusIsSpecial, hasFocusGlow, hasGlow } from './matpass.ts';
 import { LIGHTING, lightDir } from './lighting.ts';
 import { nearOf, studPx } from './camera.ts';
 import { BOX_EDGE_COUNT, boxEB, boxIB } from './meshes/registry.ts';
@@ -92,7 +92,10 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
   perfMark('bloom');
   if (bloomPass && hasGlow()) {              // full build: the glow halo
     // the depth-only pass takes the shader's early exit (uEdge): its colour is masked off anyway
-    bloomPass(w, h, () => { gl.uniform1f(u.uEdge, 1); drawInstances(drawFocus, cull); drawExtras(cull); drawGround(); gl.uniform1f(u.uEdge, 0); }, () => drawGlow(dlo, dhi, 2));
+    // and only the bodies over glow on screen (glowCull: the rest can't hide any); the focused
+    // brick glowing: everything in view
+    const dc = (hasFocusGlow() ? null : inst.set!.glowCull(cull)) ?? cull;
+    bloomPass(w, h, () => { gl.uniform1f(u.uEdge, 1); drawInstances(drawFocus, dc); drawExtras(dc); drawGround(); gl.uniform1f(u.uEdge, 0); inst.cull = cull; }, () => drawGlow(dlo, dhi, 2));
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxIB);
   }
   perfMark('overlays');

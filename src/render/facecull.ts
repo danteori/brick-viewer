@@ -12,18 +12,59 @@
 
 import { S } from '../app/state.ts';
 import { addMirror } from '../scene/sync.ts';
-import { FaceCuller, FULL_BOX_ASSETS, type CullBrick } from '../scene/cull.ts';
+import { FaceCuller, FULL_BOX_ASSETS, FULLY_HIDDEN, type CullBrick } from '../scene/cull.ts';
 import { ASSETS, Kind, MATERIALS, worldHalfOf, type SceneStore } from '../scene/store.ts';
-import { beforeSync, markBrick } from './instances.ts';
+import { beforeSync, markBrick, masksChanged } from './instances.ts';
 
 const NONE: CullBrick = { pos: [0, 0, 0], half: [0, 0, 0], shape: 'none', fullBox: false };
 
 /**
- * Settings and counters (test hook / bench). `maxBricks`: bigger scenes skip culling (the build
- * runs on the main thread: ~3-8 us a brick in the browser plus ~150 bytes a brick of tables; a
- * multi-million brick prefab would stall the load for many seconds). Moving it to a worker lifts this (S-01).
+ * Settings and counters (test hook / bench). `maxBricks`: bigger scenes aren't culled on the main
+ * thread (~3-8 us a brick in the browser plus ~150 bytes a brick of tables: a multi-million brick
+ * prefab would stall for many seconds). Up to `asyncMaxBricks`, the full build gets their masks
+ * from a worker instead (S-01, setAsyncCull): `async` is that mode, `pending` while masks are on
+ * their way. Until they arrive, and after every edit until they are recomputed (EDIT_SETTLE_MS
+ * after the last one), the masks are all zero: every face drawn, never a hole.
  */
-export const faceCull = { on: true, maxBricks: 300_000, active: false, buildMs: 0, hiddenFaces: 0, hiddenBricks: 0 };
+export const faceCull = { on: true, maxBricks: 300_000, asyncMaxBricks: 16_000_000, active: false, async: false, pending: false, buildMs: 0, hiddenFaces: 0, hiddenBricks: 0 };
+
+/** A worker computing a store's masks with some rows left out (app/parse.ts), or null (lite). */
+type AsyncCull = (s: SceneStore, skip: ReadonlySet<number>) => Promise<Uint8Array | null>;
+let asyncCull: AsyncCull | null = null;
+export function setAsyncCull(f: AsyncCull | null): void { asyncCull = f; }
+/** ms after the last edit before an async-culled scene's masks are recomputed */
+const EDIT_SETTLE_MS = 2000;
+/** bumped to drop async results that are out of date (a newer request, an edit, another scene) */
+let asyncGen = 0, settleTimer: ReturnType<typeof setTimeout> | undefined;
+/** do the store's masks hold worker results (as opposed to all zeros)? */
+let asyncApplied = false;
+
+/** Asks the worker for store s's masks (rows hidden right now left out) and applies them if nothing changed meanwhile. */
+function requestMasks(s: SceneStore): void {
+  const gen = ++asyncGen, rev = s.rev, hid = hidden, t = performance.now();
+  faceCull.pending = true;
+  void asyncCull!(s, hid).then((m) => {
+    if (gen !== asyncGen || store !== s || s.rev !== rev || hidden !== hid) return;
+    faceCull.pending = false;
+    if (!m) return;
+    s.faceMask.set(m.subarray(0, s.n));
+    asyncApplied = true;
+    faceCull.buildMs = performance.now() - t;
+    let faces = 0, bricks = 0;
+    for (let id = 0; id < s.n; id++) { const v = m[id]!; if (!v) continue; if (v & FULLY_HIDDEN) bricks++; for (let f = 0; f < 6; f++) if (v & (1 << f)) faces++; }
+    faceCull.hiddenFaces = faces; faceCull.hiddenBricks = bricks;
+    masksChanged();
+  });
+}
+
+/** An async-culled scene changed (an edit, or the moving selection): masks to zero now, recomputed once edits settle. */
+function asyncEdit(s: SceneStore): void {
+  asyncGen++;
+  faceCull.pending = false;
+  if (asyncApplied) { s.faceMask.fill(0); asyncApplied = false; faceCull.hiddenFaces = faceCull.hiddenBricks = 0; masksChanged(); }
+  clearTimeout(settleTimer);
+  settleTimer = setTimeout(() => { if (store === s && faceCull.async) requestMasks(s); }, EDIT_SETTLE_MS);
+}
 
 let culler: FaceCuller | null = null;
 let store: SceneStore | null = null;
@@ -70,20 +111,26 @@ function update(s: SceneStore, ids: Iterable<number>): void {
 }
 
 export function initFaceCull(): void {
+  (globalThis as { __faceCull?: typeof faceCull }).__faceCull = faceCull;   // the test hook reads it (lite has no face culling)
   beforeSync.push(syncFaceCull);
   addMirror({
     reset: (s) => {
-      culler = null; store = s;
+      culler = null; store = s; hidden = S.hidden;
+      asyncGen++; clearTimeout(settleTimer); asyncApplied = false;
       faceCull.active = faceCull.on && s.count <= faceCull.maxBricks;
+      faceCull.async = !faceCull.active && faceCull.on && !!asyncCull && s.count <= faceCull.asyncMaxBricks;
+      faceCull.pending = false;
       faceCull.buildMs = faceCull.hiddenFaces = faceCull.hiddenBricks = 0;
-      if (faceCull.active) build(s); else s.faceMask.fill(0);
+      if (faceCull.active) build(s);
+      else { s.faceMask.fill(0); if (faceCull.async) requestMasks(s); }
     },
-    changed: (s, ids) => { if (culler && store === s) update(s, ids); },
+    changed: (s, ids) => { if (culler && store === s) update(s, ids); else if (faceCull.async && store === s) asyncEdit(s); },
   });
 }
 
 /** Once a frame, after syncScene: follows the moving-selection hidden set. */
 export function syncFaceCull(): void {
+  if (faceCull.async && store === S.scene && S.hidden !== hidden) { hidden = S.hidden; asyncEdit(store); return; }
   if (!culler || store !== S.scene || S.hidden === hidden) return;
   const was = hidden;
   hidden = S.hidden;

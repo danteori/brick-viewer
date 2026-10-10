@@ -7,11 +7,14 @@ import { BRICK_FS, BRICK_VS } from './shaders/brick.ts';
  * 24-byte instance record (render/instances.ts): iPos int16 x4, iHalf uint16 x4, iColor unorm8 x4,
  * iMisc uint8 x4.
  */
+/** Texture unit the shape-template table (render/meshes/registry.ts) stays bound to. */
+export const PULL_UNIT = 7;
+
 export const LOC = { aPos: 0, aNrm: 1, aSlope: 2, iPos: 3, iHalf: 4, iColor: 5, iMisc: 6, aPart: 7, aCap: 8 } as const;
 
 const UNIFORMS = ['uMVP', 'uChunkOffset', 'uBox', 'uUnitDiv', 'uEdge', 'uLine', 'uFadeC', 'uFadeR', 'uStudFade', 'uBevelMax', 'uBevelFit',
   'uEye', 'uLight', 'uSun', 'uSky', 'uFloor', 'uExposure', 'uBump', 'uMat', 'uIntensity', 'uMatPass',
-  'uSpecAA', 'uCutA', 'uCutK', 'uCutLo', 'uCutHi', 'uCutOff', 'uCutEdge', 'uShowHidden'] as const;
+  'uSpecAA', 'uCutA', 'uCutK', 'uCutLo', 'uCutHi', 'uCutOff', 'uCutEdge', 'uShowHidden', 'uPull'] as const;
 export type UniformName = (typeof UNIFORMS)[number];
 export type Uniforms = Record<UniformName, WebGLUniformLocation | null>;
 
@@ -37,6 +40,9 @@ function link(gl: WebGL2RenderingContext, fs: string): { prog: WebGLProgram; u: 
   if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog) ?? 'program link failed');
   const u = {} as Uniforms;
   for (const n of UNIFORMS) u[n] = gl.getUniformLocation(prog, n);
+  // the template table's sampler (render/meshes/registry.ts) reads its own unit, set once here
+  const cur = gl.getParameter(gl.CURRENT_PROGRAM) as WebGLProgram | null;
+  gl.useProgram(prog); gl.uniform1i(gl.getUniformLocation(prog, 'uVtx'), PULL_UNIT); gl.useProgram(cur);
   return { prog, u };
 }
 
