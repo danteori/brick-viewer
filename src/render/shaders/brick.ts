@@ -378,6 +378,10 @@ void main(){
   vec3 albedo = vMisc.x > 0.5 ? vBase : toLinear(vBase);
   vec3 lit = (albedo * (uSky + uSun*d) + uFloor + spec) * shade;
   if (uMat > 0.5) {
+    // Glass and translucent plastic are one-sided, as in the game: a face turned away from the
+    // camera (the underside seen from above, the top from below, the far sides) isn't drawn, so
+    // its stud or underside texture never shows through. The fitted models are one surface each.
+    if (uMat < 2.5 && dot(nG, vEyeL) < 0.0) discard;
     float inten = uIntensity < 0.0 ? vIntensity : uIntensity;
     // Blended in display space over the tone-mapped scene (the forward pipeline has no linear
     // buffer): glass multiplies what is behind by its transmission (approximately display-encoded)
