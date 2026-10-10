@@ -16,17 +16,20 @@ import { F_LINEAR, worldHalfOf, type SceneStore } from '../scene/store.ts';
 
 /** Level-1 cell size, units (4 studs; 4 bricks tall). Each further level is 4x coarser. */
 export const CELL = 40, CELL_Z = 48;
-/** LOD levels after full detail. */
-export const LOD_LEVELS = 2;
+/** LOD levels after full detail: cells of 4, 16, 64 and 256 studs. */
+export const LOD_LEVELS = 4;
 /** Render chunks per block side. */
 export const BLOCK = 4;
-/** Use level 1 when a stud is narrower than this many device pixels, level 2 at a quarter of it. */
+/** Use level 1 when a stud is narrower than this many device pixels. */
 export const LOD_STUD_PX = 0.75;
+/** Deeper levels: the coarsest whose cells are at most this many device pixels across. */
+export const LOD_CELL_PX = 4;
 
 /** The LOD level for a stud this many device pixels wide (0 = full detail). */
 export function lodLevel(studPx: number): number {
-  let L = 0, t = LOD_STUD_PX;
-  while (L < LOD_LEVELS && studPx < t) { L++; t /= 4; }
+  if (!(studPx < LOD_STUD_PX)) return 0;
+  let L = 1;
+  while (L < LOD_LEVELS && 4 * 4 ** L * studPx <= LOD_CELL_PX) L++;
   return L;
 }
 /** Switches (test hook / bench). */
