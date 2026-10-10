@@ -9,20 +9,22 @@
 // (microchip, other entity and orphan grids). "Save .brz" / "Save as new world" need the whole tree
 // as a template, so they load the rest first (ensureLoadedFiles).
 //
-// The full build keeps sql.js (lazy wasm) as a fallback for a world the lazy reader refuses, and for
-// writing worlds (full-ui.ts). Lite has no sql.js.
+// "Save as new world (.brdb)" writes a fresh world with the pure-TS SQLite writer (sqlitewrite.ts,
+// raw blobs, which the game loads), so both builds can save worlds. The full build keeps sql.js
+// (lazy wasm) only as a fallback reader for a world the lazy reader refuses. Lite has no sql.js.
 
 import { S } from './state.ts';
 import { loadBrdbBackend } from './features.ts';
 import { LazyBrdbWorld, runLoaded, type LazyBrdbTree } from '../format/brdblazy.ts';
 import { blobSource } from '../format/sqlitelazy.ts';
-import { BrdbWorld, type BrdbRevision } from '../format/brdb.ts';
+import { BrdbWorld, writeNewWorldFile, type BrdbRevision } from '../format/brdb.ts';
 import { flattenTree } from '../format/stale.ts';
 import { fileMapView, type SaveView } from '../format/saveview.ts';
 import { writeBrz, type FileMap } from '../format/brz.ts';
 import { buildWorldModel, buildWorldModelLazy, type WorldModel } from '../scene/grids.ts';
 import { placedGridStore } from '../scene/worldgrids.ts';
-import { loadFiles } from '../scene/load.ts';
+import { ensureLoadedFiles, loadedName, loadFiles } from '../scene/load.ts';
+import { download, savedName, sceneFiles } from '../scene/save.ts';
 import { setExtraStores } from '../render/extras.ts';
 import { openers } from '../ui/panels/file.ts';
 import { initAudio, playClick } from '../ui/audio.ts';
@@ -119,6 +121,12 @@ export function initWorlds(): void {
   rev.id = 'rev'; rev.setAttribute('aria-label', 'World revision');
   revBox.append(rev);
   $('saverow').after(revBox);
+  const saveWorld = document.createElement('button');
+  saveWorld.type = 'button'; saveWorld.id = 'savebrdb';
+  saveWorld.title = 'Download the scene as a new world (.brdb, uncompressed), written from the save or world you opened';
+  saveWorld.textContent = 'Save as new world (.brdb)';
+  $('saverow').append(saveWorld);
+  saveWorld.addEventListener('click', () => { void saveAsWorld(); });
   for (const t of ['pointerdown', 'dblclick', 'wheel']) revBox.addEventListener(t, (ev) => ev.stopPropagation());
 
   openers.push(async (f) => {
@@ -181,6 +189,18 @@ async function loadRevision(w: OpenWorld, revisionId: number | null, name: strin
   try { loadFiles(files, label, writeBrz(files), note, complete); } finally { loading = false; }
   extras.drain();
   setExtraStores(extras.count ? [{ store: extras, origin: [0, 0, 0] }] : [], S.scene);
+}
+
+/** "Save as new world": the scene as a fresh .brdb (two revisions, raw blobs). */
+async function saveAsWorld(): Promise<void> {
+  try {
+    await ensureLoadedFiles();
+    const s = sceneFiles();
+    if (!s) { setStatus('Open a save or world first: the new world is written from the save you opened'); return; }
+    const name = savedName(loadedName.replace(/ @ revision \d+$/, ''), '.brdb');
+    download(writeNewWorldFile(s.files), name);
+    setStatus(`Saved ${name}` + (s.warnings.length ? ' · ' + s.warnings.join(' · ') : ''));
+  } catch (err) { setStatus(`Couldn't save the world: ${(err as Error).message}`); console.error(err); }
 }
 
 /** Which reader opened the current world (tests and the status line). */

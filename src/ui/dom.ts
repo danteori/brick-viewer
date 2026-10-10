@@ -11,7 +11,7 @@ const MARKUP = `
   <div id="tool" role="group" aria-label="Tool">
     <button type="button" data-tool="resize" aria-pressed="true" title="Resize (1): drag to resize the focused brick">Resize</button>
     <button type="button" data-tool="move" aria-pressed="false" title="Move (2 or M): drag like Resize, but the focused brick or the selection moves along one axis">Move</button>
-    <button type="button" data-tool="paint" aria-pressed="false" title="Paint (3): click or drag over bricks to paint them; Alt+click takes a brick's paint">Paint</button>
+    <button type="button" data-tool="paint" aria-pressed="false" title="Paint (3): click or drag over bricks to paint them; Alt+click fills the connected bricks of the same colour; Ctrl+click takes a brick's paint">Paint</button>
   </div>
   <div id="menu" aria-label="Brick size"><div class="mtitle">Brick size</div></div>
   <div id="mode" role="group" aria-label="Brick type">
@@ -93,6 +93,10 @@ const MARKUP = `
       <button type="button" data-sel="copy" title="Copy the selection (Ctrl+C)">Copy</button>
       <button type="button" data-sel="cut" title="Cut the selection (Ctrl+X)">Cut</button>
       <button type="button" data-sel="delete" title="Delete the selection (Delete)">Delete</button>
+    </div>
+    <div class="selrow sel2">
+      <button type="button" data-mirror="0" title="Mirror the selection, or the brick in hand, across X (Alt+X)">Mirror X</button>
+      <button type="button" data-mirror="1" title="Mirror the selection, or the brick in hand, across Y (Alt+Y)">Mirror Y</button>
     </div>
   </div>
   <button type="button" id="painttoggle" aria-expanded="false" aria-controls="paintbody" title="Colour palette, material and intensity: paint the selection (or the focused brick)">Paint

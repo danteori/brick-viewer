@@ -2,7 +2,7 @@ import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
-  linearToSrgbByte, paletteColourToSrgb, paletteSrgb, PaletteError, parsePalette, placeholderPalette,
+  linearToSrgbByte, paletteColourToSrgb, paletteSrgb, PaletteError, parsePalette, defaultPalette,
   serialisePalette, srgbEotf, srgbOetf, srgbToLinearByte, type Palette,
 } from '../../src/format/palette.ts';
 import { readBrz } from '../../src/format/brz.ts';
@@ -76,16 +76,20 @@ describe('parse / serialise', () => {
   });
 });
 
-describe('placeholder palette', () => {
-  const p = placeholderPalette();
-  it('has 4 groups of 12 and is a valid, serialisable palette', () => {
-    expect(p.groups.map((g) => g.colors.length)).toEqual([12, 12, 12, 12]);
+describe('default palette', () => {
+  const p = defaultPalette();
+  it('has 8 groups of 12 and is a valid, serialisable palette', () => {
+    expect(p.groups.map((g) => g.colors.length)).toEqual([12, 12, 12, 12, 12, 12, 12, 12]);
     expect(parsePalette(serialisePalette(p))).toEqual(p);
   });
   it('greys run white to black', () => {
     const s = paletteSrgb(p);
     expect(s[0]).toEqual([255, 255, 255]);
     expect(s[11]).toEqual([0, 0, 0]);
+  });
+  it('is a fresh copy each call', () => {
+    defaultPalette().groups[0]!.colors[0]!.r = 1;
+    expect(defaultPalette().groups[0]!.colors[0]!.r).toBe(255);
   });
 });
 
@@ -99,6 +103,11 @@ describe.skipIf(!palFiles.length)('reference palettes', () => {
     const p = parsePalette(text);
     expect(p.groups.length).toBeGreaterThan(0);
     expect(serialisePalette(p)).toBe(text);
+  });
+
+  it('the built-in default equals a reference default palette', () => {
+    const def = serialisePalette(defaultPalette());
+    expect(palFiles.some((n) => new TextDecoder().decode(readRef(`presets/ColorPalettes/${n}`)) === def)).toBe(true);
   });
 
   it.skipIf(!hasRefs)('some reference save painted from a palette holds exactly its linear->sRGB colours', () => {

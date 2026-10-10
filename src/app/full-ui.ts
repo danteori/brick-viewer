@@ -1,21 +1,16 @@
 // Full-build UI, loaded lazily through features.ts (the lite build never imports it):
 //   - the Environment panel (src/ui/panels/environment.ts), floating next to the left column;
-//   - "Save as new world (.brdb)" (experimental; sql.js). Opening worlds is in worlds.ts, both builds;
 //   - the Map: a toggleable top-down overview of the opened save with click-to-focus.
 
 import { S } from './state.ts';
-import { loadBrdbBackend } from './features.ts';
 import { applyEnvironment, currentEnvironment, onWorldEnvironment } from './environment.ts';
 import { createEnvironmentPanel, type EnvironmentPanel, type PanelWorldKind } from '../ui/panels/environment.ts';
-import { writeNewWorld } from '../format/brdb.ts';
-import { ensureLoadedFiles, loadedBrz, loadedName } from '../scene/load.ts';
-import { download, savedName, sceneFiles } from '../scene/save.ts';
+import { loadedBrz } from '../scene/load.ts';
 import { histEnd } from '../scene/history.ts';
 import { MapTiler, drawMap, fitView, screenToWorld, worldToScreen, type MapView } from '../render/maptiles.ts';
 import { BRZ_UNIT } from '../core/units.ts';
 import { keepZoom, selectBrick } from '../editor/resize.ts';
 import { initAudio, playSelect } from '../ui/audio.ts';
-import { setStatus } from '../ui/status.ts';
 import { $ } from '../ui/dom.ts';
 
 const h = <K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string, string> = {}, text = ''): HTMLElementTagNameMap[K] => {
@@ -28,7 +23,6 @@ const stopDrag = (e: HTMLElement): void => { for (const t of ['pointerdown', 'db
 
 export function mountFullUi(): void {
   initEnvironmentUi();
-  initWorlds();
   initMap();
 }
 
@@ -61,27 +55,6 @@ function initEnvironmentUi(): void {
   });
   addEventListener('resize', () => { if (!box.hidden) place(); });
   onWorldEnvironment((e, kind) => { if (panel) { fromWorld = true; panel.set(e, kindOf(kind)); } });
-}
-
-// ------------------------------------------------------------------------------------ worlds
-// Opening worlds and revisions lives in worlds.ts (both builds); writing a world needs sql.js.
-function initWorlds(): void {
-  const saveWorld = h('button', { type: 'button', id: 'savebrdb', title: 'Experimental: download the scene as a new world (.brdb, uncompressed blobs). Not yet tested in-game.' }, 'Save as new world (.brdb) · experimental');
-  $('saverow').append(saveWorld);
-  saveWorld.addEventListener('click', () => { void saveAsWorld(); });
-}
-
-async function saveAsWorld(): Promise<void> {
-  try {
-    await ensureLoadedFiles();
-    const s = sceneFiles();
-    if (!s) { setStatus('Open a save or world first: the new world is written from the save you opened'); return; }
-    const backend = await loadBrdbBackend!();
-    const bytes = writeNewWorld(backend, s.files);
-    const name = savedName(loadedName.replace(/ @ revision \d+$/, ''), '.brdb');
-    download(bytes, name);
-    setStatus(`Saved ${name} (experimental: worlds written this way are untested in-game)` + (s.warnings.length ? ' · ' + s.warnings.join(' · ') : ''));
-  } catch (err) { setStatus(`Couldn't save the world: ${(err as Error).message}`); console.error(err); }
 }
 
 // --------------------------------------------------------------------------------------- map

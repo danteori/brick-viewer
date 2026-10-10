@@ -1,7 +1,5 @@
 import { defineConfig, type Plugin } from 'vite';
 import { viteSingleFile } from 'vite-plugin-singlefile';
-import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 
 // Two builds from one codebase (docs: ARCHITECTURE.md section 2):
 //   vite build --mode full  -> dist/       index.html + hashed assets (hosted at /)
@@ -21,21 +19,18 @@ function renameLiteHtml(): Plugin {
 }
 
 /**
- * Dev server only: serves .local/palette.bp (git-ignored, never bundled) at __local/palette.bp, so
- * local development can use a private default palette. Builds never see this file.
+ * Drops // line comments from the modules that hold GLSL in template strings. The minifier removes
+ * the TypeScript comments but has to keep the shader ones (they're string contents), and they cost
+ * the size-budgeted lite build several KB. Only these files: none has '//' in a string or regex.
  */
-function localPalette(): Plugin {
-  const file = resolve(import.meta.dirname, '.local/palette.bp');
+const GLSL_FILES = /src[\\/]render[\\/](shaders[\\/]brick|shaders[\\/]tonemap|bloom|cutaway|gl|materials)\.ts$/;
+function stripGlslComments(): Plugin {
   return {
-    name: 'local-palette',
-    apply: 'serve',
-    configureServer(server) {
-      server.middlewares.use((req, res, next) => {
-        if (!req.url?.split('?')[0]!.endsWith('/__local/palette.bp')) return next();
-        if (!existsSync(file)) { res.statusCode = 404; res.end(); return; }
-        res.setHeader('Content-Type', 'application/json');
-        res.end(readFileSync(file));
-      });
+    name: 'strip-glsl-comments',
+    apply: 'build',
+    transform(code, id) {
+      if (!GLSL_FILES.test(id)) return null;
+      return { code: code.replace(/(^|[ \t])\/\/[^\n]*/gm, '$1'), map: null };
     },
   };
 }
@@ -57,6 +52,6 @@ export default defineConfig(({ mode }) => {
           emptyOutDir: true,
           rollupOptions: { input: 'index.html' },
         },
-    plugins: lite ? [viteSingleFile(), renameLiteHtml(), localPalette()] : [localPalette()],
+    plugins: lite ? [stripGlslComments(), viteSingleFile(), renameLiteHtml()] : [stripGlslComments()],
   };
 });

@@ -8,6 +8,9 @@ import { join } from 'node:path';
 import { REFS, referenceSaves, referenceWorlds } from '../unit/refs.ts';
 import { synthSave } from '../unit/synthsave.ts';
 
+// WebGL on the CI's software renderer (SwiftShader) is slow: room for a few hundred frames
+test.describe.configure({ timeout: 90_000 });
+
 const status = (page: Page) => page.locator('#status');
 
 /** A small synthetic .brz (no private data) as a file payload. */

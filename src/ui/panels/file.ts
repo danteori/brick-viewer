@@ -79,7 +79,13 @@ export function initFilePanel(): void {
 
   // Ctrl+V / Cmd+V: paste a .brz copied in the file manager (browsers only expose real files on the
   // clipboard, never a path's contents), an environment preset as JSON text, or a brick (editor).
+  // On Linux a middle click also pastes the primary selection: that's an orbit or a middle-click
+  // copy here, never a paste.
+  let midT = -1e9;
+  const mid = (e: PointerEvent): void => { if (e.button === 1) midT = performance.now(); };
+  addEventListener('pointerdown', mid, true); addEventListener('pointerup', mid, true);
   document.addEventListener('paste', (e) => {
+    if (performance.now() - midT < 500) { e.preventDefault(); return; }
     const a = document.activeElement as HTMLElement | null;
     if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable)) return;
     if (S.hooks.paste(e)) return;
