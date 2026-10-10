@@ -12,6 +12,10 @@
 //
 // Palettes: the panel starts with the remembered uploaded palette, else the default one
 // (loadDefaultPalette: the game's 2021 default palette).
+// Layout as the game's colour panel (backlog U-17): title "Color", a "<group> - <index>" subtitle
+// for the current swatch, and the swatch grid with ONE COLUMN PER PALETTE GROUP read top to bottom
+// (the game's current palette is 14 x 12; the 2021 default has 8 groups of 12), square swatches with
+// a ring on the current one. Key-hint chips for the paint tool at the bottom.
 // "Upload palette (.bp)" reads a ColorPalette preset; "Reset to default" forgets the upload.
 
 import {
@@ -64,20 +68,22 @@ const CSS = `
   background:rgba(29,30,33,.88); border:1px solid rgba(255,255,255,.12); box-shadow:0 6px 24px rgba(0,0,0,.35);
   color:var(--fg, #eee); font:13px/1.2 system-ui, sans-serif; min-width:0; }
 .bv-palette [hidden] { display:none !important; }
-.bv-palette .bvp-title { font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted, #9a9ca3); }
+.bv-palette .bvp-title { font-size:14px; font-weight:700; text-align:center; }
+.bv-palette .bvp-where { font-size:11px; text-align:center; color:var(--muted, #9a9ca3); min-height:1.2em; margin-top:-6px; }
 .bv-palette .bvp-cur { display:flex; align-items:center; gap:8px; min-width:0; }
 .bv-palette .bvp-chip { width:28px; height:28px; flex:none; border-radius:7px; border:1px solid rgba(255,255,255,.35); }
 .bv-palette .bvp-curtxt { display:grid; gap:2px; min-width:0; }
 .bv-palette .bvp-hex { font-weight:600; font-variant-numeric:tabular-nums; }
 .bv-palette .bvp-sub { font-size:11px; color:var(--muted, #9a9ca3); overflow-wrap:anywhere; }
-.bv-palette .bvp-grid { display:grid; gap:6px; max-height:min(46vh, 340px); overflow:hidden auto; overscroll-behavior:contain;
-  scrollbar-width:thin; padding-right:2px; }
-.bv-palette .bvp-gname { font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted, #9a9ca3); padding:0 1px 2px; }
-.bv-palette .bvp-row { display:grid; grid-template-columns:repeat(12, minmax(0, 1fr)); gap:2px; }
-.bv-palette .bvp-sw { aspect-ratio:1; min-width:0; min-height:14px; padding:0; border-radius:4px; cursor:pointer;
+.bv-palette .bvp-grid { display:grid; grid-auto-flow:column; grid-auto-columns:minmax(0, 28px); gap:3px; justify-content:center;
+  max-height:min(46vh, 340px); overflow:hidden auto; overscroll-behavior:contain; scrollbar-width:thin; padding:3px; }
+.bv-palette .bvp-sw { aspect-ratio:1; min-width:0; min-height:12px; padding:0; border-radius:3px; cursor:pointer;
   border:1px solid rgba(255,255,255,.18); }
 .bv-palette .bvp-sw:hover { border-color:rgba(255,255,255,.7); }
-.bv-palette .bvp-sw[aria-pressed="true"] { border-color:#fff; box-shadow:0 0 0 2px var(--accent, #e8590c); }
+.bv-palette .bvp-sw[aria-pressed="true"] { border-color:#fff; box-shadow:0 0 0 2px rgba(255,255,255,.85); transform:scale(1.12); position:relative; z-index:1; }
+.bv-palette .bvp-keys { display:flex; flex-wrap:wrap; gap:4px; font-size:11px; color:var(--muted, #9a9ca3); }
+.bv-palette .bvp-keys span { padding:2px 6px; border-radius:6px; background:rgba(0,0,0,.35); border:1px solid rgba(255,255,255,.1); white-space:nowrap; }
+.bv-palette .bvp-keys kbd { font:600 10px/1 system-ui, sans-serif; color:var(--fg, #eee); margin-right:4px; }
 .bv-palette .bvp-field { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--muted, #9a9ca3); min-width:0; }
 .bv-palette .bvp-field > span:first-child { flex:none; width:5.2em; }
 .bv-palette select, .bv-palette .bvp-btn { min-width:0; padding:5px 8px; border-radius:7px; border:1px solid rgba(255,255,255,.18);
@@ -129,6 +135,7 @@ export function mountPalettePanel(root: HTMLElement, opts: PalettePanelOptions):
   const chip = el('span', { class: 'bvp-chip', 'aria-hidden': 'true' });
   const hex = el('span', { class: 'bvp-hex' });
   const sub = el('span', { class: 'bvp-sub' });
+  const where = el('div', { class: 'bvp-where', 'aria-live': 'polite' });
   const grid = el('div', { class: 'bvp-grid', role: 'group', 'aria-label': 'Palette colours' });
   const mat = el('select', { 'aria-label': 'Material' });
   for (const m of MATERIALS) mat.append(el('option', { value: m, text: materialLabel(m) }));
@@ -142,15 +149,18 @@ export function mountPalettePanel(root: HTMLElement, opts: PalettePanelOptions):
   const status = el('div', { class: 'bvp-status', role: 'status', 'aria-live': 'polite' });
   paintBtn.hidden = !opts.onPaint;
 
+  const key = (k: string, what: string): HTMLElement => el('span', {}, el('kbd', { text: k }), what);
+  const keys = el('div', { class: 'bvp-keys', 'aria-label': 'Paint tool keys' }, key('Click / drag', 'Paint'), key('Alt+click', 'Pick'));
   const panel = el('section', { class: 'bv-palette', 'aria-label': 'Paint' },
-    el('div', { class: 'bvp-title', text: 'Paint' }),
-    el('div', { class: 'bvp-cur' }, chip, el('span', { class: 'bvp-curtxt' }, hex, sub)),
+    el('div', { class: 'bvp-title', text: 'Color' }),
+    where,
     grid,
+    el('div', { class: 'bvp-cur' }, chip, el('span', { class: 'bvp-curtxt' }, hex, sub)),
     el('label', { class: 'bvp-field' }, el('span', { text: 'Material' }), mat),
     el('label', { class: 'bvp-field' }, el('span', { text: 'Intensity' }), inten, intenOut),
     el('div', { class: 'bvp-btns' }, eyeBtn, paintBtn),
     el('div', { class: 'bvp-btns' }, upBtn, resetBtn),
-    file, status,
+    keys, file, status,
   );
   // clicks and wheel here aren't canvas drags / zooms
   for (const t of ['pointerdown', 'dblclick', 'wheel']) panel.addEventListener(t, (e) => e.stopPropagation());
@@ -158,7 +168,7 @@ export function mountPalettePanel(root: HTMLElement, opts: PalettePanelOptions):
 
   // --- state
   let palette: Palette = defaultPalette();
-  let swatches: { btn: HTMLButtonElement; rgb: Rgb8 }[] = [];
+  let swatches: { btn: HTMLButtonElement; rgb: Rgb8; g: number; i: number }[] = [];
   let eye = false;
 
   const say = (msg: string, err = false): void => { status.textContent = msg; status.classList.toggle('err', err); };
@@ -166,18 +176,22 @@ export function mountPalettePanel(root: HTMLElement, opts: PalettePanelOptions):
   function renderGrid(): void {
     grid.replaceChildren();
     swatches = [];
+    // one column per group, top to bottom (in DOM order too, so Tab walks a column at a time)
+    const rows = Math.max(1, ...palette.groups.map((g) => g.colors.length));
+    grid.style.gridTemplateRows = `repeat(${rows}, auto)`;
     palette.groups.forEach((g, gi) => {
-      const row = el('div', { class: 'bvp-row', role: 'group', 'aria-label': g.name });
       g.colors.forEach((c, ci) => {
         const rgb = paletteColourToSrgb(c), h = hexOfRgb8(rgb);
-        const btn = el('button', { type: 'button', class: 'bvp-sw', title: `${g.name} ${ci + 1}: ${h}`, 'aria-label': `${g.name} ${ci + 1}, ${h}`, 'aria-pressed': 'false' });
+        const btn = el('button', { type: 'button', class: 'bvp-sw', title: `${g.name} - ${ci}: ${h}`, 'aria-label': `${g.name} - ${ci}, ${h}`, 'aria-pressed': 'false' });
         btn.style.background = h;
+        btn.style.gridColumn = String(gi + 1); btn.style.gridRow = String(ci + 1);
         btn.dataset.g = String(gi); btn.dataset.i = String(ci);
         btn.addEventListener('click', () => { model.setColour(rgb); opts.onPick?.(model.paint); });
-        swatches.push({ btn, rgb });
-        row.append(btn);
+        btn.addEventListener('pointerenter', () => { where.textContent = `${g.name} - ${ci}`; });
+        btn.addEventListener('pointerleave', () => syncCurrent());
+        swatches.push({ btn, rgb, g: gi, i: ci });
+        grid.append(btn);
       });
-      grid.append(el('div', {}, el('div', { class: 'bvp-gname', text: g.name }), row));
     });
     syncCurrent();
   }
@@ -191,22 +205,25 @@ export function mountPalettePanel(root: HTMLElement, opts: PalettePanelOptions):
     mat.value = p.material;
     inten.value = String(p.intensity);
     intenOut.textContent = String(p.intensity);
-    let first = true;
+    let first = true, cur = '';
     for (const s of swatches) {
       const on = first && sameRgb(s.rgb, p.colour);
-      if (on) first = false;                         // duplicates in a palette: mark the first only
+      if (on) { first = false; cur = `${palette.groups[s.g]!.name} - ${s.i}`; }   // duplicates in a palette: mark the first only
       s.btn.setAttribute('aria-pressed', String(on));
     }
+    where.textContent = cur || 'Custom colour';
   }
 
-  // arrow keys move between swatches (12 per row; Up/Down jump a row)
+  // arrow keys move between swatches: Up / Down within a group's column, Left / Right to the next group
   grid.addEventListener('keydown', (e) => {
-    const i = swatches.findIndex((s) => s.btn === document.activeElement);
-    if (i < 0) return;
-    const d = ({ ArrowLeft: -1, ArrowRight: 1, ArrowUp: -12, ArrowDown: 12 } as Record<string, number>)[e.key];
+    const s = swatches.find((w) => w.btn === document.activeElement);
+    if (!s) return;
+    const d = ({ ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] } as Record<string, [number, number]>)[e.key];
     if (!d) return;
     e.preventDefault();
-    swatches[Math.max(0, Math.min(swatches.length - 1, i + d))]?.btn.focus();
+    const g = Math.max(0, Math.min(palette.groups.length - 1, s.g + d[0]));
+    const i = Math.max(0, Math.min(palette.groups[g]!.colors.length - 1, s.i + d[1]));
+    swatches.find((w) => w.g === g && w.i === i)?.btn.focus();
   });
 
   mat.addEventListener('change', () => { model.setMaterial(mat.value); opts.onPick?.(model.paint); });

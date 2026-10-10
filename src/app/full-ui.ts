@@ -39,8 +39,7 @@ function initEnvironmentUi(): void {
     const r = $('side').getBoundingClientRect();
     box.style.left = `${Math.round(r.right + 12)}px`;
   };
-  btn.addEventListener('click', () => {
-    const open = box.hidden;
+  const show = (open: boolean): void => {
     box.hidden = !open;
     btn.setAttribute('aria-expanded', String(open));
     if (open && !panel) {
@@ -48,11 +47,13 @@ function initEnvironmentUi(): void {
       panel = createEnvironmentPanel({
         ...(cur && { env: cur }),
         onChange: (e) => { applyEnvironment(e, fromWorld ? 'world' : 'user'); fromWorld = false; },
+        onClose: () => { show(false); btn.focus(); },
       });
       box.append(panel.el);
     }
     if (open) place();
-  });
+  };
+  btn.addEventListener('click', () => show(box.hidden !== false));
   addEventListener('resize', () => { if (!box.hidden) place(); });
   onWorldEnvironment((e, kind) => { if (panel) { fromWorld = true; panel.set(e, kindOf(kind)); } });
 }

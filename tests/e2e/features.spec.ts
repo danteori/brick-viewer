@@ -30,7 +30,9 @@ test('environment panel lights the scene and shows the ground plate', async ({ p
   await expect(page.locator('#light option')).toHaveCount(5);
   await page.locator('#envbtn').click();
   await expect(page.locator('#envpanel .envp')).toBeVisible();
-  const tod = page.locator('#envpanel input[type=number]').first();
+  await page.locator('#envpanel summary', { hasText: 'Sky' }).first().click();
+  await page.locator('#envpanel [role=slider]').first().dblclick();
+  const tod = page.locator('#envpanel input.envp-edit').first();
   await tod.fill('18');
   await tod.press('Enter');
   await expect(page.locator('#light')).toHaveValue('env');
@@ -38,6 +40,10 @@ test('environment panel lights the scene and shows the ground plate', async ({ p
   // another preset turns the environment off again
   await page.locator('#light').selectOption('night');
   await expect(page.locator('#light')).toHaveValue('night');
+  // DONE closes the panel, like the game's menu
+  await page.locator('#envpanel').getByRole('button', { name: 'DONE' }).click();
+  await expect(page.locator('#envpanel')).toBeHidden();
+  await expect(page.locator('#envbtn')).toHaveAttribute('aria-expanded', 'false');
   expect(errors).toEqual([]);
 });
 
