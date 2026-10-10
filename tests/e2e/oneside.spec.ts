@@ -9,10 +9,14 @@ test.describe.configure({ timeout: 120_000 });
 interface Api { hideUi(): void; loadSave(b64: string, name: string): { bricks: number }; settle(): Promise<number>; brickBox(k: number): { lo: number[]; hi: number[] }; project(x: number, y: number, z: number): [number, number] }
 type W = { __brickTest: Api };
 
-// a big smooth tile of each material on a smooth white floor, the tile held well above the floor so its own underside isn't flush with the floor (test-only save)
-const save = (material: string): string => Buffer.from(synthSave([
-  { asset: 'PB_DefaultSmoothTile', size: [40, 40, 12], pos: [0, 0, 80], color: [120, 180, 255], material, intensity: 5 },
-  { asset: 'PB_DefaultSmoothTile', size: [300, 300, 6], pos: [0, 0, 6], color: [240, 240, 240] },
+// a big smooth tile of each material on a smooth white floor, the tile held well above the floor so its own underside isn't flush with the floor (test-only save).
+// Hologram is unlit and its stripes follow world height, so its sockets barely show: its block is tall and dim over a dark floor instead, and
+// drawn two-sided, the far side walls' stripes would show through the plain top
+interface Case { hz: number; color: [number, number, number]; intensity: number; floor: [number, number, number] }
+const PLAIN: Case = { hz: 12, color: [120, 180, 255], intensity: 5, floor: [240, 240, 240] };
+const save = (material: string, c: Case): string => Buffer.from(synthSave([
+  { asset: 'PB_DefaultSmoothTile', size: [40, 40, c.hz], pos: [0, 0, 68 + c.hz], color: c.color, material, intensity: c.intensity },
+  { asset: 'PB_DefaultSmoothTile', size: [300, 300, 6], pos: [0, 0, 6], color: c.floor },
 ])).toString('base64');
 
 /** max - min brightness over a patch at the middle of the tile's top face (the smaller brick; load order isn't save order) */
@@ -36,13 +40,17 @@ async function topSpread(page: Page, b64: string): Promise<number> {
   }, [shot, c[0], c[1]] as const);
 }
 
-for (const m of ['BMC_Glass', 'BMC_TranslucentPlastic', 'BMC_Hologram']) {
+const CASES: [string, Case][] = [
+  ['BMC_Glass', PLAIN], ['BMC_TranslucentPlastic', PLAIN],
+  ['BMC_Hologram', { hz: 60, color: [220, 0, 13], intensity: 2, floor: [20, 20, 20] }],
+];
+for (const [m, c] of CASES) {
   test(`${m}: no underside texture shows through the top`, async ({ page }) => {
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(String(e)));
     await page.goto('/?test');
     await page.waitForFunction(() => !!(window as unknown as W).__brickTest);
-    expect(await topSpread(page, save(m))).toBeLessThan(12);   // a flat, even patch: no sockets behind it
+    expect(await topSpread(page, save(m, c))).toBeLessThan(12);   // a flat, even patch: no sockets or far faces behind it
     expect(errors).toEqual([]);
   });
 }
