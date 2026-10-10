@@ -17,7 +17,11 @@ interface Api {
 }
 type W = { __brickTest: Api };
 
-test.describe.configure({ timeout: 240_000 });
+// The CI renders WebGL in software (SwiftShader), where the X-ray house costs up to ~2 s a frame at
+// 1280 x 800. These tests check picking and camera maths in CSS pixels, so a half-resolution drawing
+// buffer (same layout, a quarter of the pixels to shade) tests the same thing faster.
+test.use({ deviceScaleFactor: 0.5 });
+test.describe.configure({ timeout: 360_000 });
 
 const frames = (page: Page, n = 3): Promise<void> => page.evaluate(async (n) => {
   for (let i = 0; i < n; i++) await new Promise((r) => requestAnimationFrame(r));
