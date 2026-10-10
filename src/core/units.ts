@@ -65,8 +65,10 @@ export const SHADE = {
    * Specular anti-aliasing (U-10): a pixel whose screen-space normal variance |fwidth(n)|^2 exceeds
    * SPEC_AA_T has its glint divided by 1 + SPEC_AA_K x the excess, so a stud crease thinner than a
    * pixel can't flash white on one pixel; such a pixel's glint is also capped at SPEC_AA_CAP (linear).
+   * Full strength while a stud is under SPEC_AA_PX_LO px on screen, fading out by SPEC_AA_PX_HI px
+   * (close-ups are untouched).
    */
-  SPEC_AA_T: 0.04, SPEC_AA_K: 25, SPEC_AA_CAP: 0.06,
+  SPEC_AA_T: 0.04, SPEC_AA_K: 25, SPEC_AA_CAP: 0.06, SPEC_AA_PX_LO: 10, SPEC_AA_PX_HI: 18,
 };
 
 /** Round to 3 decimals (the legacy viewer's frame-safe rounding). */

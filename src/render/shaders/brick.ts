@@ -138,8 +138,8 @@ uniform float uExposure;
 // everything else uses), 1 glass, 2 translucent plastic, 3 glow. uMatPass: glass 0 = the multiply
 // pass, 1 = the reflection add pass; 2 = linear emission for the bloom buffer.
 uniform float uMat, uIntensity, uMatPass;
-// specular anti-aliasing (U-10): normal-variance threshold and glint fade strength
-uniform float uStudFade;
+// specular anti-aliasing (U-10): strength by stud size on screen, variance threshold, fade, cap
+uniform float uSpecAA;
 const float SPEC_AA_T = ${glf(SHADE.SPEC_AA_T)}, SPEC_AA_K = ${glf(SHADE.SPEC_AA_K)}, SPEC_AA_CAP = ${glf(SHADE.SPEC_AA_CAP)};
 ${CUT_GLSL}${TONEMAP_GLSL}
 ${MATERIALS_GLSL}
@@ -334,14 +334,13 @@ void main(){
   vec3 L = normalize(vLightL);
   float d = max(dot(n, L), 0.0);
   float bent = smoothstep(0.0, 0.02, 1.0 - dot(n, nG));
-  // Specular anti-aliasing (U-10): where the shading normal changes faster than a pixel (the stud
-  // creases, hard bevel chamfers at a distance) one pixel can land on a normal that glints white.
-  // Fade the glint by the excess screen-space normal variance |fwidth(n)|^2 over SPEC_AA_T (it only
-  // ever dims, never widens, so nothing new lights up), and the stud glint with the stud distance
-  // fade. Pixels whose normal varies less than that keep the exact original highlight.
+  // Specular anti-aliasing (U-10): where the stud creases or the hard bevel chamfers bend the normal
+  // faster than a pixel, one pixel can land on a normal that glints white. Fade the glint by the excess
+  // screen-space normal variance |fwidth(n)|^2 over SPEC_AA_T (it only ever dims, never widens, so
+  // nothing new lights up), scaled by uSpecAA (1 when studs are small on screen, 0 from
+  // SHADE.SPEC_AA_PX_HI px a stud up: close-ups keep the exact original shading).
   vec3 dn = fwidth(n);
-  float nv = max(dot(dn, dn) - SPEC_AA_T, 0.0), sk = 1.0 / (1.0 + SPEC_AA_K * nv);
-  if (studTop) sk *= uStudFade;
+  float nv = max(dot(dn, dn) - SPEC_AA_T, 0.0) * uSpecAA, sk = 1.0 / (1.0 + SPEC_AA_K * nv);
   float spec = pow(max(dot(n, normalize(L + vEyeL)), 0.0), 28.0) * 0.32 * bent * sk;
   if (nv > 0.0) spec = min(spec, SPEC_AA_CAP);     // an aliased pixel's glint can't approach white on dark plastic
   vec3 albedo = vMisc.x > 0.5 ? vBase : toLinear(vBase);

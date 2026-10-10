@@ -54,6 +54,9 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
   gl.uniform1f(u.uEdge, 0); gl.uniform1f(u.uBevelMax, BEVEL); gl.uniform1f(u.uBevelFit, BEVEL_FIT ? 1 : 0);
   // studs / underside fade out when a stud is only a few px
   gl.uniform1f(u.uStudFade, Math.max(0, Math.min(1, (studPx(0) - 6) / 8)));
+  // stud-crease specular AA (U-10): full strength below SPEC_AA_PX_LO px a stud, off from SPEC_AA_PX_HI
+  const realStudPx = studPx(0) * STEP / S.STEPS[0];   // a real stud, whatever grid the focused brick uses
+  gl.uniform1f(u.uSpecAA, Math.max(0, Math.min(1, (SHADE.SPEC_AA_PX_HI - realStudPx) / (SHADE.SPEC_AA_PX_HI - SHADE.SPEC_AA_PX_LO))));
   // slope texture: one bump is 1/SHADE.BUMPS stud; fade it out between ~1.5 and 4 px
   const bumpFade = Math.max(0, Math.min(1, (studPx(0) * STEP / S.STEPS[0] / SHADE.BUMPS - 1.5) / 2.5));
   gl.uniform1f(u.uBump, SHADE.BUMP_STRENGTH * bumpFade);
