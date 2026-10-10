@@ -12,6 +12,7 @@ import { statusText } from '../ui/status.ts';
 import { clip, startPaste } from '../editor/clipboard.ts';
 import type { Brick } from '../scene/brick.ts';
 import { ed } from '../editor/ghost.ts';
+import { selectBrick } from '../editor/resize.ts';
 import { setSelection } from '../editor/select.ts';
 import { inst, stats } from '../render/instances.ts';
 
@@ -42,6 +43,8 @@ export interface BrickTest {
   renderStats(): { chunks: number; draws: number; instances: number; total: number };
   /** put bricks on the clipboard (lo / hi relative to the group's low corner) and start pasting them */
   paste(items: Brick[]): void;
+  /** give brick k (k-th in list order) the focus (camera glides to it), keeping the zoom factor */
+  focus(k: number): void;
 }
 
 /**
@@ -114,6 +117,7 @@ export function installTestHook(canvas: HTMLCanvasElement): void {
     renderStats: () => ({ ...stats, total: inst.set?.chunks.size ?? 0 }),
     selection: () => { const ids = S.scene.ordered(); return [...S.selection].map((id) => ids.indexOf(id)).sort((a, b) => a - b); },
     paste(items) { clip.items = items; startPaste(); },
+    focus(k) { const z = S.zoomMul; selectBrick(S.scene.ordered()[k]!); S.zoomMul = z; },
     select: (ids) => setSelection(ids),
     byId: () => S.scene.ordered().map((id) => { const b = brickView(S.scene, id); return [id, b.lo, b.hi, b.color]; }),
     /** the scene as brick records (absolute) in list order, plus the focus and the editor state */

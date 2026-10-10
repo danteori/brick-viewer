@@ -26,6 +26,14 @@ const MARKUP = `
     <button type="button" id="mute" aria-pressed="false" title="Mute the editor sounds">On</button>
     <input id="vol" type="range" min="0" max="100" step="1" aria-label="Sound volume" title="Sound volume">
   </div>
+  <div id="viewbox" role="group" aria-label="View">View
+    <button type="button" id="underside" aria-pressed="false" title="Flip to the iso corner below the brick, or back above (U)">Underside (U)</button>
+    <button type="button" id="xray" aria-pressed="false" title="X-ray: cut a round hole from the focused brick toward the camera (X)">X-ray (X)</button>
+  </div>
+  <div id="xraybox" hidden>
+    <label title="Hole radius around the focused brick">Hole <input id="xraysize" type="range" min="0" max="100" step="1" aria-label="X-ray hole size"></label>
+    <label title="How fast the hole widens toward the camera (cone half-angle)">Spread <input id="xrayspread" type="range" min="0" max="60" step="1" aria-label="X-ray cone spread, degrees"></label>
+  </div>
   <div id="file">
     <button type="button" id="open">Open save (.brz)</button>
     <input type="file" id="pick" accept=".brz,.bp" hidden>
