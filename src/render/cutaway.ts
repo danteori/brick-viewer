@@ -87,6 +87,7 @@ export const CUT_GLSL = `
 uniform vec3 uCutA, uCutLo, uCutHi;
 uniform vec4 uCutK;   // base radius, tan(half-angle), the level (world Z) and side (+1 above / -1 below)
 uniform float uCutOff, uCutEdge;
+uniform vec3 uEye;    // the view direction (the lit shading gets it turned per vertex; the cut needs it here)
 bool cutAway(vec3 p){
   if (uCutOff > 0.5 || uCutK.w * (p.y - uCutK.z) <= ${LEVEL_EPS} || all(greaterThanEqual(p, uCutLo)) && all(lessThanEqual(p, uCutHi))) return false;
   vec3 q = p - uCutA;
