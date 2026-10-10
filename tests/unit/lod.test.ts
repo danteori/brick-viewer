@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { SceneStore } from '../../src/scene/store.ts';
 import { putPlain } from '../../src/scene/view.ts';
-import { buildLod, CELL, LOD_MERGED, lodLevel } from '../../src/render/lod.ts';
+import { buildLod, CELL, LOD_MERGED, LOD_MERGED_BOX, lodLevel } from '../../src/render/lod.ts';
 
 const add = (s: SceneStore, pos: [number, number, number], size: [number, number, number], color: [number, number, number, number] = [10, 20, 30, 5]): number => {
   const id = s.alloc();
@@ -31,9 +31,11 @@ describe('far LOD cells', () => {
   });
 
   it('picks coarser levels as studs shrink', () => {
-    expect(lodLevel(3)).toBe(0);
+    expect(lodLevel(12)).toBe(0);
+    expect(lodLevel(6)).toBe(LOD_MERGED);
     expect(lodLevel(2)).toBe(LOD_MERGED);
-    expect(lodLevel(0.75)).toBe(LOD_MERGED);
+    expect(lodLevel(1)).toBe(LOD_MERGED_BOX);
+    expect(lodLevel(0.75)).toBe(LOD_MERGED_BOX);
     expect(lodLevel(0.7)).toBe(1);
     expect(lodLevel(0.25)).toBe(2);
     expect(lodLevel(0.06)).toBe(3);

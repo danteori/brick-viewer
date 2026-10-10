@@ -28,7 +28,7 @@ import { ASSETS, F_LINEAR, MATERIALS, worldHalfOf, type SceneStore } from '../sc
 import { topOf } from '../scene/view.ts';
 import { MAT_GLASS, MAT_GLOW, MAT_TRANSLUCENT, matCode } from './matcode.ts';
 import { FULLY_HIDDEN } from '../scene/cull.ts';
-import { BLOCK, buildLod, LOD_MERGED } from './lod.ts';
+import { BLOCK, buildLod, CELL, LOD_LEVELS, LOD_MERGED, LOD_MERGED_BOX } from './lod.ts';
 
 /** Render chunk size, units (about 50 studs). */
 export const CHUNK = 1024;
@@ -69,6 +69,8 @@ interface LodSet { dirty: boolean; groups: Map<Mesh, Group>; sgroups: SpecialGro
 interface LBlock {
   c: [number, number, number];
   chunks: Set<RChunk>;
+  /** when a member chunk was last re-packed (ms): merged full detail waits until edits settle */
+  editedAt: number;
   /** per LOD level (1, 2, ...): built on first use, out of date when a member chunk is re-packed */
   lv: (LodSet | undefined)[];
   box: [number, number, number, number, number, number];
@@ -99,6 +101,8 @@ const lodFrame = (): void => { lodSpent = 0; lodBuilt = 0; };
 const lodBudget = (): boolean => lodBuilt === 0 || lodSpent < LOD_BUDGET_MS;
 /** A block without a usable coarse set draws its chunks in full only when they hold at most this many instances (else it waits: pop-in, as streaming would). */
 const LOD_FALLBACK_INSTANCES = 20000;
+/** A block edited this recently (ms) draws its chunks instead of rebuilding its merged set every edit. */
+const MERGE_SETTLE_MS = 1500;
 
 /** The word bits of an asset (top style, micro), cached by asset table index. */
 const assetWord: number[] = [];
@@ -220,7 +224,7 @@ export class ChunkSet {
   private blockAt(map: Map<string, LBlock>, c: readonly number[], size: number): LBlock {
     const k = c.map((v) => Math.floor(v / size)), key = k.join('_');
     let b = map.get(key);
-    if (!b) { b = { c: k.map((v) => v * size + size / 2) as [number, number, number], chunks: new Set(), lv: [], box: [0, 0, 0, 0, 0, 0] }; map.set(key, b); }
+    if (!b) { b = { c: k.map((v) => v * size + size / 2) as [number, number, number], chunks: new Set(), editedAt: -Infinity, lv: [], box: [0, 0, 0, 0, 0, 0] }; map.set(key, b); }
     return b;
   }
 
@@ -236,9 +240,9 @@ export class ChunkSet {
   }
 
   /** The blocks the far LOD draws at this frame's level: the coarser tier for levels 3 and up. */
-  private get lodBlocks(): Map<string, LBlock> { return farLod >= SUPER_LEVEL ? this.sblocks : this.blocks; }
+  private get lodBlocks(): Map<string, LBlock> { return farLod >= SUPER_LEVEL && farLod <= LOD_LEVELS ? this.sblocks : this.blocks; }
 
-  private staleBlock(b: LBlock): void { for (const L of b.lv) if (L) L.dirty = true; }
+  private staleBlock(b: LBlock): void { b.editedAt = performance.now(); for (const L of b.lv) if (L) L.dirty = true; }
 
   private dropGroups(groups: Map<Mesh, Group>): void {
     const gl = G.gl;
@@ -269,13 +273,23 @@ export class ChunkSet {
 
   /** Coarse groups for the rows of `per` (chunk -> mesh -> rows) into `groups`, at LOD `level`. */
   private coarse(b: LBlock, groups: Map<Mesh, Group>, per: (ch: RChunk) => Map<Mesh, number[]> | undefined, level: number): void {
-    if (level === LOD_MERGED) {
-      // full detail, the block's chunks merged: one draw per mesh instead of one per (chunk, mesh)
-      const lists = new Map<Mesh, number[]>();
+    if (level === LOD_MERGED || level === LOD_MERGED_BOX) {
+      // full detail, the block's chunks merged: one draw per mesh instead of one per (chunk, mesh);
+      // LOD_MERGED_BOX also draws small non-box bricks as plain boxes (their many meshes are what
+      // multiplies the draws)
+      const s = this.store, boxes = level === LOD_MERGED_BOX, lists = new Map<Mesh, number[]>();
       for (const ch of b.chunks) {
         const l = per(ch);
-        if (l) for (const [mesh, ids] of l) { let o = lists.get(mesh); if (!o) lists.set(mesh, (o = [])); for (const id of ids) o.push(id); }
+        if (l) for (const [mesh, ids] of l) {
+          let o = lists.get(mesh);
+          if (!o) lists.set(mesh, (o = []));
+          if (!boxes || mesh === BOX_MESH) { for (const id of ids) o.push(id); continue; }
+          let bo = lists.get(BOX_MESH);
+          if (!bo) lists.set(BOX_MESH, (bo = []));
+          for (const id of ids) (s.hx[id]! <= CELL && s.hy[id]! <= CELL && s.hz[id]! <= CELL ? bo : o).push(id);
+        }
       }
+      for (const [mesh, ids] of lists) if (!ids.length) lists.delete(mesh);
       this.fill(b, groups, lists);
       return;
     }
@@ -322,6 +336,11 @@ export class ChunkSet {
   private lodSet(b: LBlock, build: boolean): LodSet | null {
     const L = b.lv[farLod];
     if (L && !L.dirty) return L;
+    if (farLod > LOD_LEVELS) {
+      // merged full detail must show the current bricks exactly: rebuild once edits have settled,
+      // and until then the block draws its chunks (never another level or an old set)
+      return build && performance.now() - b.editedAt > MERGE_SETTLE_MS ? this.buildBlock(b, farLod) : null;
+    }
     if (build) return this.buildBlock(b, farLod);
     for (const o of b.lv) if (o && !o.dirty) return o;
     return L ?? null;
@@ -466,7 +485,7 @@ export class ChunkSet {
         if (cull && !this.visible(b, cull)) continue;
         const L = this.lodSet(b, lodBudget());
         if (L) { stats.chunks++; this.drawGroups(b.c, L.groups); continue; }
-        if (this.heavy(b)) { lodStats.waiting++; continue; }
+        if (farLod <= LOD_LEVELS && this.heavy(b)) { lodStats.waiting++; continue; }
         for (const ch of b.chunks) {
           if (!ch.groups.size || (cull && !this.visible(ch, cull))) continue;
           stats.chunks++;
@@ -501,7 +520,7 @@ export class ChunkSet {
       if (cull && !this.visible(b, cull)) continue;
       const L = lod ? this.lodSet(b, false) : null;     // built by draw() (opaque first, same frame)
       if (L) { const g = L.sgroups.get(m); if (g) this.drawGroups(b.c, g); continue; }
-      if (lod && this.heavy(b)) continue;                // waiting for its coarse set (see draw)
+      if (lod && farLod <= LOD_LEVELS && this.heavy(b)) continue;   // waiting for its coarse set (see draw)
       for (const ch of b.chunks) if (ch.sgroups.has(m) && (!cull || this.visible(ch, cull))) list.push(ch);
     }
     if (!list.length) { gl.bindVertexArray(null); return; }

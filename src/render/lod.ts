@@ -28,16 +28,19 @@ export const LOD_CELL_PX = 4;
 /**
  * Below this stud width (device px) and above LOD_STUD_PX, full detail is still drawn but each
  * block's chunks are merged into one buffer per mesh (draw calls, not triangles, are the limit when
- * a wide view holds thousands of chunks).
+ * a wide view holds thousands of chunks). The picture is the same.
  */
-export const MERGE_STUD_PX = 3;
-/** The pseudo-level for that merged full detail. */
-export const LOD_MERGED = LOD_LEVELS + 1;
+export const MERGE_STUD_PX = 12;
+/** Below this, merged blocks also draw small non-box bricks (ramps, rounds, special shapes) as their boxes: far fewer meshes, so far fewer draws. */
+export const MERGE_BOX_STUD_PX = 1.5;
+/** The pseudo-levels for merged full detail, and merged with small shapes as boxes. */
+export const LOD_MERGED = LOD_LEVELS + 1, LOD_MERGED_BOX = LOD_LEVELS + 2;
 
-/** The LOD level for a stud this many device pixels wide (0 = per-chunk full detail, LOD_MERGED, or 1..LOD_LEVELS). */
+/** The LOD level for a stud this many device pixels wide: 0 = per-chunk full detail, LOD_MERGED, LOD_MERGED_BOX, or 1..LOD_LEVELS. */
 export function lodLevel(studPx: number): number {
   if (!(studPx < MERGE_STUD_PX)) return 0;
-  if (!(studPx < LOD_STUD_PX)) return LOD_MERGED;
+  if (!(studPx < MERGE_BOX_STUD_PX)) return LOD_MERGED;
+  if (!(studPx < LOD_STUD_PX)) return LOD_MERGED_BOX;
   let L = 1;
   while (L < LOD_LEVELS && 4 * 4 ** L * studPx <= LOD_CELL_PX) L++;
   return L;

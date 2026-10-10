@@ -62,4 +62,15 @@ describe('face culling mirror', () => {
     syncScene();
     expect(s.faceMask[mid]! & FULLY_HIDDEN).toBe(FULLY_HIDDEN);
   });
+
+  it('uses every brick\'s own size (a small brick against a big one covers only part of its face)', () => {
+    const s = new SceneStore();
+    const big = s.alloc();
+    putPlain(s, big, { asset: 'PB_DefaultBrick', size: [20, 20, 6], pos: [0, 0, 6], orient: 16, color: [200, 200, 200, 5], material: 'BMC_Plastic' }, false);
+    const small = brick(s, 25, 0, 6);              // 1x1 against the big brick's +X face (2 studs wide)
+    S.scene = s; S.hidden = new Set();
+    syncScene();
+    expect(s.faceMask[big]! & FACE_PX).toBe(0);     // only partly covered
+    expect(s.faceMask[small]! & FACE_NX).toBe(FACE_NX);
+  });
 });

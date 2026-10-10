@@ -18,10 +18,10 @@ const NONE: CullBrick = { pos: [0, 0, 0], half: [0, 0, 0], shape: 'none', fullBo
 
 /**
  * Settings and counters (test hook / bench). `maxBricks`: bigger scenes skip culling (the build
- * runs on the main thread: about 2-3 us a brick plus ~150 bytes a brick of tables; a multi-million
- * brick prefab would stall the load for many seconds). Moving it to a worker lifts this (S-01).
+ * runs on the main thread: ~3-8 us a brick in the browser plus ~150 bytes a brick of tables; a
+ * multi-million brick prefab would stall the load for many seconds). Moving it to a worker lifts this (S-01).
  */
-export const faceCull = { on: true, maxBricks: 600_000, active: false, buildMs: 0, hiddenFaces: 0, hiddenBricks: 0 };
+export const faceCull = { on: true, maxBricks: 300_000, active: false, buildMs: 0, hiddenFaces: 0, hiddenBricks: 0 };
 
 let culler: FaceCuller | null = null;
 let store: SceneStore | null = null;
@@ -30,8 +30,9 @@ let hidden: ReadonlySet<number> = new Set();
 function cullOf(s: SceneStore, id: number): CullBrick {
   if (!s.alive(id) || hidden.has(id)) return NONE;
   const box = s.shape[id] === Kind.Box && FULL_BOX_ASSETS.has(ASSETS.name(s.asset[id]!));
+  const h = worldHalfOf(s.orient[id]!, s.hx[id]!, s.hy[id]!, s.hz[id]!);   // a shared scratch array: copy it
   return {
-    pos: [s.px[id]!, s.py[id]!, s.pz[id]!], half: worldHalfOf(s.orient[id]!, s.hx[id]!, s.hy[id]!, s.hz[id]!),
+    pos: [s.px[id]!, s.py[id]!, s.pz[id]!], half: [h[0], h[1], h[2]],
     shape: box ? 'box' : 'other', material: MATERIALS.name(s.material[id]!), grid: s.grid[id]!, fullBox: box,
   };
 }
