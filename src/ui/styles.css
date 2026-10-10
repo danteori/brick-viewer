@@ -32,7 +32,7 @@ body[data-tool="paint"] #c { cursor:crosshair !important; }
         font:600 12px/1.2 system-ui, sans-serif; color:#9a9ca3; }
 #lightbox select { min-width:0; flex:1; padding:4px 6px; border-radius:7px; border:1px solid rgba(255,255,255,.18); background:#2b2c30;
         color:#eee; font:600 12px/1.2 system-ui, sans-serif; }
-#lightbox select:focus-visible { outline:2px solid #fff; outline-offset:1px; }
+#lightbox select:focus-visible, #lightbox button:focus-visible { outline:2px solid #fff; outline-offset:1px; }
 #undobox input { width:4.5em; padding:4px 6px; border-radius:7px; border:1px solid rgba(255,255,255,.18); background:#2b2c30;
         color:#eee; font:600 12px/1.2 system-ui, sans-serif; }
 #undobox input:focus-visible { outline:2px solid #fff; outline-offset:1px; }
@@ -49,10 +49,10 @@ body[data-tool="paint"] #c { cursor:crosshair !important; }
 #xraybox[hidden] { display:none; }
 #xraybox label { display:flex; align-items:center; gap:8px; }
 #xraybox input { min-width:0; flex:1; accent-color:#e8590c; }
-#viewbox button { padding:4px 8px; border-radius:7px; border:1px solid rgba(255,255,255,.18); background:#2b2c30; color:#eee;
+#viewbox button, #lightbox button { padding:4px 8px; border-radius:7px; border:1px solid rgba(255,255,255,.18); background:#2b2c30; color:#eee;
         cursor:pointer; font:600 12px/1.2 system-ui, sans-serif; }
-#viewbox button[aria-pressed="true"] { color:#ff7a66; border-color:#e8590c; }
-#viewbox button:hover { border-color:#e8590c; }
+#viewbox button[aria-pressed="true"], #lightbox button[aria-pressed="true"] { color:#ff7a66; border-color:#e8590c; }
+#viewbox button:hover, #lightbox button:hover { border-color:#e8590c; }
 #viewbox :focus-visible, #xraybox :focus-visible { outline:2px solid #fff; outline-offset:1px; }
 #file { display:grid; gap:4px; padding:8px; border-radius:10px; background:rgba(29,30,33,.88); border:1px solid rgba(255,255,255,.12);
         box-shadow:0 6px 24px rgba(0,0,0,.35); }

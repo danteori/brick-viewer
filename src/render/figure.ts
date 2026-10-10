@@ -6,7 +6,7 @@
 // collided with. It is drawn as an overlay pass (S.hooks.draw) with the brick shader, depth-tested
 // against the scene, and follows the focused brick: feet on the brick's base level (its bottom face,
 // which is the ground for a brick on the ground), one stud out from the brick's camera-near X face,
-// centred on the brick along Y, facing the camera's side. Off by default (P or View > Figure).
+// centred on the brick along Y, facing the camera's side. Off by default (P, or the "Figure (P)" button in the Lighting row).
 
 import { S, hasFocus } from '../app/state.ts';
 import { BRZ_UNIT } from '../core/units.ts';

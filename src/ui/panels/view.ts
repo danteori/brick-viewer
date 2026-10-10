@@ -1,7 +1,8 @@
 // The View row in the left column: Underside (U, backlog U-03) flips the camera to the iso corner
 // below the brick or back above; X-ray (X, U-05) toggles the cutaway cone, with its Hole, Spread and
 // Keep (dead zone) sliders shown underneath while it's on.
-// Figure (P, U-16) shows the player reference figure.
+// Figure (P, U-16) shows the player reference figure; its button sits in the Lighting row, so the
+// View row never sets the left column's width (a wider column covers more of the scene).
 
 import { $ } from '../dom.ts';
 import { S } from '../../app/state.ts';

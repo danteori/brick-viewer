@@ -1,4 +1,4 @@
-// Player reference figure (U-16): P / View > Figure shows a 4-brick-tall mannequin beside the
+// Player reference figure (U-16): P / the Figure button shows a 4-brick-tall mannequin beside the
 // focused brick, on its base level. It is not a brick: clicks pass through it and it is never saved.
 // Startup brick only, no private data.
 
