@@ -2,7 +2,7 @@
 // adds a bloom halo around a bright glow brick (lite skips bloom). Synthetic save, no private data.
 
 import { expect, test, type Page } from '@playwright/test';
-import { synthSave } from '../unit/synthsave.ts';
+import { synthSave, type SynthBrick } from '../unit/synthsave.ts';
 
 test.describe.configure({ timeout: 90_000 });
 
@@ -51,4 +51,44 @@ test('glass, translucent, glow, metallic and hologram render in both builds; onl
   expect(lite.errors).toEqual([]);
   expect(full.errors).toEqual([]);
   expect(full.near).toBeGreaterThan(lite.near + 6);   // the halo lifts the background next to the glow brick
+});
+
+// over EXACT_SPECIAL (render/matpass.ts) the special bricks come from the instance buffers: 144 metallic and 144 hologram 1x1 bricks
+// (red) on a white floor, in both builds; the middle of each grid must show red, without errors
+const grid = (material: string, x0: number): SynthBrick[] => Array.from({ length: 144 }, (_, k) => (
+  { asset: 'PB_DefaultBrick', size: [5, 5, 12], pos: [x0 + (k % 12) * 10, Math.floor(k / 12) * 10, 12], color: [220, 20, 20], material, intensity: 6 }));
+const big = Buffer.from(synthSave([
+  ...grid('BMC_Metallic', 0), ...grid('BMC_Hologram', 200),
+  { asset: 'PB_DefaultBrick', size: [200, 80, 6], pos: [150, 55, -6], color: [230, 230, 230] },
+])).toString('base64');
+
+test('metallic and hologram draw instanced in big builds', async ({ page }) => {
+  for (const url of ['/lite.html?test', '/?test']) {
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(String(e)));
+    await page.goto(url);
+    await page.waitForFunction(() => !!(window as unknown as W).__brickTest);
+    const at = await page.evaluate(async (b64) => {
+      const t = (window as unknown as W).__brickTest;
+      const n = t.loadSave(b64, 'materials-big.brz').bricks;
+      t.hideUi(); await t.settle();
+      // the two grids' middle bricks (load order isn't save order): split the 1x1 bricks by x, take the one nearest each half's mean
+      const c = Array.from({ length: n }, (_, k) => t.brickBox(k)).filter((b) => b.hi[0]! - b.lo[0]! < 20)
+        .map((b) => [(b.lo[0]! + b.hi[0]!) / 2, (b.lo[1]! + b.hi[1]!) / 2, b.hi[2]!] as const).sort((a, b) => a[0] - b[0]);
+      return [c.slice(0, c.length / 2), c.slice(c.length / 2)].map((h) => {
+        const m = [0, 1].map((i) => h.reduce((s, p) => s + p[i]!, 0) / h.length);
+        const p = h.reduce((a, b) => (Math.hypot(b[0] - m[0]!, b[1] - m[1]!) < Math.hypot(a[0] - m[0]!, a[1] - m[1]!) ? b : a));
+        return t.project(p[0], p[1], p[2]);
+      });
+    }, big);
+    const shot = (await page.screenshot()).toString('base64');
+    const px = await page.evaluate(async ([b64, pts]) => {
+      const img = new Image(); img.src = 'data:image/png;base64,' + b64; await img.decode();
+      const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+      const g = c.getContext('2d')!; g.drawImage(img, 0, 0);
+      return pts.map(([x, y]) => Array.from(g.getImageData(Math.round(x!), Math.round(y!), 1, 1).data));
+    }, [shot, at] as const);
+    for (const p of px) expect(p[0]! - p[1]!, `${url} ${JSON.stringify(px)}`).toBeGreaterThan(40);
+    expect(errors).toEqual([]);
+  }
 });
