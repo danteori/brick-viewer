@@ -16,17 +16,17 @@ import { MAT_GLASS, MAT_GLOW, MAT_TRANSLUCENT, matCode } from './matcode.ts';
 import { boxIB } from './meshes/registry.ts';
 
 /**
- * Up to this many glass / translucent bricks are drawn one by one, exactly back to front (brick
- * centres). Above it (big builds: thousands of one-brick draws cost hundreds of ms a frame) they
- * come from the instance buffers instead: glass order-independent (its multiply and add passes
- * commute, as each brick's own faces already did), translucent plastic sorted back to front per
- * chunk, chunks back to front. Glow is opaque and always instanced.
+ * Up to this many glass / translucent / glow bricks are drawn one by one as before: glow, then the
+ * transparent ones exactly back to front (brick centres). Above it (big builds: thousands of
+ * one-brick draws cost hundreds of ms a frame) they come from the instance buffers instead: glow
+ * instanced, glass order-independent (its multiply and add passes commute, as each brick's own
+ * faces already did), translucent plastic sorted back to front per chunk, chunks back to front.
  */
-export const EXACT_TRANSPARENT = 128;
+export const EXACT_SPECIAL = 128;
 
 type Item = { b: Brick; l: readonly number[]; h: readonly number[]; m: number; shape?: BodyShape; sel: boolean };
 
-/** Brick views of the glass / translucent rows, rebuilt when the instance data changes (exact path only). */
+/** Brick views of the special rows, rebuilt when the instance data changes (exact path only). */
 let cache: Item[] = [], cacheRev = -1, cacheScene: unknown = null;
 function rows(): Item[] {
   if (cacheRev === inst.rev && cacheScene === S.scene) return cache;
@@ -35,9 +35,8 @@ function rows(): Item[] {
   cache = [];
   for (const id of inst.special) {
     if (!s.alive(id) || id === S.sel) continue;
-    const b = brickView(s, id), m = matCode(b);
-    if (m === MAT_GLOW) continue;
-    cache.push({ b, l: b.lo, h: b.hi, m, shape: bodyShape(b, b.lo, b.hi, s.orient[id]), sel: S.selection.has(id) });
+    const b = brickView(s, id);
+    cache.push({ b, l: b.lo, h: b.hi, m: matCode(b), shape: bodyShape(b, b.lo, b.hi, s.orient[id]), sel: S.selection.has(id) });
   }
   return cache;
 }
@@ -52,6 +51,8 @@ function focusItem(dlo: readonly number[], dhi: readonly number[]): Item | null 
 
 const intensityOf = (b: Brick): number => b.intensity ?? 5;
 const count = (m: number): number => inst.set?.matCount[m] ?? 0;
+/** Few enough special bricks to draw them one by one (exactly as before instancing them). */
+const exact = (): boolean => count(MAT_GLASS) + count(MAT_TRANSLUCENT) + count(MAT_GLOW) <= EXACT_SPECIAL;
 
 /** True when this frame has a glow brick (the bloom pass then runs). */
 export function hasGlow(): boolean {
@@ -76,9 +77,13 @@ function drawSet(m: number, sorted = false): void {
 export function drawGlow(dlo: readonly number[], dhi: readonly number[], pass = 0): void {
   const { gl, u } = G;
   gl.uniform1f(u.uMat, MAT_GLOW); gl.uniform1f(u.uMatPass, pass);
-  drawSet(MAT_GLOW);
   const f = focusItem(dlo, dhi);
-  if (f && f.m === MAT_GLOW) { gl.uniform1f(u.uIntensity, intensityOf(f.b)); draw(f); }
+  if (exact()) {
+    for (const it of f ? [...rows(), f] : rows()) if (it.m === MAT_GLOW) { gl.uniform1f(u.uIntensity, intensityOf(it.b)); draw(it); }
+  } else {
+    drawSet(MAT_GLOW);
+    if (f && f.m === MAT_GLOW) { gl.uniform1f(u.uIntensity, intensityOf(f.b)); draw(f); }
+  }
   gl.uniform1f(u.uMat, 0); gl.uniform1f(u.uMatPass, 0);
 }
 
@@ -105,14 +110,16 @@ export function drawMaterials(dlo: readonly number[], dhi: readonly number[]): v
   const f = focusItem(dlo, dhi), focusClear = f && f.m !== MAT_GLOW ? f : null;
   const n = count(MAT_GLASS) + count(MAT_TRANSLUCENT);
   if (!n && !focusClear) return;
-  gl.enable(gl.BLEND); gl.depthMask(false);
-  if (n <= EXACT_TRANSPARENT) {
+  if (exact()) {
     const v = S.view, eye = [v[2], v[6], v[10]];
     const depth = (it: Item): number => ((it.l[0]! + it.h[0]!) * eye[0]! + (it.l[2]! + it.h[2]!) * eye[1]! + (it.l[1]! + it.h[1]!) * eye[2]!) / 2;
     const list = focusClear ? [...rows(), focusClear] : rows();
-    const clear = list.map((it) => ({ it, d: depth(it) })).sort((a, b) => a.d - b.d);
+    const clear = list.filter((it) => it.m !== MAT_GLOW).map((it) => ({ it, d: depth(it) })).sort((a, b) => a.d - b.d);
+    if (!clear.length) return;
+    gl.enable(gl.BLEND); gl.depthMask(false);
     for (const { it } of clear) drawClear(it);
   } else {
+    gl.enable(gl.BLEND); gl.depthMask(false);
     gl.uniform1f(u.uMat, MAT_GLASS);
     gl.blendFunc(gl.ZERO, gl.SRC_COLOR); gl.uniform1f(u.uMatPass, 0); drawSet(MAT_GLASS);
     gl.blendFunc(gl.ONE, gl.ONE); gl.uniform1f(u.uMatPass, 1); drawSet(MAT_GLASS);
