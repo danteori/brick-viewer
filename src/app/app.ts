@@ -6,6 +6,7 @@ import { loadFaceCull, loadFullUi, type FeatureFlags } from './features.ts';
 import { initWorlds } from './worlds.ts';
 import { initWorldEnvironment } from './environment.ts';
 import { initPaintPanel } from '../ui/panels/paint.ts';
+import { initApplicatorPanel, tickApplicator } from '../ui/panels/applicator.ts';
 import { initSoundPanel } from '../ui/panels/sound.ts';
 import { initViewPanel } from '../ui/panels/view.ts';
 import { installTestHook } from './test-hook.ts';
@@ -118,6 +119,7 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
   initMirror();
   initWorldEnvironment();
   initPaintPanel();
+  initApplicatorPanel();
   // full build: environment panel, .brdb worlds and the map (a separate chunk, never in lite)
   if (loadFullUi) waitForOpeners(loadFullUi().then((m) => m.mountFullUi()).catch((err) => console.error('full UI failed to load', err)));
 
@@ -137,6 +139,7 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
       tickComponents();
       tickSelection();
       tickGrid();
+      tickApplicator();
     }
     requestAnimationFrame(frame);
   };

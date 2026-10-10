@@ -97,10 +97,12 @@ test('opens a .brdb world with its revisions', async ({ page }) => {
   test.skip(!worlds.length, 'no reference worlds (BRICK_REFS)');
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(String(e)));
-  await page.goto('/');
+  await page.goto('/?test');
   await page.locator('#pick').setInputFiles(join(REFS, worlds[0]!));
   await expect(status(page)).not.toContainText('Opening', { timeout: 60_000 });
-  await expect(status(page)).toContainText('moving grid(s) shown');
+  // its moving grids (if any) load into the scene (W-03): the status counts them, the scene has a grid set
+  await expect(status(page)).toContainText(/ bricks? /);
+  expect(await page.evaluate(() => (window as unknown as { __brickTest: { grids(): unknown[] | null } }).__brickTest.grids() !== null)).toBe(true);
   await expect(status(page)).not.toContainText("Couldn't");
   await expect(page.locator('#revbox')).toBeVisible();
   const n = await page.locator('#rev option').count();

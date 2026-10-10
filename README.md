@@ -29,11 +29,16 @@ On top of that:
   build adds an Environment panel for every sky, sun, cloud, fog, water and ground plate setting,
   with `.bp` load and save.
 - **Worlds (full build):** open `.brdb` worlds, view any earlier revision, and save as a new world
-  (experimental).
+  (experimental). **Compare** counts what the shown revision changed since the previous one (or any
+  other): bricks added, removed and changed, component and wire totals, files; **Highlight**
+  outlines those bricks.
 - **Moving grids:** a save's moving grids (vehicles, doors) load where they are parked. Click one of
   their bricks to select the whole grid: the Move tool drags it, R turns it a quarter turn. Brick
   Properties > Grid makes a new grid from the selection, moves bricks into another grid and types a
   grid's location and rotation. Saving writes the grids' bricks and their entities back.
+- **Applicator:** change the brick type or the material of the selection (or the focused brick).
+  Resizable types keep their size (only types whose size grid fits are applied), fixed types take their
+  own size; changes that would overlap a brick are left out. One undo step, saved with Save .brz.
 - **Map (full build):** a top-down map of the opened save; click it to jump to that spot.
 - **Components and wires:** Brick Properties > Components lists the focused brick's components
   with an editor per setting (numbers, toggles, choices, text, colours, vectors, map entries,

@@ -187,6 +187,35 @@ export abstract class BrdbFileTable {
     return this.rows.filter((r) => r.createdAt <= t && (r.deletedAt === null || r.deletedAt > t));
   }
 
+  /** Uncompressed size and hash of a blob when known without reading its content (undefined: unknown). */
+  protected blobMeta(_id: number): { size: number | null; hash: Uint8Array | null } | undefined {
+    return undefined;
+  }
+
+  /** Do two file rows hold the same bytes? null when that can't be told without reading them (no hashes). */
+  sameContent(x: BrdbFileRow, y: BrdbFileRow): boolean | null {
+    if (x.contentId === y.contentId) return true;
+    const a = this.blobMeta(x.contentId), b = this.blobMeta(y.contentId);
+    if (a?.hash && b?.hash && a.size !== null && b.size !== null) return a.size === b.size && bytesEqual(a.hash, b.hash);
+    return null;
+  }
+
+  /**
+   * Which paths differ between two trees of this world (`a` null = an empty tree, so everything in
+   * `b` is added), by content id, then size and hash; `undecided` settles rows without hashes
+   * (default: counted as changed). No blob is read.
+   */
+  diffTrees(a: BrdbTree | null, b: BrdbTree, undecided: (x: BrdbFileRow, y: BrdbFileRow) => boolean = () => false): TreeDiff {
+    const out: TreeDiff = { added: [], removed: [], changed: [] };
+    for (const [p, r] of b.entries) {
+      const o = a?.entries.get(p);
+      if (!o) out.added.push(p);
+      else if (!(this.sameContent(o, r) ?? undecided(o, r))) out.changed.push(p);
+    }
+    if (a) for (const p of a.entries.keys()) if (!b.entries.has(p)) out.removed.push(p);
+    return out;
+  }
+
   /** Files written and deleted per revision. */
   revisionStats(): RevisionStats[] {
     const w = new Map<number, number>(), d = new Map<number, number>();
@@ -266,22 +295,14 @@ export class BrdbWorld extends BrdbFileTable {
     return new BrdbTree(this, revisionId ?? null, this.treeRows(revisionId));
   }
 
-  /** Which paths differ between two revisions (by content hash). */
+  protected override blobMeta(id: number): { size: number | null; hash: Uint8Array | null } | undefined {
+    const b = this.blobs.get(id);
+    return b && { size: b.sizeUncompressed, hash: b.hash };
+  }
+
+  /** Which paths differ between two revisions (by content hash; rows without one by their bytes). */
   diff(fromRevision: number, toRevision: number): TreeDiff {
-    const a = this.tree(fromRevision), b = this.tree(toRevision), out: TreeDiff = { added: [], removed: [], changed: [] };
-    const same = (x: BrdbFileRow, y: BrdbFileRow): boolean => {
-      if (x.contentId === y.contentId) return true;
-      const hx = this.blobs.get(x.contentId), hy = this.blobs.get(y.contentId);
-      if (hx?.hash && hy?.hash) return hx.sizeUncompressed === hy.sizeUncompressed && bytesEqual(hx.hash, hy.hash);
-      return bytesEqual(this.blob(x.contentId), this.blob(y.contentId));
-    };
-    for (const [p, r] of b.entries) {
-      const o = a.entries.get(p);
-      if (!o) out.added.push(p);
-      else if (!same(o, r)) out.changed.push(p);
-    }
-    for (const p of a.entries.keys()) if (!b.entries.has(p)) out.removed.push(p);
-    return out;
+    return this.diffTrees(this.tree(fromRevision), this.tree(toRevision), (x, y) => bytesEqual(this.blob(x.contentId), this.blob(y.contentId)));
   }
 }
 

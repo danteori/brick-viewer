@@ -135,6 +135,11 @@ export class LazyBrdbWorld extends BrdbFileTable {
     return { ...this.db.stats, loadedBlobs: this.loaded.size, loadedBytes: this.loadedBytes, pageCacheBytes: this.db.cachedBytes };
   }
 
+  protected override blobMeta(id: number): { size: number | null; hash: Uint8Array | null } | undefined {
+    const b = this.blobs.get(id);
+    return b && { size: b.sizeUncompressed, hash: b.hash };
+  }
+
   /** Uncompressed contents of a loaded blob; throws NotLoadedError otherwise. */
   blob(id: number): Uint8Array {
     const b = this.loaded.get(id);
