@@ -58,22 +58,26 @@ describe('wire graph (synthetic save)', () => {
     expect(g.check(e({ grid: 1, chunk: c0, brick: 9 }, 'Test_Switch', 'bOn'), e(LIGHT, 'Test_Light', 'Mode')).map((i) => i.code)).toContain('missing-component');
   });
 
-  it('only crosses a chip boundary through the chip I/O bricks', () => {
+  it('enters a chip straight into a gate, but leaves only through the chip I/O', () => {
     const g = loadWires(synthSave());
-    // straight into a gate inside the chip
-    const chipOnly = (l: { code: string }[]) => l.filter((i) => i.code === 'chip-boundary');
-    expect(chipOnly(g.check(e(SWITCH, 'Test_Switch', 'bOn'), e(GATE, 'Test_AndGate', 'InputB')))).toMatchObject([{ code: 'chip-boundary', severity: 'error' }]);
+    const chipOnly = <T extends { code: string }>(l: T[]): T[] => l.filter((i) => i.code === 'chip-boundary');
+    // straight into a gate inside the chip: allowed (board answer), in both modes
+    expect(chipOnly(g.check(e(SWITCH, 'Test_Switch', 'bOn'), e(GATE, 'Test_AndGate', 'InputB')))).toEqual([]);
+    const added = g.addWire(e(SWITCH, 'Test_Switch', 'bOn'), e(GATE, 'Test_AndGate', 'InputB'));
+    expect(chipOnly(g.validate())).toEqual([]);
+    expect(g.wiresInto(added.target)).toHaveLength(1);
     // straight out of a gate inside the chip
-    expect(g.check(e(GATE, 'Test_AndGate', 'Output'), e(LIGHT, 'Test_Light', 'Radius')).map((i) => i.code)).toContain('chip-boundary');
+    expect(chipOnly(g.check(e(GATE, 'Test_AndGate', 'Output'), e(LIGHT, 'Test_Light', 'Radius')))).toMatchObject([{ severity: 'error' }]);
     // into the input brick, but on its inner port
     expect(g.check(e(SWITCH, 'Test_Switch', 'bOn'), e(CHIP_IN, 'Test_MicrochipInput', 'RER_Output')).map((i) => i.code)).toContain('chip-boundary');
     // out through the output brick: fine
     expect(g.check(e(CHIP_OUT, 'Test_MicrochipOutput', 'RER_Output'), e(LIGHT, 'Test_Light', 'Radius')).filter((i) => i.severity === 'error')).toEqual([]);
-    // relaxed mode: a warning, and the wire can be added
+    // relaxed mode: direct entry is still no issue; a direct exit is a warning and can be added
     const relaxed = loadWires(synthSave(), { chipBoundary: 'warn' });
-    expect(chipOnly(relaxed.check(e(SWITCH, 'Test_Switch', 'bOn'), e(GATE, 'Test_AndGate', 'InputB')))).toMatchObject([{ code: 'chip-boundary', severity: 'warning' }]);
-    relaxed.addWire(e(SWITCH, 'Test_Switch', 'bOn'), e(GATE, 'Test_AndGate', 'InputB'));
-    expect(relaxed.validate().map((i) => i.severity)).toEqual(['warning']);
+    expect(chipOnly(relaxed.check(e(SWITCH, 'Test_Switch', 'bOn'), e(GATE, 'Test_AndGate', 'InputB')))).toEqual([]);
+    expect(chipOnly(relaxed.check(e(GATE, 'Test_AndGate', 'Output'), e(LIGHT, 'Test_Light', 'Radius')))).toMatchObject([{ severity: 'warning' }]);
+    relaxed.addWire(e(GATE, 'Test_AndGate', 'Output'), e(LIGHT, 'Test_Light', 'Radius'));
+    expect(chipOnly(relaxed.validate()).map((i) => i.severity)).toEqual(['warning']);
   });
 
   it('warns about ports the save has never used on that type', () => {

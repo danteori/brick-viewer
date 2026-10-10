@@ -10,8 +10,8 @@ const MARKUP = `
 <div id="side">
   <div id="tool" role="group" aria-label="Tool">
     <button type="button" data-tool="resize" aria-pressed="true" title="Resize (1): drag to resize the focused brick">Resize</button>
-    <button type="button" data-tool="move" aria-pressed="false" title="Move (2): drag a brick, or the selection it's in, to move it">Move</button>
-    <button type="button" data-tool="paint" aria-pressed="false" title="Paint (3): click or drag over bricks to paint them; Alt+click takes a brick's paint">Paint</button>
+    <button type="button" data-tool="move" aria-pressed="false" title="Move (2 or M): drag like Resize, but the focused brick or the selection moves along one axis">Move</button>
+    <button type="button" data-tool="paint" aria-pressed="false" title="Paint (3): click or drag over bricks to paint them; Alt+click fills the connected bricks of the same colour; Ctrl+click takes a brick's paint">Paint</button>
   </div>
   <div id="menu" aria-label="Brick size"><div class="mtitle">Brick size</div></div>
   <div id="mode" role="group" aria-label="Brick type">
@@ -20,11 +20,21 @@ const MARKUP = `
     <button type="button" data-mode="tile" aria-pressed="false" title="Smooth Tile: flat top, no top bevel, stud underside">Smooth Tile</button>
     <button type="button" data-mode="micro" aria-pressed="false">Microbrick</button>
   </div>
-  <label id="lightbox">Lighting <select id="light" aria-label="Lighting preset"></select></label>
+  <label id="lightbox">Lighting <select id="light" aria-label="Lighting preset"></select>
+    <button type="button" id="figure" aria-pressed="false" title="Player figure: a player-sized mannequin (4 bricks tall) beside the focused brick, for scale. Not a brick: never saved, picked or collided with (P)">Figure (P)</button></label>
   <label id="undobox" title="How many edits Ctrl+Z can step back through">Undo steps <input id="undolim" type="number" min="1" max="500" step="1"></label>
   <div id="soundbox" role="group" aria-label="Sound">Sound
     <button type="button" id="mute" aria-pressed="false" title="Mute the editor sounds">On</button>
     <input id="vol" type="range" min="0" max="100" step="1" aria-label="Sound volume" title="Sound volume">
+  </div>
+  <div id="viewbox" role="group" aria-label="View">View
+    <button type="button" id="underside" aria-pressed="false" title="Flip to the iso corner below the brick, or back above (U)">Underside (U)</button>
+    <button type="button" id="xray" aria-pressed="false" title="X-ray: cut a round hole from the focused brick toward the camera (X)">X-ray (X)</button>
+  </div>
+  <div id="xraybox" hidden>
+    <label title="Hole radius around the focused brick">Hole <input id="xraysize" type="range" min="0" max="100" step="1" aria-label="X-ray hole size"></label>
+    <label title="How fast the hole widens toward the camera (cone half-angle)">Spread <input id="xrayspread" type="range" min="0" max="60" step="1" aria-label="X-ray cone spread, degrees"></label>
+    <label title="Dead zone: how far above the focused brick's top nothing is cut, so furniture in the room stays (bricks)">Keep <input id="xraykeep" type="range" min="0" max="20" step="1" aria-label="X-ray dead zone above the focus, bricks"></label>
   </div>
   <div id="file">
     <button type="button" id="open">Open save (.brz)</button>
@@ -65,9 +75,17 @@ const MARKUP = `
       <label class="crow"><span>Hex</span><input id="chex" type="text" maxlength="7" autocomplete="off" spellcheck="false" aria-label="Hex colour, #rgb or #rrggbb"></label>
     </div>
   </div>
+  <button type="button" id="comptoggle" aria-expanded="false" aria-controls="compbody" title="The focused brick's components: edit their settings, add or remove one">Components
+    <span id="compcount"></span>${CHEV}</button>
+  <div id="compbody" hidden></div>
   <button type="button" id="seltoggle" aria-expanded="true" aria-controls="selbody" title="Select several bricks (Shift+click, Shift+drag, Ctrl+A) and move, copy, cut or delete them together">Selection
     <span id="selcount"></span>${CHEV}</button>
   <div id="selbody">
+    <div class="selrow selmode" role="group" aria-label="Selector: what Shift+click does">
+      <span>Shift+click</span>
+      <button type="button" data-selector="brick" aria-pressed="true" title="Shift+click adds one brick at a time">Brick</button>
+      <button type="button" data-selector="box" aria-pressed="false" title="Shift+click grows a box from the focused brick; everything fully inside it is selected">Box</button>
+    </div>
     <div class="selrow sel3">
       <button type="button" data-sel="all" title="Select every brick (Ctrl+A)">All</button>
       <button type="button" data-sel="colour" title="Select every brick with the focused brick's colour">Colour</button>
@@ -81,10 +99,23 @@ const MARKUP = `
       <button type="button" data-sel="cut" title="Cut the selection (Ctrl+X)">Cut</button>
       <button type="button" data-sel="delete" title="Delete the selection (Delete)">Delete</button>
     </div>
+    <div class="selrow sel2">
+      <button type="button" data-mirror="0" title="Mirror the selection, or the brick in hand, across X (Alt+X)">Mirror X</button>
+      <button type="button" data-mirror="1" title="Mirror the selection, or the brick in hand, across Y (Alt+Y)">Mirror Y</button>
+    </div>
   </div>
   <button type="button" id="painttoggle" aria-expanded="false" aria-controls="paintbody" title="Colour palette, material and intensity: paint the selection (or the focused brick)">Paint
     ${CHEV}</button>
   <div id="paintbody" hidden></div>
+  <button type="button" id="apptoggle" aria-expanded="false" aria-controls="appbody" title="Change the brick type or the material of the selection (or the focused brick), like the game's applicator">Applicator
+    ${CHEV}</button>
+  <div id="appbody" hidden>
+    <div class="approw"><span>Type</span><select id="apptype" aria-label="Brick type to apply"></select>
+      <button type="button" id="appapplytype" title="Change the selection (or the focused brick) to this type: resizable types keep their size, fixed ones take their own">Apply</button></div>
+    <div class="approw"><span>Material</span><select id="appmat" aria-label="Material to apply"></select>
+      <button type="button" id="appapplymat" title="Give the selection (or the focused brick) this material, keeping its colour and intensity">Apply</button></div>
+    <button type="button" id="apppick" title="Set both lists to the focused brick's type and material">Take from the focused brick</button>
+  </div>
 </section>`;
 
 /** Builds the page into document.body (the #app placeholder is replaced). */

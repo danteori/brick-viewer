@@ -7,23 +7,31 @@ import { mul } from '../core/math.ts';
 import { BEVEL, BEVEL_FIT, SHADE, STEP } from '../core/units.ts';
 import type { V3 } from '../scene/brick.ts';
 import { G, bodyShape, drawBody, setBox } from './draw.ts';
-import { drawInstances, syncInstances, type ViewCull } from './instances.ts';
+import { drawInstances, inst, setFarLod, syncInstances, type ViewCull } from './instances.ts';
+import { hidesCovered, LOD_MERGED, LOD_MERGED_BOX, lodLevel, lodSettings, MERGE_MIN_CHUNKS } from './lod.ts';
 import { syncScene } from '../scene/sync.ts';
 import { drawGrid } from './grid.ts';
-import { drawExtras } from './extras.ts';
+import { drawExtras, extrasDepth } from './extras.ts';
 import { drawGround, drawGroundBackdrop } from './ground.ts';
-import { bloomPass, drawGlow, drawMaterials, focusIsSpecial, hasGlow } from './matpass.ts';
+import { bloomPass, drawGlow, drawMaterials, drawMetallic, focusIsSpecial, hasFocusGlow, hasGlow } from './matpass.ts';
 import { LIGHTING, lightDir } from './lighting.ts';
 import { nearOf, studPx } from './camera.ts';
 import { BOX_EDGE_COUNT, boxEB, boxIB } from './meshes/registry.ts';
 import { proposedBox } from '../editor/resize.ts';
+import { perfBegin, perfEnd, perfMark } from './perf.ts';
+import { useBrickVariant } from './gl.ts';
+import { cutActive, setCutUniforms } from './cutaway.ts';
+import { movedBox } from '../editor/move.ts';
 
 /** index in the cube's faces of the near face for X (+-x), Y (+-GL z), Z (top +y, bottom -y) */
 export const faceOf = (i: number): number => (i === 0 ? (S.ns[0] > 0 ? 0 : 1) : i === 1 ? (S.ns[1] > 0 ? 4 : 5) : (S.ns[2] > 0 ? 2 : 3));
 
 /** Draws one frame into a w x h drawing buffer; returns the ortho scale (sx, sy) for the DOM overlays. */
 export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { sx: number; sy: number } {
+  const cutOn = cutActive();
+  useBrickVariant(G, cutOn);                 // the X-ray cutaway's program only while it's on
   const { gl, u } = G, { cam, dlo, dhi } = S;
+  perfBegin(); perfMark('setup');
   gl.viewport(0, 0, w, h);
   const asp = w / h, fx = Math.max(asp, 1), fy = Math.max(1 / asp, 1);
   const [pl, ph] = proposedBox();
@@ -36,6 +44,7 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
   const cull: ViewCull = { x0: cx - half * fx, x1: cx + half * fx, y0: cy - half * fy, y1: cy + half * fy, depth: 60 };
   gl.uniformMatrix4fv(u.uMVP, false, mul(ortho, view));
   gl.uniform3f(u.uEye, view[2], view[6], view[10]);   // view-space +z (toward the camera) in world/GL space
+  if (cutOn) setCutUniforms(G);
   { const P = LIGHTING[S.lighting]; gl.uniform3fv(u.uSun, P.sun); gl.uniform3fv(u.uSky, P.sky); gl.uniform3fv(u.uFloor, P.floor); gl.uniform1f(u.uExposure, P.exposure); }
   { const L = lightDir(); gl.uniform3f(u.uLight, L[0], L[1], L[2]); }
   // hologram animation clock (seconds, wrapped to keep float precision); frozen in test mode so
@@ -45,13 +54,29 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
   // bodies: all but the focused one come from the instance buffers; the focused one is drawn live
+  perfMark('sync');
   syncScene();
   syncInstances();
+  // depth range: +-60 view units as before, or enough to hold the whole scene (big builds zoomed out)
+  const reach = Math.max(inst.set!.depthReach(), extrasDepth(), Math.abs(view[2]! * (dlo[0]! - S.origin[0]) + view[6]! * (dlo[2]! - S.origin[2]) + view[10]! * (dlo[1]! - S.origin[1])));
+  const zr = reach * 1.05 + 1 > 60 ? reach * 1.05 + 1 : 60;
+  if (zr !== 60) { ortho[10] = -1 / zr; cull.depth = zr; gl.uniformMatrix4fv(u.uMVP, false, mul(ortho, view)); }
+  // far LOD (render/lod.ts) by how many device pixels a stud (0.2 view units) is
+  let level = lodSettings.on ? lodLevel(0.2 * h / (2 * half * fy)) : 0;
+  if ((level === LOD_MERGED || level === LOD_MERGED_BOX) && inst.set!.chunks.size < MERGE_MIN_CHUNKS) level = 0;
+  setFarLod(level);
+  // covered faces are dropped only from the approximate levels on, and never in the X-ray cutaway
+  // (its hole exposes them)
+  gl.uniform1f(u.uShowHidden, cutOn || !hidesCovered(level) ? 1 : 0);
+  perfMark('opaque');
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxIB);
   gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(1, 1);
   gl.uniform1f(u.uEdge, 0); gl.uniform1f(u.uBevelMax, BEVEL); gl.uniform1f(u.uBevelFit, BEVEL_FIT ? 1 : 0);
   // studs / underside fade out when a stud is only a few px
   gl.uniform1f(u.uStudFade, Math.max(0, Math.min(1, (studPx(0) - 6) / 8)));
+  // stud-crease specular AA (U-10): full strength below SPEC_AA_PX_LO px a stud, off from SPEC_AA_PX_HI
+  const realStudPx = studPx(0) * STEP / S.STEPS[0];   // a real stud, whatever grid the focused brick uses
+  gl.uniform1f(u.uSpecAA, Math.max(0, Math.min(1, (SHADE.SPEC_AA_PX_HI - realStudPx) / (SHADE.SPEC_AA_PX_HI - SHADE.SPEC_AA_PX_LO))));
   // slope texture: one bump is 1/SHADE.BUMPS stud; fade it out between ~1.5 and 4 px
   const bumpFade = Math.max(0, Math.min(1, (studPx(0) * STEP / S.STEPS[0] / SHADE.BUMPS - 1.5) / 2.5));
   gl.uniform1f(u.uBump, SHADE.BUMP_STRENGTH * bumpFade);
@@ -62,13 +87,21 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
     drawBody(b, dlo, dhi, S.selection.has(S.sel) ? 1 : 0, bodyShape(b, dlo, dhi, S.scene.orient[S.sel]));
   };
   drawInstances(drawFocus, cull);
+  perfMark('extras');
   drawExtras(cull);                          // read-only dynamic grids (none unless a world placed some)
   drawGround();                              // the ground plate (off unless an environment is applied)
-  drawMaterials(dlo, dhi);                   // glow, then glass / translucent back to front (if any)
+  perfMark('materials');
+  drawMaterials(dlo, dhi);                   // glow, metallic, then glass / translucent / hologram back to front (if any)
+  perfMark('bloom');
   if (bloomPass && hasGlow()) {              // full build: the glow halo
-    bloomPass(w, h, () => { drawInstances(drawFocus, cull); drawExtras(cull); drawGround(); }, () => drawGlow(dlo, dhi, 2));
+    // the depth-only pass takes the shader's early exit (uEdge): its colour is masked off anyway
+    // and only the bodies over glow on screen (glowCull: the rest can't hide any); the focused
+    // brick glowing: everything in view
+    const dc = (hasFocusGlow() ? null : inst.set!.glowCull(cull)) ?? cull;
+    bloomPass(w, h, () => { gl.uniform1f(u.uEdge, 1); drawInstances(drawFocus, dc); drawMetallic(dlo, dhi); drawExtras(dc); drawGround(); gl.uniform1f(u.uEdge, 0); inst.cull = cull; }, () => drawGlow(dlo, dhi, 2));
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxIB);
   }
+  perfMark('overlays');
   gl.uniform1f(u.uEdge, 1); gl.uniform1f(u.uFadeR, 0);
   // hovering another brick: a faint wash on the face under the cursor (click = focus it)
   if (!S.held && S.hoverBrick >= 0 && S.hoverBrick !== S.sel && S.scene.alive(S.hoverBrick)) {
@@ -77,7 +110,9 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
     gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.depthFunc(gl.LEQUAL); gl.depthMask(false);
     gl.uniform4f(u.uLine, 1, 1, 1, 0.07);
+    gl.uniform1f(u.uCutEdge, 1);             // the X-ray cutaway cuts the wash like the face under it
     gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, faceOf(S.hoverFace) * 6 * 2);
+    gl.uniform1f(u.uCutEdge, 0);
     gl.depthFunc(gl.LESS); gl.depthMask(true); gl.disable(gl.BLEND);
   }
   setBox(dlo, dhi);                          // back to the focused brick for the glow / ghost
@@ -106,9 +141,13 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
   // white beyond the solid brick; shrinking: the part to be removed, darkened, seen through it.
   // Edges go on top of everything.
   if (S.pendAxis >= 0 && S.pendUnits) {
-    const i = S.pendAxis, gL = dlo.slice() as V3, gH = dhi.slice() as V3, shrink = S.pendUnits < 0;
-    const cn = nearOf(i, dlo, dhi), pn = nearOf(i, pl, ph);
-    gL[i] = Math.min(cn, pn); gH[i] = Math.max(cn, pn);
+    const i = S.pendAxis, mb = movedBox(), shrink = !mb && S.pendUnits < 0;
+    let gL = dlo.slice() as V3, gH = dhi.slice() as V3;
+    if (mb) { gL = mb[0] as V3; gH = mb[1] as V3; }        // Move tool: where the bricks (their box) would go
+    else {
+      const cn = nearOf(i, dlo, dhi), pn = nearOf(i, pl, ph);
+      gL[i] = Math.min(cn, pn); gH[i] = Math.max(cn, pn);
+    }
     setBox(gL, gH);
     gl.uniform1f(u.uEdge, 1); gl.uniform1f(u.uFadeR, 0);
     gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false);
@@ -125,5 +164,6 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
   }
 
   if (!S.noOverlay) for (const f of S.hooks.draw) f();   // the placement ghost (editor)
+  perfEnd();
   return { sx, sy };
 }

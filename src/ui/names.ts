@@ -7,7 +7,7 @@
 import { S } from '../app/state.ts';
 import { BRZ_UNIT, MICRO, PLATE, STEP } from '../core/units.ts';
 import { BrickShapes } from '../render/meshes/shapes.js';
-import { sizeRule, topStyle, type Brick } from '../scene/brick.ts';
+import { fixedSize, sizeRule, topStyle, type Brick } from '../scene/brick.ts';
 
 /** what one grid step along axis i is: 'plate' (bricks + plates labels), 'stud', 'micro' or 'unit' */
 export const stepKind = (i: number): string => {
@@ -79,7 +79,7 @@ export const SHAPE_NAMES: Record<string, string> = {
   PB_DefaultMicroRoundCorner: 'Micro Quarter Round', PB_DefaultPole: 'Micro Pole',
 };
 export const shapeLabel = (a: string | undefined): string =>
-  SHAPE_NAMES[a!] || String(a).replace(/^(PB|BP|B)_(Default)?/, '').replace(/([a-z])([A-Z])/g, '$1 $2');
+  SHAPE_NAMES[a!] || String(a).replace(/^(PB|BP|B)_(Default)?/, '').replace(/^1x1_Gate_/, 'Gate ').replace(/_/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2');
 const FLAT_TYPES = new Set(['BP_RoundPlate', 'BP_SquarePlate', 'BP_SpikePlate', 'BP_LatticeThin', 'PB_PicketFence', 'PB_Baguette', 'PB_AerodynamicSurface']);
 
 function shapeName(b: Brick, s: number[]): string {
@@ -92,6 +92,7 @@ function shapeName(b: Brick, s: number[]): string {
 
 /** Name for any brick from its world grid-step counts. */
 export function displayName(b: Brick, L: number, W: number, H: number): string {
+  if (b.shape === 'special' && fixedSize(b)) return shapeLabel(b.asset);    // a fixed B_* mesh: one size, its own name
   if (b.shape === 'special' || b.shape === 'micro') return shapeName(b, localSizes(b, [L, W, H]));
   if (b.shape === 'ramp') return (b.run === 1 ? brickName(W, L, H) : brickName(L, W, H)) + ' Ramp';
   if (b.shape === 'crest' || b.shape === 'crestEnd') return (b.run === 1 ? brickName(W, L, H) : brickName(L, W, H)) + (b.shape === 'crest' ? ' Ramp Crest' : ' Ramp Crest End');

@@ -11,6 +11,7 @@ import { viewOf } from '../core/math.ts';
 import { sizeRule, type Brick, type SizeRule, type V3 } from '../scene/brick.ts';
 import { ASSETS, F_ALIVE, GRIDS, MATERIALS, SceneStore } from '../scene/store.ts';
 import type { GroundPlateLook } from '../env/ground-plate.ts';
+import type { MoveState } from '../editor/move.ts';
 
 export const ELEV = Math.atan(1 / Math.SQRT2);             // 35.2644 degrees
 export const YAW0 = -Math.PI / 4;
@@ -40,7 +41,12 @@ export interface EditTx {
 /** A scene as a load's undo keeps it: the store, the focus, the zoom and the render origin (the camera's frame). */
 export interface SceneSnap { scene: SceneStore; sel: number; zoom: number; origin: V3 }
 export interface SceneTx { kind: 'scene'; label: string; before: SceneSnap; after: SceneSnap }
-export type Tx = EditTx | SceneTx;
+/**
+ * An undoable edit of data that isn't brick rows (components and wires, C-02 / C-03): the edit
+ * knows how to undo and redo itself. `focus` is the brick it concerned (it gets the focus back).
+ */
+export interface DataTx { kind: 'data'; label: string; focus: number; undo: () => void; redo: () => void; bytes: number }
+export type Tx = EditTx | SceneTx | DataTx;
 
 export interface Hooks {
   /** end of the frame: the placement ghost */
@@ -96,6 +102,8 @@ export const S = {
   selection: new Set<number>(),
   /** the tool mode (editor/tools.ts): what a left drag on the canvas does */
   tool: 'resize' as 'resize' | 'move' | 'paint',
+  /** a Move-tool drag in progress (editor/move.ts) */
+  move: null as MoveState | null,
   micro: false,
   STEPS: BRICK.steps.slice() as V3,
   START: BRICK.start.slice() as V3,

@@ -86,7 +86,7 @@ function show(env: Environment): void {
   document.getElementById('bp')!.textContent = serialiseEnvironment(env);
 }
 
-const panel = createEnvironmentPanel({ onChange: show, open: ['sky', 'sun'], onLoad: (_e, k) => setRadio(k) });
+const panel = createEnvironmentPanel({ onChange: show, open: ['sky', 'night'], onLoad: (_e, k) => setRadio(k) });
 document.getElementById('panel-slot')!.replaceWith(panel.el);
 const radios = [...document.querySelectorAll<HTMLInputElement>('input[name=kind]')];
 const setRadio = (k: PanelWorldKind): void => { for (const r of radios) r.checked = r.value === k; };

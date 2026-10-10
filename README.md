@@ -30,7 +30,18 @@ On top of that:
   with `.bp` load and save.
 - **Worlds (full build):** open `.brdb` worlds, view any earlier revision, see moving grids
   (vehicles, doors) where they are parked (read-only), and save as a new world (experimental).
+  **Compare** counts what the shown revision changed since the previous one (or any other): bricks
+  added, removed and changed, component and wire totals, files; **Highlight** outlines those bricks.
+- **Applicator:** change the brick type or the material of the selection (or the focused brick).
+  Resizable types keep their size (only types whose size grid fits are applied), fixed types take their
+  own size; changes that would overlap a brick are left out. One undo step, saved with Save .brz.
 - **Map (full build):** a top-down map of the opened save; click it to jump to that spot.
+- **Components and wires:** Brick Properties > Components lists the focused brick's components
+  with an editor per setting (numbers, toggles, choices, text, colours, vectors, map entries,
+  variant values), built from the save's own schema; add a component of a type the save uses, or
+  remove one. **Wires (W)** draws the save's wires between port dots on the bricks; click an output
+  dot, then an input dot, to connect them (one wire per input), or click a wire and press Delete.
+  Every edit is one undo step, and saving writes them back.
 
 **Under the hood:** the scene is one structure-of-arrays store in whole save units with stable
 brick ids; it renders in chunks of instanced bricks (24 bytes each) positioned relative to the
@@ -52,7 +63,7 @@ npm run dev        # http://localhost:5173  (lite entry: http://localhost:5173/l
 npm run build        # both builds
 npm run build:full   # dist/       multi-file app
 npm run build:lite   # dist-lite/  brick-viewer.html, one self-contained file (works offline)
-npm run size         # lite size budget (300 KB)
+npm run size         # lite size budget (450 KB)
 npm run site         # site/ = what GitHub Pages serves: /, /lite/brick-viewer.html, /legacy/save-viewer.html
 ```
 
@@ -95,9 +106,9 @@ in both and compares the results.
 | `src/format/` | DOM-free save format code: MessagePack, BLAKE3, `.schema`/`.mps`, `.brz` read/write, bricks to and from save chunks, `.bp` environment presets, `.brdb` worlds (revisions, schema-at-time decoding, new-world and append-revision writers, stale-schema re-encoding), entities, colour palettes, the chunk-index overview and a lazy `.brz` reader |
 | `src/core/` | Units, matrices, colour helpers and the orientation byte to rotation table |
 | `src/scene/` | The brick record and its size rules, save loading and saving, picking / overlap grid, undo history, dynamic grids placed by their entities (`grids.ts`, `worldgrids.ts`) |
-| `src/render/` | WebGL2 renderer: the brick shader (GLSL 3.00, tone map in the shader), instancing, camera, lighting, grid, ground plate, read-only extra bricks (moving grids), shape meshes; map tiles (`maptiles.ts`, `tileraster.ts`) |
+| `src/render/` | WebGL2 renderer: the brick shader (GLSL 3.00, tone map in the shader), instancing (every non-box shape drawn from one shared vertex table, one draw per vertex-count family), far LOD, camera, lighting, grid, ground plate, read-only extra bricks (moving grids), shape meshes; map tiles (`maptiles.ts`, `tileraster.ts`) |
 | `src/env/` | Environment to lighting (the calibrated model) and the ground plate's look |
-| `src/workers/` | The map tile worker |
+| `src/workers/` | The map tile worker, and the parse worker (full build: big saves are read and face-culled off the main thread) |
 | `src/editor/` | Resizing, the placement ghost, catalogue data, copy/paste, place / delete, the paint model |
 | `src/ui/` | Page markup and styles, panels (size, file, Brick Properties, catalogue, paint / palette, environment), dimension overlay, HUD, names, sounds |
 | `src/app/` | Entry points (`main.full.ts`, `main.lite.ts`), `app.ts` (wiring and the frame loop), `state.ts` (the shared scene / camera state), the `?test` hook, `environment.ts` (the applied environment), `full-ui.ts` (full-build UI: environment panel, worlds, map; loaded lazily) and `features.ts`, the only file that may read the `__LITE__` build flag |

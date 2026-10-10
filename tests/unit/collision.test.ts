@@ -5,9 +5,10 @@ import { BRZ_UNIT } from '../../src/core/units.ts';
 import type { Brick, V3 } from '../../src/scene/brick.ts';
 import { pickGrid } from '../../src/scene/spatial.ts';
 import { SceneStore } from '../../src/scene/store.ts';
-import { addBrick, brickView } from '../../src/scene/view.ts';
+import { addBrick, brickView, putPlain } from '../../src/scene/view.ts';
+import type { PlainBrick } from '../../src/format/world.ts';
 import {
-  boxesOverlap, bricksCollide, focusChangeHits, freeGrowth, gridOf, orientedBox, sceneHit, toUnits, touching, unitBox, type IBox,
+  boxesOverlap, bricksCollide, focusChangeHits, freeGrowth, gridOf, itemHits, orientedBox, sceneHit, toUnits, touching, unitBox, type IBox,
 } from '../../src/scene/collision.ts';
 
 const shift = (b: IBox, d: readonly number[]): IBox => [b[0] + d[0], b[1] + d[1], b[2] + d[2], b[3] + d[0], b[4] + d[1], b[5] + d[2]];
@@ -159,5 +160,81 @@ describe('scene collision', () => {
     console.log(`sceneHit on ${list.length} bricks: ${(best * 1000).toFixed(1)} us a query`);
     expect(best).toBeLessThan(1);
     expect(unitBox([0, 0, 0], [0.2, 0.2, 0.08])).toEqual([0, 0, 0, 10, 10, 4]);
+  });
+});
+
+// --- U-11: shaped bricks collide by their real shape
+describe('scene collision with real shapes', () => {
+  const plain = (asset: string, half: V3, pos: V3, orient: number): PlainBrick => ({ asset, size: half, pos, orient, color: [200, 30, 30, 5], material: 'BMC_Plastic' });
+  /** rows from save bricks; the focus is row `sel` */
+  function shapedScene(list: PlainBrick[], sel: number): void {
+    const s = new SceneStore();
+    for (const pb of list) putPlain(s, s.alloc(), pb, false);
+    S.scene = s; S.sel = sel; S.origin = [0, 0, 0]; S.hidden = new Set();
+    S.focus = brickView(s, sel); S.lo = S.focus.lo; S.hi = S.focus.hi;
+    pickGrid.dirty = true;
+  }
+  // 4x2 ramp, 1 brick tall: crest x -20..-10 full height (z 0..12), slope from (-10, 12) down to (20, 2), lip 0..2
+  const RAMP = plain('PB_DefaultRamp', [20, 10, 6], [0, 0, 6], 16);
+  const FAR = plain('PB_DefaultBrick', [10, 10, 6], [500, 500, 6], 16);
+  // an inverted ramp turned half-way, hanging on the ramp: slopes touching, boxes overlapping
+  const HANG = plain('PB_DefaultRampInverted', [20, 10, 6], [10, 0, 8], 18);
+
+  for (const [label, sel] of [['as a scene row', 1], ['as the focused brick', 0]] as const) {
+    it(`a box may fill a ramp's empty corner, not its solid part (${label})`, () => {
+      shapedScene([RAMP, FAR], sel);
+      expect(hitBox([10, -5, 6, 20, 5, 10])).toBe(-1);         // 1x1 plate above the slope near the lip
+      expect(hitBox([10, -5, 4, 20, 5, 8])).toBe(0);           // two units lower: into the slope
+      expect(hitBox([-20, -5, 4, -10, 5, 8])).toBe(0);         // inside the crest
+      expect(hitBox([-20, -5, 12, -10, 5, 16])).toBe(-1);      // resting on the crest
+      expect(hitBox([20, -5, 0, 30, 5, 12])).toBe(-1);         // against the lip face
+    });
+  }
+
+  it('two ramps interlock their empty corners (placing and moving a shaped brick)', () => {
+    shapedScene([FAR, RAMP, HANG], 0);
+    const hang = brickView(S.scene, 2);
+    expect(itemHits([0, 0, 0], hang, [2])).toBe(false);          // where it is: slopes only touch
+    expect(itemHits([0, 0, -U], hang, [2])).toBe(true);          // one unit lower
+    expect(itemHits([-U, 0, 0], hang, [2])).toBe(true);          // one unit toward the crest
+    expect(itemHits([U, 0, 0], hang, [2])).toBe(false);          // one unit away
+  });
+
+  it('resizing a box into a ramp\'s empty corner stops at the slope', () => {
+    shapedScene([plain('PB_DefaultBrick', [5, 5, 2], [15, 0, 8], 16), RAMP], 0);   // a 1x1 plate z 6..10 over the lip end
+    const f = S.focus!;
+    expect(freeGrowth(f.lo, f.hi, 2, -1, 0.04, 0, 3)).toBe(0);   // down one micro (z 4): the slope is 5.33 at x 10
+    expect(freeGrowth(f.lo, f.hi, 0, 1, 0.2, 0, 3)).toBe(3);     // +X: past the ramp's end, free
+    expect(freeGrowth(f.lo, f.hi, 0, -1, 0.2, 0, 3)).toBe(0);    // -X: the slope rises
+  });
+
+  it('turning or resizing a ramp checks its new shape, ignoring overlaps it already had', () => {
+    shapedScene([RAMP, plain('PB_DefaultBrick', [5, 5, 2], [15, 0, 8], 16)], 0);   // the plate in the ramp's empty corner
+    const f = S.focus!;
+    expect(focusChangeHits(f.lo, f.hi, f.lo, f.hi)).toBe(false);
+    // the ramp grows one plate taller: its slope rises into the plate
+    expect(focusChangeHits(f.lo, f.hi, f.lo, [f.hi[0], f.hi[1], f.hi[2] + 0.08])).toBe(true);
+    expect(freeGrowth(f.lo, f.hi, 2, 1, 0.08, 0, 2)).toBe(0);
+    // turned half-way about Z the crest lands on the plate
+    const turned: Brick = { ...f, lip: -(f.lip ?? 1) };
+    expect(focusChangeHits(f.lo, f.hi, f.lo, f.hi, f, turned)).toBe(true);
+  });
+
+  it('stays fast on a field of ramps (under 1 ms a query)', () => {
+    const list: PlainBrick[] = [FAR];
+    for (let x = 0; x < 60; x++) for (let y = 0; y < 60; y++) for (let z = 0; z < 4; z++) list.push(plain('PB_DefaultRamp', [10, 10, 6], [x * 20 + 10, y * 20 + 10, z * 12 + 6], 16 + ((x + y) & 3)));
+    shapedScene(list, 0);
+    sceneHit([0, 0, 0], [0.2, 0.2, 0.08]);
+    let best = Infinity;
+    for (let r = 0; r < 5; r++) {
+      const t0 = performance.now(), n = 1000;
+      for (let i = 0; i < n; i++) {
+        const x = (i * 37) % 1180, y = (i * 53) % 1180, z = (i * 7) % 44;
+        sceneHit([x * U, y * U, z * U], [(x + 10) * U, (y + 10) * U, (z + 4) * U], { ignore: [0] });
+      }
+      best = Math.min(best, (performance.now() - t0) / n);
+    }
+    console.log(`sceneHit on ${list.length} ramps: ${(best * 1000).toFixed(1)} us a query`);
+    expect(best).toBeLessThan(1);
   });
 });

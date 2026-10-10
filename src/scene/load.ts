@@ -15,9 +15,12 @@ import { roundHalf } from '../render/meshes/registry.ts';
 import { histEnd, histPush, sceneSnap } from './history.ts';
 import { selectBrick } from '../editor/resize.ts';
 import { FLAG_NAMES, SceneStore } from './store.ts';
-import { putPlain, supportedAsset } from './view.ts';
+import { fixedHalfOf, isFixedAsset, isStretchedAsset, putPlain, supportedAsset } from './view.ts';
+import { fastStore } from './fastload.ts';
 import { fitHalf, ZOOM_MAX } from '../render/camera.ts';
-import { setStatus } from '../ui/status.ts';
+import { setProgress, setStatus } from '../ui/status.ts';
+import { attachComponents, loadOrderOf, type LoadOrder } from './compmodel.ts';
+import type { Parsed, Progress } from './parsecore.ts';
 
 export interface LoadReport { name: string; drawn: number; skipped: number; skippedTypes: Record<string, number>; sideways: number; extraGrids: number }
 
@@ -41,11 +44,14 @@ export function viewerBrick(pb: PlainBrick, linear: boolean): Brick | Skip {
   // fixed-asset (B_*) rounds / cones: no size in the save, the generator gives their half-extents
   const basic = procedural ? null : asset;
   const isRound = !!basic && BrickShapes.isRound(basic);
-  const isMicroShape = procedural && !isMicro && BrickShapes.isMicro(asset), isSpecial = procedural && BrickShapes.isSpecial(asset);
-  if (!isRound && (!procedural || !(isMicro || isBrick || isTile || isPlain || isMicroShape || isSpecial))) return { skip: asset || 'unknown' };
+  const isMicroShape = procedural && !isMicro && BrickShapes.isMicro(asset);
+  // fixed-mesh B_* bricks (their box from the generator) and the stretched designs (PB_Frog, ...) draw as local shapes
+  const isFixed = !!basic && isFixedAsset(basic);
+  const isSpecial = (procedural && (BrickShapes.isSpecial(asset) || isStretchedAsset(asset))) || isFixed;
+  if (!isRound && !isFixed && (!procedural || !(isMicro || isBrick || isTile || isPlain || isMicroShape || isSpecial))) return { skip: asset || 'unknown' };
   // World box from the verified orientation rule: h[i] = sum_j |M[i][j]| s[j].
   const o = pb.orient, M = BrickShapes.brickOrient(o), dir = (o >> 2) % 6;
-  const s = isRound ? roundHalf(basic!) : pb.size!;
+  const s = isRound ? roundHalf(basic!) : isFixed ? fixedHalfOf(basic!) : pb.size!;
   const half = [0, 1, 2].map((r) => Math.abs(M[r][0]) * s[0] + Math.abs(M[r][1]) * s[1] + Math.abs(M[r][2]) * s[2]);
   const up = dir === 4 ? 1 : dir === 5 ? -1 : 0;
   // Ramps / crests upright or upside down keep their world-frame meshes; sideways they're special shapes.
@@ -97,14 +103,25 @@ export function bricksFromFiles(files: FileMap): { bricks: Brick[]; report: Omit
 }
 
 /** Save files -> a SceneStore of grid 1's drawable bricks, plus the bricks it can't draw (with their load order). */
-export function storeFromFiles(files: FileMap): { store: SceneStore; report: Omit<LoadReport, 'name' | 'drawn'>; unsupported: SeqBrick[] } {
+export function storeFromFiles(files: FileMap, progress?: (done: number, total: number) => void): { store: SceneStore; report: Omit<LoadReport, 'name' | 'drawn'>; unsupported: SeqBrick[]; order: LoadOrder } {
+  const grids = [...new Set([...files.keys()].map((k) => k.match(/^World\/0\/Bricks\/Grids\/([^/]+)\//)?.[1]).filter(Boolean))];
+  let extraGrids = 0;
+  for (const g of grids) if (g !== '1') extraGrids++;
+  if (!grids.includes('1')) return { store: new SceneStore(), report: { skipped: 0, skippedTypes: {}, sideways: 0, extraGrids }, unsupported: [], order: loadOrderOf([]) };
+  const f = fastStore(files, progress);
+  return { store: f.store, report: { skipped: f.skipped, skippedTypes: f.skippedTypes, sideways: f.sideways, extraGrids }, unsupported: f.unsupported, order: f.order };
+}
+
+/** storeFromFiles by way of a PlainBrick per brick (the reference the fast path is tested against). */
+export function storeFromFilesPlain(files: FileMap): { store: SceneStore; report: Omit<LoadReport, 'name' | 'drawn'>; unsupported: SeqBrick[]; order: LoadOrder } {
   const skippedTypes: Record<string, number> = {}, unsupported: SeqBrick[] = [];
   let skipped = 0, sideways = 0, extraGrids = 0;
   const grids = [...new Set([...files.keys()].map((k) => k.match(/^World\/0\/Bricks\/Grids\/([^/]+)\//)?.[1]).filter(Boolean))];
   for (const g of grids) if (g !== '1') extraGrids++;
-  let store = new SceneStore();
+  let store = new SceneStore(), order = loadOrderOf([]);
   if (grids.includes('1')) {
     const { bricks, linear, ctx } = extractBricks(files);
+    order = loadOrderOf(bricks.map((b) => b.pos));
     store = new SceneStore(bricks.length);
     store.flagFields = ctx.flagFields.map((f) => FLAG_NAMES.id(f));
     bricks.forEach((pb, i) => {
@@ -120,7 +137,7 @@ export function storeFromFiles(files: FileMap): { store: SceneStore; report: Omi
     });
     store.drain();
   }
-  return { store, report: { skipped, skippedTypes, sideways, extraGrids }, unsupported };
+  return { store, report: { skipped, skippedTypes, sideways, extraGrids }, unsupported, order };
 }
 
 /**
@@ -165,7 +182,61 @@ export function loadSave(buf: ArrayBuffer | Uint8Array, name: string): LoadRepor
  */
 export function loadFiles(files: FileMap, name: string, brz: Uint8Array | null = null, gridNote: string | null = null, complete: (() => Promise<FileMap>) | null = null): LoadReport {
   for (const f of S.hooks.beforeLoad) f();
-  const { store, report, unsupported } = storeFromFiles(files);
+  return finishLoad({ files, ...storeFromFiles(files) }, name, brz, gridNote, complete);
+}
+
+/**
+ * Off-main-thread parsing (S-01): the full build installs a worker (app/parse.ts); null in lite.
+ * `cull`: also compute the store's face masks in the worker (render/facecull.ts picks them up).
+ */
+type Parser = (input: { bytes?: Uint8Array; files?: FileMap }, progress: Progress, cull: boolean) => Promise<Parsed>;
+let parser: Parser | null = null;
+export function setParser(p: Parser | null): void { parser = p; }
+export const hasParser = (): boolean => parser !== null;
+/** Saves at least workerMinBytes big (compressed .brz bytes, or file bytes for a world) load in the worker when there is one (test hook: lower it). */
+export const loadSettings = { workerMinBytes: 2_000_000 };
+/** Bumped by every async load: a parse that finishes after a newer load started is dropped. */
+let loadGen = 0;
+
+/** Parses in the worker with the status line's progress bar; null when a newer load started meanwhile. */
+async function parseOff(input: { bytes?: Uint8Array; files?: FileMap }, name: string): Promise<Parsed | null> {
+  const gen = ++loadGen, mb = (n: number): string => (n / 1e6).toFixed(1);
+  setStatus(`Opening ${name}...`); setProgress(0);
+  try {
+    const p = await parser!(input, (phase, done, total) => {
+      if (gen !== loadGen || phase === 'cull') return;
+      if (phase === 'read') { setStatus(`Opening ${name}: reading...`); setProgress(0.03); return; }
+      setStatus(`Opening ${name}: ${total ? `${mb(done)} of ${mb(total)}` : mb(done)} M bricks`);
+      setProgress(total ? 0.05 + 0.9 * Math.min(1, done / total) : NaN);
+    }, true);
+    return gen === loadGen ? p : null;
+  } finally { if (gen === loadGen) setProgress(null); }
+}
+
+/** loadSave, in the parse worker when there is one and the save is big (the UI keeps running meanwhile); null when superseded. */
+export async function loadSaveAsync(buf: ArrayBuffer | Uint8Array, name: string): Promise<LoadReport | null> {
+  const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  if (!parser || bytes.length < loadSettings.workerMinBytes) { loadGen++; return loadSave(bytes, name); }
+  const p = await parseOff({ bytes: bytes.slice() }, name);
+  if (!p) return null;
+  for (const f of S.hooks.beforeLoad) f();
+  return finishLoad(p, name, bytes);
+}
+
+/** loadFiles, in the parse worker when there is one and the files are big; null when superseded. */
+export async function loadFilesAsync(files: FileMap, name: string, brz: Uint8Array | null = null, gridNote: string | null = null, complete: (() => Promise<FileMap>) | null = null): Promise<LoadReport | null> {
+  let size = 0;
+  for (const v of files.values()) size += v.length;
+  if (!parser || size < loadSettings.workerMinBytes) { loadGen++; return loadFiles(files, name, brz, gridNote, complete); }
+  const p = await parseOff({ files }, name);
+  if (!p) return null;
+  for (const f of S.hooks.beforeLoad) f();
+  return finishLoad({ ...p, files }, name, brz, gridNote, complete);
+}
+
+/** The rest of a load, after its store is built (loadFiles / the async loads): the store becomes the scene. */
+function finishLoad(parsed: Parsed, name: string, brz: Uint8Array | null = null, gridNote: string | null = null, complete: (() => Promise<FileMap>) | null = null): LoadReport {
+  const { files, store, report, unsupported, order } = parsed;
   if (!store.count) throw new Error('no supported bricks in this save');
   histEnd();
   const prevScene = sceneSnap();
@@ -186,10 +257,12 @@ export function loadFiles(files: FileMap, name: string, brz: Uint8Array | null =
   lastLoad = { name, drawn: store.count, ...report };
   loadedFiles = files; completeFiles = complete; loadedName = name; loadedBrz = brz; loadedUnsupported = unsupported;
   storeFiles.set(store, files);
+  const compErr = attachComponents(store, files, order);
   const { skipped, skippedTypes, sideways, extraGrids } = report;
   const notes = [skipped && `${skipped} unsupported skipped (${Object.entries(skippedTypes).map(([k, n]) => `${k.replace(/^(PB|BP|B)_(Default)?/, '')} ${n}`).join(', ')})`,
     sideways && `${sideways} sideways`,
-    extraGrids && (gridNote ?? `${extraGrids} moving grid(s) not shown yet`)].filter(Boolean);
+    extraGrids && (gridNote ?? `${extraGrids} moving grid(s) not shown yet`),
+    compErr && `components / wires unreadable (${compErr})`].filter(Boolean);
   setStatus(`${name}: ${store.count} brick${store.count === 1 ? '' : 's'}${notes.length ? ' · ' + notes.join(' · ') : ''}`);
   for (const f of S.hooks.loaded) f();
   return lastLoad;

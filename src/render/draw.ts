@@ -63,6 +63,13 @@ export function setBrick(b: Brick, l: readonly number[], h: readonly number[], s
 export function bindMesh(m: Mesh): void {
   const gl = G.gl;
   gl.bindBuffer(gl.ARRAY_BUFFER, m.buf);
+  if (m.layout === 3) {
+    // a template family (meshes/registry.ts): the shader reads the table; attribute 0 stays an
+    // enabled array (of zeros), the rest are constants
+    gl.enableVertexAttribArray(LOC.aPos); gl.vertexAttribPointer(LOC.aPos, 1, gl.FLOAT, false, 4, 0);
+    for (const a of [LOC.aNrm, LOC.aSlope, LOC.aPart, LOC.aCap]) gl.disableVertexAttribArray(a);
+    return;
+  }
   const st = m.layout === 2 ? 48 : m.layout === 1 ? 28 : 24;
   gl.enableVertexAttribArray(LOC.aPos); gl.vertexAttribPointer(LOC.aPos, 3, gl.FLOAT, false, st, 0);
   gl.enableVertexAttribArray(LOC.aNrm); gl.vertexAttribPointer(LOC.aNrm, 3, gl.FLOAT, false, st, 12);

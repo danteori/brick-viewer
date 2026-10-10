@@ -4,7 +4,7 @@
 import { S } from '../../app/state.ts';
 import { lightFromBp } from '../../format/bp.ts';
 import { LIGHTING, type LightPreset } from '../../render/lighting.ts';
-import { ensureLoadedFiles, loadedName, loadSave } from '../../scene/load.ts';
+import { ensureLoadedFiles, loadedName, loadSaveAsync } from '../../scene/load.ts';
 import { download, savedName, sceneBrz } from '../../scene/save.ts';
 import { hist, setUndoLimit } from '../../scene/history.ts';
 import { initAudio, playClick } from '../audio.ts';
@@ -29,7 +29,7 @@ export async function openFile(f: File): Promise<void> {
     try { addBpPreset(JSON.parse(await f.text()), f.name); } catch (err) { setStatus(`Couldn't read ${f.name}: ${(err as Error).message}`); console.error(err); }
     return;
   }
-  try { loadSave(await f.arrayBuffer(), f.name); initAudio(); playClick(); }
+  try { if (await loadSaveAsync(await f.arrayBuffer(), f.name)) { initAudio(); playClick(); } }
   catch (err) { setStatus(`Couldn't open ${f.name}: ${(err as Error).message}`); console.error(err); }
 }
 
@@ -79,7 +79,13 @@ export function initFilePanel(): void {
 
   // Ctrl+V / Cmd+V: paste a .brz copied in the file manager (browsers only expose real files on the
   // clipboard, never a path's contents), an environment preset as JSON text, or a brick (editor).
+  // On Linux a middle click also pastes the primary selection: that's an orbit or a middle-click
+  // copy here, never a paste.
+  let midT = -1e9;
+  const mid = (e: PointerEvent): void => { if (e.button === 1) midT = performance.now(); };
+  addEventListener('pointerdown', mid, true); addEventListener('pointerup', mid, true);
   document.addEventListener('paste', (e) => {
+    if (performance.now() - midT < 500) { e.preventDefault(); return; }
     const a = document.activeElement as HTMLElement | null;
     if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable)) return;
     if (S.hooks.paste(e)) return;

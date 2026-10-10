@@ -26,7 +26,10 @@ function drawPlate(reach: number): void {
     lo, hi, micro: false, up: 1, top: g.studTexture ? 'studs' : 'smooth',
     color: g.color.map((v) => linearToSrgb(Math.max(0, v))),
   };
+  const { gl, u } = G;
+  gl.uniform1f(u.uCutOff, 1);                // the X-ray cutaway leaves the ground plate whole
   drawBody(plate, lo, hi);
+  gl.uniform1f(u.uCutOff, 0);
 }
 
 /**

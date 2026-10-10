@@ -11,18 +11,28 @@ import { BrickShapes } from '../render/meshes/shapes.js';
 import { BRZ_UNIT } from '../core/units.ts';
 import { linearByteToSrgb } from '../core/colour.ts';
 import type { PlainBrick } from '../format/world.ts';
-import { localHalf, rampDir, sideCode, type Brick, type SaveExtras } from './brick.ts';
+import { isFixedAsset, localHalf, rampDir, sideCode, type Brick, type SaveExtras } from './brick.ts';
 import { ASSETS, F_ALIVE, F_HAS_FLAGS, F_LINEAR, FLAG_NAMES, GRIDS, Kind, MATERIALS, SAME_OWNER, type SceneStore } from './store.ts';
 import { viewerBrick, type SeqBrick } from './load.ts';
 import { assetOf } from './save.ts';
 
 // --- shape kinds -----------------------------------------------------------------------------------
 
+export { isFixedAsset };
+/** A procedural type drawn as one fixed design stretched to its saved size (PB_Frog, BP_ZoneProjector, the sliders). */
+export const isStretchedAsset = (asset: string): boolean => Object.prototype.hasOwnProperty.call(BrickShapes.STRETCHED, asset);
+/** A fixed B_* brick's half-extents in units. */
+export function fixedHalfOf(asset: string): [number, number, number] {
+  return BrickShapes.FIXED_SHAPES[asset]!.half.slice() as [number, number, number];
+}
+/** Does the save list this asset without a size (a B_* brick with its own fixed box)? */
+export const sizelessAsset = (asset: string): boolean => BrickShapes.isRound(asset) || isFixedAsset(asset);
+
 /** Does the viewer draw this asset? `procedural`: the save lists it with a size (PB_*), else a fixed B_* brick. */
 export function supportedAsset(asset: string, procedural: boolean): boolean {
-  if (!procedural) return BrickShapes.isRound(asset);
+  if (!procedural) return BrickShapes.isRound(asset) || isFixedAsset(asset);
   return /MicroBrick$/i.test(asset) || /DefaultBrick$/.test(asset) || /DefaultSmoothTile$/.test(asset) || /DefaultTile$/.test(asset) ||
-    BrickShapes.isMicro(asset) || BrickShapes.isSpecial(asset);
+    BrickShapes.isMicro(asset) || BrickShapes.isSpecial(asset) || isStretchedAsset(asset);
 }
 
 /** The shape kind viewerBrick gives an asset at an orientation (upright / upside down or sideways). */
@@ -33,7 +43,7 @@ export function kindOfName(asset: string, orient: number): Kind {
   if (up && /DefaultRampCrest$/.test(asset)) return Kind.Crest;
   if (up && /DefaultRampCrestEnd$/.test(asset)) return Kind.CrestEnd;
   if (!/MicroBrick$/i.test(asset) && BrickShapes.isMicro(asset)) return Kind.Micro;
-  if (BrickShapes.isSpecial(asset)) return Kind.Special;
+  if (BrickShapes.isSpecial(asset) || isFixedAsset(asset) || isStretchedAsset(asset)) return Kind.Special;
   return Kind.Box;
 }
 const kindCache: number[][] = [];
@@ -63,7 +73,7 @@ export function roundHalfOf(name: string): [number, number, number] {
 export function plainOf(s: SceneStore, id: number): SeqBrick & { linear: boolean } {
   const c = s.color[id]!, asset = ASSETS.name(s.asset[id]!);
   const pb: SeqBrick & { linear: boolean } = {
-    asset, size: s.shape[id] === Kind.Round ? null : [s.hx[id]!, s.hy[id]!, s.hz[id]!],
+    asset, size: s.shape[id] === Kind.Round || isFixedAsset(asset) ? null : [s.hx[id]!, s.hy[id]!, s.hz[id]!],
     pos: [s.px[id]!, s.py[id]!, s.pz[id]!], orient: s.orient[id]!,
     color: [c & 255, (c >>> 8) & 255, (c >>> 16) & 255, c >>> 24],
     material: MATERIALS.name(s.material[id]!), linear: (s.flags[id]! & F_LINEAR) !== 0,
@@ -88,7 +98,7 @@ function flagsOf(s: SceneStore, id: number): Record<string, number> {
  */
 export function putPlain(s: SceneStore, id: number, pb: PlainBrick & { seq?: number }, linear: boolean, grid = '1'): void {
   const a = ASSETS.id(pb.asset), o = pb.orient ?? 16, kind = kindOf(a, o);
-  const h = pb.size ?? (kind === Kind.Round ? roundHalfOf(pb.asset) : [0, 0, 0]);
+  const h = pb.size ?? (kind === Kind.Round ? roundHalfOf(pb.asset) : isFixedAsset(pb.asset) ? fixedHalfOf(pb.asset) : [0, 0, 0]);
   s.px[id] = pb.pos[0]; s.py[id] = pb.pos[1]; s.pz[id] = pb.pos[2];
   s.hx[id] = h[0]; s.hy[id] = h[1]; s.hz[id] = h[2];
   s.orient[id] = o; s.asset[id] = a; s.shape[id] = kind;
@@ -148,7 +158,7 @@ export function writeBrick(s: SceneStore, id: number, b: Brick, keep = s.alive(i
   if (o < 0) { o = 16; for (let k = 0; k < 24; k++) if (orientMatches(k, b)) { o = k; break; } if (!orientMatches(o, b)) o = (b.up ?? 1) < 0 ? 20 : 16; }
   const size = [0, 1, 2].map((i) => b.hi[i]! - b.lo[i]!);
   const kind = kindOfName(asset, o);
-  const half = kind === Kind.Round ? roundHalfOf(asset) : localHalf(o, size).map(Math.round);
+  const half = kind === Kind.Round ? roundHalfOf(asset) : isFixedAsset(asset) ? fixedHalfOf(asset) : localHalf(o, size).map(Math.round);
   const pos = [0, 1, 2].map((i) => Math.round((b.lo[i]! + b.hi[i]!) / 2 / BRZ_UNIT));
   // colour: unchanged (it reads back the same) keeps the stored bytes, linear or not
   const show = (c: number, i: number, lin: boolean): number => { const v = (c >>> (8 * i)) & 255; return lin ? linearByteToSrgb(v) : v / 255; };

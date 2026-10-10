@@ -2,11 +2,13 @@
 // listener order (it decides which handler sees an event first), and runs the frame loop.
 
 import { S } from './state.ts';
-import { loadFullUi, type FeatureFlags } from './features.ts';
+import { loadFaceCull, loadFullUi, type FeatureFlags } from './features.ts';
 import { initWorlds } from './worlds.ts';
 import { initWorldEnvironment } from './environment.ts';
 import { initPaintPanel } from '../ui/panels/paint.ts';
+import { initApplicatorPanel, tickApplicator } from '../ui/panels/applicator.ts';
 import { initSoundPanel } from '../ui/panels/sound.ts';
+import { initViewPanel } from '../ui/panels/view.ts';
 import { installTestHook } from './test-hook.ts';
 import { createGfx } from '../render/gl.ts';
 import { initDraw } from '../render/draw.ts';
@@ -24,12 +26,16 @@ import { selectBrick } from '../editor/resize.ts';
 import { initClipboard } from '../editor/clipboard.ts';
 import { initEditorInput } from '../editor/input.ts';
 import { initTools } from '../editor/tools.ts';
+import { initMirror } from '../editor/mirrortool.ts';
 import { $, mountDom } from '../ui/dom.ts';
 import { initStatus } from '../ui/status.ts';
 import { initSizePanel } from '../ui/panels/size.ts';
 import { initFilePanel, waitForOpeners } from '../ui/panels/file.ts';
+import { initSaveGame } from '../ui/panels/savegame.ts';
 import { initProps, tickProps } from '../ui/panels/props.ts';
 import { initSelectionPanel, tickSelection } from '../ui/panels/selection.ts';
+import { initComponentsPanel, tickComponents } from '../ui/panels/components.ts';
+import { drawWires, initWires } from '../ui/overlay/wires.ts';
 import { initCataloguePanel } from '../ui/panels/catalogue.ts';
 import { drawDims, initDims } from '../ui/overlay/dims.ts';
 import { drawHud, initHud } from '../ui/overlay/hud.ts';
@@ -53,6 +59,7 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
   initDraw(gfx);
   initMeshes(gl);
   initInstances();
+  if (loadFaceCull) void loadFaceCull().then((m) => m.initFaceCull());   // full build only
   initSpatial();
   initGrid();
   gl.enable(gl.DEPTH_TEST);
@@ -61,6 +68,7 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
   initCamera(canvas);
   initSizePanel();
   initDims(canvas);
+  initWires(canvas);
   selectBrick(S.scene.first());               // the startup brick
 
   // --- input, in the legacy order
@@ -93,9 +101,12 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
   addEventListener('mousedown', (e) => { if (e.button === 2) onRightDown(); });
 
   initFilePanel();
+  initSaveGame();
   initSoundPanel();
+  initViewPanel();
   if (opts.features.brdbRead) initWorlds();
   initProps();
+  initComponentsPanel();
   initSelectionPanel();
   initGhost(canvas);
   initOps();
@@ -103,8 +114,10 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
   initCataloguePanel();
   initEditorInput(canvas);
   initTools(canvas);
+  initMirror();
   initWorldEnvironment();
   initPaintPanel();
+  initApplicatorPanel();
   // full build: environment panel, .brdb worlds and the map (a separate chunk, never in lite)
   if (loadFullUi) waitForOpeners(loadFullUi().then((m) => m.mountFullUi()).catch((err) => console.error('full UI failed to load', err)));
 
@@ -119,8 +132,11 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
       const { sx, sy } = renderFrame(w, h, canvas);
       drawHud();
       drawDims(sx, sy);
+      drawWires(sx, sy);
       tickProps();
+      tickComponents();
       tickSelection();
+      tickApplicator();
     }
     requestAnimationFrame(frame);
   };

@@ -6,6 +6,7 @@
 // CSR SpatialIndex.
 
 import { S } from '../app/state.ts';
+import { cutStart } from '../render/cutaway.ts';
 import { BRZ_UNIT } from '../core/units.ts';
 import { addMirror, syncScene } from './sync.ts';
 import type { SceneStore } from './store.ts';
@@ -120,9 +121,15 @@ export function viewRay(vx: number, vy: number): { S: number[]; D: number[] } {
   return { S: [0, 1, 2].map((i) => o[i]! + (vx * r0[i]! + vy * r1[i]! + 60 * r2[i]!)), D: r2.map((v) => -v) };
 }
 
-/** The nearest brick under view-plane point (vx, vy) (relative to the render origin), or null. */
+/**
+ * The nearest brick under view-plane point (vx, vy) (relative to the render origin), or null. With
+ * the X-ray cutaway on the ray starts where it leaves the cone (cutStart), so surfaces cut away are
+ * passed through; a brick the cone cuts into is hit where the ray leaves the cone. The focused brick
+ * is never cut.
+ */
 export function pickRay(vx: number, vy: number): Hit | null {
   const { S: Sv, D } = viewRay(vx, vy), SMAX = 120;
+  const s0c = Math.max(0, cutStart(Sv, D));                 // 0 unless the X-ray cutaway is on
   let best: Hit | null = null;
   const s0 = rayBox(Sv, D, S.dlo, S.dhi, 0, SMAX);
   if (s0 && S.sel >= 0 && S.scene.alive(S.sel) && !S.hidden.has(S.sel)) best = { k: S.sel, s: s0.s, ax: s0.ax };
@@ -130,7 +137,7 @@ export function pickRay(vx: number, vy: number): Hit | null {
   const G = pickReady(), Sg = Sv;
   // clip the ray to the grid, then walk its cells (3D DDA), stopping once a hit beats the cell exit
   const gl0 = G.org, gh0 = G.org.map((v, i) => v + G.dim[i]! * G.cs);
-  const span = rayBox(Sg, D, gl0, gh0, 0, SMAX);
+  const span = rayBox(Sg, D, gl0, gh0, s0c, SMAX);
   if (!span) return best;
   let tEnd = SMAX;
   for (let i = 0; i < 3; i++) if (Math.abs(D[i]!) >= 1e-12) tEnd = Math.min(tEnd, Math.max((gl0[i]! - Sg[i]!) / D[i]!, (gh0[i]! - Sg[i]!) / D[i]!));
@@ -152,7 +159,7 @@ export function pickRay(vx: number, vy: number): Hit | null {
       if (hidden.size && hidden.has(k)) continue;
       const o = k * 6;
       bl[0] = G.box[o]!; bl[1] = G.box[o + 1]!; bl[2] = G.box[o + 2]!; bh[0] = G.box[o + 3]!; bh[1] = G.box[o + 4]!; bh[2] = G.box[o + 5]!;
-      const h = rayBox(Sg, D, bl, bh, 0, SMAX);
+      const h = rayBox(Sg, D, bl, bh, s0c, SMAX);
       if (h && (!best || h.s < best.s)) best = { k, s: h.s, ax: h.ax };
     }
     const a = tMax[0]! < tMax[1]! ? (tMax[0]! < tMax[2]! ? 0 : 2) : (tMax[1]! < tMax[2]! ? 1 : 2);

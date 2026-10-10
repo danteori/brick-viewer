@@ -15,7 +15,7 @@
 
 import type { FileMap } from '../format/brz.ts';
 import { MsgMap, type MsgValue } from '../format/msgpack.ts';
-import { decodeMps, decodeSoa, encodeSoa, parseSchema, schemaPathFor, type MpsObject, type Schema, type SchemaType, type SoaFile, type VariantValue } from '../format/schema.ts';
+import { decodeMps, decodeSoa, encodeMps, encodeSoa, parseSchema, schemaPathFor, type MpsObject, type Schema, type SchemaType, type SoaFile, type VariantValue } from '../format/schema.ts';
 
 export const WORLD = 'World/0/';
 
@@ -486,20 +486,244 @@ export class ComponentStore {
     return this.chunks.some((c) => c.dirty);
   }
 
+  // ------------------------------------------------------------------ adding / removing instances
+
+  /** Data struct of a component type (GlobalData ComponentDataStructNames), null for "None". */
+  structOf(type: string): string | null {
+    const g = this.global, i = (g.ComponentTypeNames ?? []).indexOf(type);
+    const st = i < 0 ? undefined : (g.ComponentDataStructNames ?? [])[i];
+    return st && st !== 'None' ? st : null;
+  }
+
+  /** The component chunk a brick's components live in (null when that chunk has none yet). */
+  chunkOf(ref: BrickRef): ComponentChunk | null {
+    return this.chunks.find((c) => c.grid === ref.grid && c.chunk.X === ref.chunk.X && c.chunk.Y === ref.chunk.Y && c.chunk.Z === ref.chunk.Z) ?? null;
+  }
+
+  /**
+   * Why a component of `type` can't be added to a brick, or null when it can: the type must be in
+   * the save's GlobalData, the brick must not carry one already (one of each type per brick, as the
+   * game's Applicator), and the chunk's schema must define the type's data struct.
+   */
+  canAdd(ref: BrickRef, type: string): string | null {
+    const names = this.global.ComponentTypeNames ?? [];
+    if (!names.includes(type)) return `${type} is not a component type of this save`;
+    if (this.onBrick(ref).some((c) => c.type === type)) return `the brick already has a ${type}`;
+    const st = this.structOf(type), ch = this.chunkOf(ref);
+    let schema: Schema;
+    try { schema = ch?.schema ?? this.ctx.schemaFor(chunkPath(ref.grid, 'Components', ref.chunk)); } catch { return 'this save has no component schema for that chunk'; }
+    if (st && !structFields(schema, st)) return `the save's component schema doesn't define ${st}`;
+    return null;
+  }
+
+  /** Component types a brick could get (canAdd), in GlobalData order. */
+  addable(ref: BrickRef): string[] {
+    return [...new Set(this.global.ComponentTypeNames ?? [])].filter((t) => !this.canAdd(ref, t));
+  }
+
+  /**
+   * Default data for a new component: per field, the value most instances of that type in this
+   * save have (the practical default), else the schema's zero value.
+   */
+  defaults(type: string, schema: Schema): MpsObject | null {
+    const st = this.structOf(type);
+    if (!st) return null;
+    const same = this.instances.filter((c) => c.type === type && c.struct === st && c.data);
+    const out: MpsObject = {};
+    for (const [f, t] of structFields(schema, st) ?? []) {
+      const counts = new Map<string, { n: number; v: unknown }>();
+      for (const c of same) {
+        const v = c.data![f], k = valueKey(v), e = counts.get(k);
+        if (e) e.n++; else counts.set(k, { n: 1, v });
+      }
+      let best: { n: number; v: unknown } | null = null;
+      for (const e of counts.values()) if (!best || e.n > best.n) best = e;
+      out[f] = best && !checkValue(schema, t, best.v) ? cloneValue(best.v) : defaultValue(schema, t);
+    }
+    return out;
+  }
+
+  /** Adds a component of `type` to a brick, with `data` or the defaults; throws ComponentEditError (see canAdd). */
+  addInstance(ref: BrickRef, type: string, data?: MpsObject | null): ComponentInstance {
+    const why = this.canAdd(ref, type);
+    if (why) throw new ComponentEditError(why);
+    let ch = this.chunkOf(ref);
+    if (!ch) {
+      const path = chunkPath(ref.grid, 'Components', ref.chunk), schema = this.ctx.schemaFor(path);
+      const root = defaultValue(schema, schema.root) as MpsObject;
+      ch = { path, grid: ref.grid, chunk: { ...ref.chunk }, schema, file: { root, data: [] }, original: new Uint8Array(0), dirty: true };
+      this.chunks.push(ch);
+    }
+    const typeIndex = (this.global.ComponentTypeNames ?? []).indexOf(type), struct = this.structOf(type);
+    const value = struct ? (data === undefined || data === null ? this.defaults(type, ch.schema) : data) : null;
+    if (struct) {
+      const e = checkValue(ch.schema, struct, value, struct);
+      if (e) throw new ComponentEditError(e);
+    }
+    const root = ch.file.root, n = ch.file.data.length;
+    const counters = ((root.ComponentTypeCounters as MpsObject[] | undefined) ??= []);
+    const bi = ((root.ComponentBrickIndices as number[] | undefined) ??= []);
+    const doubled = n > 0 && bi.length === 2 * n;
+    let at = 0, ci = -1;
+    for (let i = 0; i < counters.length; i++) {
+      at += counters[i]!.NumInstances as number;
+      if (counters[i]!.TypeIndex === typeIndex) { ci = i; break; }
+    }
+    if (ci < 0) {
+      at = n;
+      const cst = this.elementStruct(ch.schema, 'ComponentTypeCounters');
+      const c: MpsObject = cst ? (defaultValue(ch.schema, cst) as MpsObject) : {};
+      c.TypeIndex = typeIndex; c.NumInstances = 1;
+      counters.push(c);
+    } else counters[ci]!.NumInstances = (counters[ci]!.NumInstances as number) + 1;
+    ch.file.data.splice(at, 0, { typeIndex, struct, value: struct ? (deepNormalise(ch.schema, struct, value) as MpsObject) : null });
+    if (doubled) bi.splice(n + at, 0, ref.brick);   // keep the doubled layout (COMPONENTS.md)
+    bi.splice(at, 0, ref.brick);
+    ch.dirty = true;
+    const inst: ComponentInstance = {
+      id: `${ref.grid}/${chunkName(ref.chunk)}/n${++this.added}`, brickRef: { grid: ref.grid, chunk: { ...ref.chunk }, brick: ref.brick },
+      type, typeIndex, struct, data: ch.file.data[at]!.value, chunk: ch, slot: at,
+    };
+    this.shift(ch, at, 1);
+    this.instances.push(inst);
+    this.byId.set(inst.id, inst);
+    const k = brickKey(inst.brickRef);
+    let list = this.byBrick.get(k);
+    if (!list) this.byBrick.set(k, (list = []));
+    list.push(inst);
+    return inst;
+  }
+
+  /** Removes a component instance; returns its data (for an undo, which re-adds it with addInstance). */
+  removeInstance(c: ComponentInstance): MpsObject | null {
+    const ch = c.chunk, n = ch.file.data.length, root = ch.file.root;
+    if (!this.byId.has(c.id) || ch.file.data[c.slot]?.typeIndex !== c.typeIndex) throw new ComponentEditError('that component is not in the store');
+    const counters = (root.ComponentTypeCounters as MpsObject[] | undefined) ?? [], bi = (root.ComponentBrickIndices as number[] | undefined) ?? [];
+    const doubled = bi.length === 2 * n;
+    let at = 0;
+    for (let i = 0; i < counters.length; i++) {
+      const m = counters[i]!.NumInstances as number;
+      if (c.slot < at + m) {
+        if (m === 1) counters.splice(i, 1); else counters[i]!.NumInstances = m - 1;
+        break;
+      }
+      at += m;
+    }
+    ch.file.data.splice(c.slot, 1);
+    if (doubled) bi.splice(n + c.slot, 1);
+    bi.splice(c.slot, 1);
+    ch.dirty = true;
+    this.instances.splice(this.instances.indexOf(c), 1);
+    this.byId.delete(c.id);
+    const k = brickKey(c.brickRef), list = this.byBrick.get(k);
+    if (list) { list.splice(list.indexOf(c), 1); if (!list.length) this.byBrick.delete(k); }
+    this.shift(ch, c.slot, -1, c);
+    return c.data;
+  }
+
+  private added = 0;
+
+  /** Slots of a chunk's other instances after an insert (+1) or a removal (-1) at `at`. */
+  private shift(ch: ComponentChunk, at: number, d: 1 | -1, skip?: ComponentInstance): void {
+    for (const c of this.instances) if (c.chunk === ch && c !== skip && c.slot >= at + (d < 0 ? 1 : 0)) c.slot += d;
+  }
+
+  private elementStruct(schema: Schema, field: string): string | null {
+    const t = schema.S.get(schema.root)?.find(([f]) => f === field)?.[1];
+    return t && typeof t !== 'string' && (t.kind === 'array' || t.kind === 'packed') && typeof t.of === 'string' ? t.of : null;
+  }
+
   /** Bytes of one chunk as it stands now. */
   encodeChunk(ch: ComponentChunk): Uint8Array {
     return encodeSoa(ch.file, ch.schema);
   }
 
+  /** True when a chunk holds nothing at all any more (no instances, joints or microchips): saving drops its file. */
+  static isEmpty(ch: ComponentChunk): boolean {
+    return !ch.file.data.length && Object.values(ch.file.root).every((v) => !Array.isArray(v) || v.length === 0);
+  }
+
   /**
    * The save's files with edited component chunks re-encoded (encodeSoa); everything else is
-   * the original bytes. `force` re-encodes every chunk (round-trip checks).
+   * the original bytes. `force` re-encodes every chunk (round-trip checks). An edited chunk left
+   * with nothing in it is removed. With `counts`, the edited chunks' ChunkIndex NumComponents and
+   * Owners.ComponentCounts (per brick owner) follow the instance counts.
    */
-  encode(opts: { force?: boolean; into?: FileMap } = {}): FileMap {
+  encode(opts: { force?: boolean; into?: FileMap; counts?: boolean } = {}): FileMap {
     const out: FileMap = opts.into ?? new Map(this.ctx.files);
-    for (const ch of this.chunks) if (ch.dirty || opts.force) out.set(ch.path, this.encodeChunk(ch));
+    for (const ch of this.chunks) {
+      if (!ch.dirty && !opts.force) continue;
+      if (ch.dirty && ComponentStore.isEmpty(ch)) out.delete(ch.path);
+      else out.set(ch.path, this.encodeChunk(ch));
+    }
+    if (opts.counts) this.updateCounts(out);
     return out;
   }
+
+  /** ChunkIndex NumComponents of edited chunks, and Owners.ComponentCounts from the instance delta per brick owner. */
+  private updateCounts(out: FileMap): void {
+    const dirty = this.chunks.filter((c) => c.dirty);
+    if (!dirty.length) return;
+    const grids = new Map<number, ComponentChunk[]>();
+    for (const ch of dirty) { const l = grids.get(ch.grid); if (l) l.push(ch); else grids.set(ch.grid, [ch]); }
+    for (const [grid, chs] of grids) {
+      const p = `${WORLD}Bricks/Grids/${grid}/ChunkIndex.mps`, bytes = out.get(p);
+      if (!bytes) continue;
+      const schema = this.ctx.schemaFor(p), ci = decodeMps(bytes, schema);
+      const keys = ((ci.Chunk3DIndices as ChunkKey[] | undefined) ?? []).map(chunkName), nc = ci.NumComponents as number[] | undefined;
+      if (!nc) continue;
+      for (const ch of chs) { const j = keys.indexOf(chunkName(ch.chunk)); if (j >= 0) nc[j] = ch.file.data.length; }
+      out.set(p, encodeMps(ci, schema));
+    }
+    const op = WORLD + 'Owners.mps', ob = out.get(op);
+    if (!ob) return;
+    const delta = new Map<number, number>(), owners = new Map<string, number[]>();
+    const ownerOf = (grid: number, chunk: ChunkKey, brick: number): number => {
+      const p = chunkPath(grid, 'Chunks', chunk);
+      let o = owners.get(p);
+      if (!o) {
+        const b = this.ctx.files.get(p);
+        try { o = b ? ((decodeMps(b, this.ctx.schemaFor(p)).OwnerIndices as number[] | undefined) ?? []) : []; } catch { o = []; }
+        owners.set(p, o);
+      }
+      return o[brick] ?? 0;
+    };
+    for (const ch of dirty) {
+      const bricksNow = ((ch.file.root.ComponentBrickIndices as number[] | undefined) ?? []).slice(0, ch.file.data.length);
+      let before: number[] = [];
+      if (ch.original.length) {
+        const f = decodeSoa(ch.original, ch.schema, this.global);
+        before = ((f.root.ComponentBrickIndices as number[] | undefined) ?? []).slice(0, f.data.length);
+      }
+      for (const b of before) { const o = ownerOf(ch.grid, ch.chunk, b); delta.set(o, (delta.get(o) ?? 0) - 1); }
+      for (const b of bricksNow) { const o = ownerOf(ch.grid, ch.chunk, b); delta.set(o, (delta.get(o) ?? 0) + 1); }
+    }
+    if (![...delta.values()].some((d) => d)) return;
+    const schema = this.ctx.schemaFor(op), ow = decodeMps(ob, schema), counts = ow.ComponentCounts as number[] | undefined;
+    if (!counts) return;
+    for (const [o, d] of delta) if (d && o < counts.length) counts[o] = Math.max(0, (counts[o] ?? 0) + d);
+    out.set(op, encodeMps(ow, schema));
+  }
+}
+
+/** A deep copy of a decoded value (Maps, arrays with their marker symbols, structs, variants). */
+export function cloneValue<T>(x: T): T {
+  if (x instanceof Map) return new Map([...x].map(([k, v]) => [cloneValue(k), cloneValue(v)])) as T;
+  if (Array.isArray(x)) {
+    const a = x.map((e) => cloneValue(e) as unknown);
+    for (const s of Object.getOwnPropertySymbols(x)) Object.defineProperty(a, s, { value: (x as unknown as Record<symbol, unknown>)[s], enumerable: false, writable: true, configurable: true });
+    return a as T;
+  }
+  if (x && typeof x === 'object' && !(x instanceof Uint8Array)) {
+    return Object.fromEntries(Object.entries(x).map(([k, v]) => [k, cloneValue(v)])) as T;
+  }
+  if (x instanceof Uint8Array) return x.slice() as T;
+  return x;
+}
+
+/** A comparable key for a decoded value (Maps as entry lists, bigints as text). */
+function valueKey(x: unknown): string {
+  return JSON.stringify(x, (_k, v: unknown) => (v instanceof Map ? { $map: [...v] } : typeof v === 'bigint' ? `${v}n` : v)) ?? 'undefined';
 }
 
 function mapKey(m: Map<unknown, unknown>, k: unknown): unknown {

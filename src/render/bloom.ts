@@ -11,6 +11,7 @@
 // Needs EXT_color_buffer_float; without it there is no bloom.
 
 import { G } from './draw.ts';
+import { perfMark } from './perf.ts';
 import { GLOW_BLOOM } from './materials.ts';
 import { TONEMAP_GLSL } from './shaders/tonemap.ts';
 
@@ -130,7 +131,9 @@ export function bloom(w: number, h: number, drawDepth: () => void, drawEmission:
   gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
   gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LESS); gl.depthMask(true); gl.disable(gl.BLEND);
   gl.colorMask(false, false, false, false); drawDepth();
+  perfMark('bloomEmit');
   gl.colorMask(true, true, true, true); drawEmission();
+  perfMark('bloomBlur');
   gl.disable(gl.POLYGON_OFFSET_FILL); gl.disable(gl.DEPTH_TEST);
   gl.bindTexture(gl.TEXTURE_2D, emit.tex); gl.generateMipmap(gl.TEXTURE_2D);
   // 2. blur each Gaussian at its level

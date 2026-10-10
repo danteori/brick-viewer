@@ -30,7 +30,16 @@ export function effectiveIds(): number[] {
 export const hasSelection = (): boolean => S.selection.size > 0;
 
 /** Replaces the selection (ids that aren't live are left out). */
-export function setSelection(ids: Iterable<number>): void {
+/**
+ * The Selector setting (U-21): what Shift+click does. 'brick' adds (or removes) that one brick;
+ * 'box' grows a box from the first brick (the focused one) to contain every brick Shift+clicked
+ * since, and selects every brick of that brick's grid FULLY inside it (integer units). The box
+ * stays while that selection does; anything else that sets the selection ends it.
+ */
+export const selector = { mode: 'brick' as 'brick' | 'box', box: null as { b: number[]; grid: number } | null };
+
+export function setSelection(ids: Iterable<number>, keepBox = false): void {
+  if (!keepBox) selector.box = null;
   const next = new Set<number>();
   for (const id of ids) if (S.scene.alive(id)) next.add(id);
   for (const id of S.selection) if (!next.has(id)) markBrick(id);
@@ -49,12 +58,39 @@ export function removeFromSelection(ids: Iterable<number>): void {
 }
 
 /** Shift+click on brick id: toggles it (an empty selection first takes the focused brick). */
+/**
+ * Shift+click on brick id, by the Selector setting. The focused brick always stays in: in Brick mode
+ * the clicked brick is added (a second Shift+click on it removes it, except the focused one); in
+ * Box mode the box grows to take it in.
+ */
 export function toggleSelect(id: number): void {
   if (!S.scene.alive(id)) return;
+  if (selector.mode === 'box') { growBox(id); return; }
   const next = new Set(S.selection);
-  if (!next.size && hasFocus() && id !== S.sel) next.add(S.sel);
-  if (next.has(id)) next.delete(id); else next.add(id);
+  if (hasFocus()) next.add(S.sel);
+  if (next.has(id) && id !== S.sel) next.delete(id); else next.add(id);
   setSelection(next);
+}
+
+/** Box mode: grow the box to contain brick id (starting from the focused brick) and reselect. */
+export function growBox(id: number): void {
+  const s = S.scene, b = new Array<number>(6);
+  let box = selector.box;
+  if (!box) {
+    const anchor = hasFocus() ? S.sel : id;
+    s.box(anchor, b);
+    box = { b: b.slice(), grid: s.grid[anchor]! };
+  }
+  s.box(id, b);
+  for (let i = 0; i < 3; i++) { box.b[i] = Math.min(box.b[i]!, b[i]!); box.b[i + 3] = Math.max(box.b[i + 3]!, b[i + 3]!); }
+  const lo = box.b.slice(0, 3).map((v) => v * BRZ_UNIT), hi = box.b.slice(3).map((v) => v * BRZ_UNIT), out: number[] = [];
+  for (const k of boxQuery(lo, hi, 0)) {
+    if (!s.alive(k) || s.grid[k] !== box.grid) continue;
+    s.box(k, b);
+    if (b[0]! >= box.b[0]! && b[1]! >= box.b[1]! && b[2]! >= box.b[2]! && b[3]! <= box.b[3]! && b[4]! <= box.b[4]! && b[5]! <= box.b[5]!) out.push(k);
+  }
+  setSelection(out, true);
+  selector.box = box;
 }
 
 /** Drops ids that are gone (after an undo or a load). */
@@ -90,9 +126,10 @@ export function selectSameType(id: number): number {
 
 /**
  * Flood from `seed` over bricks touching face to face (or overlapping), within the same grid.
- * Returns the connected ids (seed included). `limit` caps the result.
+ * Returns the connected ids (seed included). `limit` caps the result; `accept` (when given) must
+ * pass for a brick to join (and to be flooded through).
  */
-export function connectedFrom(seed: readonly number[], limit = Infinity): number[] {
+export function connectedFrom(seed: readonly number[], limit = Infinity, accept?: (id: number) => boolean): number[] {
   syncScene();
   const s = S.scene, seen = new Set<number>(), queue: number[] = [], a = new Array<number>(6), b = new Array<number>(6);
   for (const id of seed) if (s.alive(id) && !seen.has(id)) { seen.add(id); queue.push(id); }
@@ -103,7 +140,7 @@ export function connectedFrom(seed: readonly number[], limit = Infinity): number
     for (const k of boxQuery(lo, hi, 0)) {
       if (seen.has(k) || !s.alive(k) || s.grid[k] !== s.grid[id]) continue;
       s.box(k, b);
-      if (!touching(a, b)) continue;
+      if (!touching(a, b) || (accept && !accept(k))) continue;
       seen.add(k); queue.push(k);
     }
   }

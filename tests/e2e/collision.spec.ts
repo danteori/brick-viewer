@@ -13,6 +13,7 @@ interface Api {
   brickBox(k: number): Box;
   snapshot(): { bricks: Box[]; sel: number; status: string; ghost: boolean };
   paste(items: unknown[]): void;
+  blocks(): { n: number; reason: string; age: number };
 }
 /** the test hook (not declared globally: parity.spec.ts declares its own shape) */
 type W = { __brickTest: Api };
@@ -23,6 +24,18 @@ const frames = (page: Page, n = 3): Promise<void> => page.evaluate(async (n) => 
   for (let i = 0; i < n; i++) await new Promise((r) => requestAnimationFrame(r));
 }, n);
 async function settle(page: Page): Promise<void> { await page.evaluate(() => (window as unknown as W).__brickTest.settle()); await frames(page); }
+const blockCount = (page: Page): Promise<number> => page.evaluate(() => (window as unknown as W).__brickTest.blocks().n);
+/** a refused edit was noted since n0. The HUD shows the note for only 1.5 s (slow software GL can
+ *  outlast that), so the HUD text is checked only while the note is still fresh. */
+async function expectBlocked(page: Page, n0: number): Promise<void> {
+  const b = await page.evaluate(async () => {
+    await new Promise((r) => requestAnimationFrame(r));
+    return { ...(window as unknown as W).__brickTest.blocks(), hud: document.getElementById('hud')!.innerHTML };
+  });
+  expect(b.n).toBeGreaterThan(n0);
+  expect(b.reason).toBe('overlaps a brick');
+  if (b.age < 1000) expect(b.hud).toMatch(/blocked: overlaps a brick/);
+}
 const snap = (page: Page): Promise<ReturnType<Api['snapshot']>> => page.evaluate(() => (window as unknown as W).__brickTest.snapshot());
 const r3 = (v: number): number => +v.toFixed(3);
 
@@ -104,10 +117,11 @@ test('a resize drag stops at the last size that fits', async ({ page }) => {
   await twoBricks(page);
   const from = await onBrick(page, -1, [1, 0.5, 0.5]), to = await onBrick(page, -1, [4, 0.5, 0.5]);
   await page.mouse.move(from[0], from[1]); await frames(page);
+  const n0 = await blockCount(page);
   await page.mouse.down();
   await page.mouse.move(to[0], to[1], { steps: 20 });
   await frames(page);
-  expect(await page.locator('#hud').innerHTML()).toMatch(/blocked: overlaps a brick/);
+  await expectBlocked(page, n0);
   await page.mouse.up();
   await settle(page);
   expect(await sizeX(page)).toBe(0.8);
@@ -206,9 +220,10 @@ test('R is refused when the turned brick would overlap a brick', async ({ page }
   await settle(page);
   const before = await box0(page);
   await page.mouse.move(640, 790);
+  const n0 = await blockCount(page);
   await page.keyboard.press('r');
   await frames(page);
-  expect(await page.locator('#hud').innerHTML()).toMatch(/blocked: overlaps a brick/);   // shown for 1.5 s
+  await expectBlocked(page, n0);
   await settle(page);
   expect((await box0(page)).size).toEqual(before.size);
   expect((await snap(page)).status).toMatch(/Can't rotate .*: overlaps a brick/);

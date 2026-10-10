@@ -11,7 +11,7 @@
 // other grids, future files) passes through unchanged.
 
 import type { FileMap } from './brz.ts';
-import { decodeMps, encodeMps, parseSchema, type MpsObject, type Schema } from './schema.ts';
+import { decodeMps, encodeMps, parseSchema, type MpsObject, type PackedStructs, type Schema } from './schema.ts';
 
 /** One brick as plain data. Positions are integer world units; sizes are local half-extents. */
 export interface PlainBrick {
@@ -128,6 +128,41 @@ export function extractBricks(files: FileMap, opts: WorldOptions = {}): { bricks
     for (let n = before; n < bricks.length; n++) linear.push(ch.bColorsAreLinear !== false);
   });
   return { bricks, ctx: c, linear };
+}
+
+/** A brick chunk decoded with its per-brick struct arrays left as bytes (positions, colours, sizes). */
+export interface RawBrickChunk extends MpsObject {
+  ProceduralBrickStartingIndex: number;
+  BrickSizeCounters: { AssetIndex: number; NumSizes: number }[] | PackedStructs;
+  BrickSizes: XYZ[] | PackedStructs;
+  BrickTypeIndices: number[];
+  OwnerIndices: number[];
+  OriginalOwnerIndices?: number[];
+  RelativePositions: PackedStructs | XYZ[];
+  Orientations: number[];
+  MaterialIndices: number[];
+  ColorsAndAlphas: PackedStructs | Colour[];
+  bColorsAreLinear?: boolean;
+}
+
+/**
+ * The same chunks extractBricks reads, in the same order, without a PlainBrick per brick (the
+ * fast load path, scene/load.ts storeFromFiles): calls `each` with the decoded chunk, its centre
+ * and whether its colours are linear; `begin` gets the context first. Returns the context.
+ */
+export function forEachRawBrickChunk(files: FileMap, each: (ch: RawBrickChunk, centre: readonly number[], linear: boolean) => void, opts: WorldOptions = {}, begin?: (c: WorldContext) => void): WorldContext {
+  const c = loadCtx(files, opts);
+  begin?.(c);
+  if (!c.ci) return c;
+  const ci = c.ci;
+  ci.Chunk3DIndices.forEach((k, j) => {
+    const f = files.get(chunkPath(c.GP, k));
+    if (!f) return;
+    const d = (opts.grid ?? '1') === '1' ? 0 : 1024;
+    const ch = decodeMps<RawBrickChunk>(f, c.chunkSchema, true), size = ci.ChunkSizes?.[j] ?? 2048, off = ci.ChunkOffsets?.[j] ?? { X: d, Y: d, Z: d };
+    each(ch, AX.map((a) => k[a] * size + size / 2 + off[a]), ch.bColorsAreLinear !== false);
+  });
+  return c;
 }
 
 /** Chunk fields of type BRSavedBitFlags (collision flags and so on), in schema order. */

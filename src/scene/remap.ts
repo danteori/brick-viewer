@@ -15,6 +15,7 @@ import { decodeMps, encodeMps, type MpsObject } from '../format/schema.ts';
 import { extractBricks } from '../format/world.ts';
 import { chunkName, parseChunkPath, saveContext, type ChunkKey } from './components.ts';
 import type { SeqBrick } from './load.ts';
+import type { NewPlace } from './compmodel.ts';
 
 const SAVE_CHUNK = 2048;
 export const saveChunkOf = (p: readonly number[]): string => p.map((v) => Math.floor(Math.round(v) / SAVE_CHUNK)).join('_');
@@ -66,14 +67,16 @@ export interface RemapResult { files: FileMap; rewritten: string[]; problems: st
  * the same bricks as in `template` (the save as opened). `ordered`: the bricks in the order they
  * were written, loaded ones with their seq.
  */
-export function remapBrickRefs(template: FileMap, files: FileMap, ordered: readonly SeqBrick[]): RemapResult {
+export function remapBrickRefs(template: FileMap, files: FileMap, ordered: readonly SeqBrick[], places: readonly NewPlace[] = []): RemapResult {
   const out: FileMap = new Map(files), rewritten: string[] = [], problems = new Set<string>();
   const paths = [...files.keys()].filter((p) => { const at = parseChunkPath(p); return at && (at.kind === 'Components' || at.kind === 'Wires'); });
   if (!paths.length) return { files: out, rewritten, problems: [] };
   const order = loadOrderIndex(template), now = writtenIndex(ordered);
+  // new bricks given a place in the save (C-04): index past the chunk's loaded bricks -> their seq
+  const placed = new Map(places.map((p) => [`${p.chunk}/${p.index}`, p.seq]));
   /** new index of brick `i` of grid-1 chunk `chunk`, or i (with a problem noted) when it has none */
   const map = (chunk: string, i: number, where: string): number => {
-    const seq = order.get(chunk)?.[i];
+    const seq = order.get(chunk)?.[i] ?? placed.get(`${chunk}/${i}`);
     if (seq === undefined) { problems.add(`${where} names brick ${i} of chunk ${chunk}, which the save doesn't have`); return i; }
     const w = now.get(seq);
     if (!w) { problems.add(`${where} names a brick that was deleted`); return i; }
