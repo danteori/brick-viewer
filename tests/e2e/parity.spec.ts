@@ -311,7 +311,13 @@ test('every reference save loads to the same brick list', async ({ browser }) =>
   for (const rel of saves) {
     const b64 = readFileSync(join(REFS, rel)).toString('base64'), name = basename(rel);
     const [a, b] = [await load(pages[0], b64, name, true), await load(pages[1], b64, name, false)];
-    expect(canon(b), rel).toEqual(canon(a));
+    // C-01: the app also draws the fixed-mesh bricks (B_* decor / gadgets / gates, PB_Frog, the
+    // projector and sliders) that legacy skips. Those saves must match brick for brick otherwise;
+    // their focus, zoom and status line differ by design.
+    const ca = canon(a) as { bricks?: Record<string, unknown>[] }, cb = canon(b) as { bricks?: Record<string, unknown>[] };
+    const fixed = (x: Record<string, unknown>): boolean => x.shape === 'special' && /^B_|^PB_Frog$|^BP_ZoneProjector$|SliderJoint$/.test(String(x.asset));
+    if (cb.bricks?.some(fixed)) expect(cb.bricks.filter((x) => !fixed(x)), rel).toEqual(ca.bricks);
+    else expect(cb, rel).toEqual(ca);
     compared++;
   }
   expect(compared).toBe(saves.length);
