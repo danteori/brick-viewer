@@ -28,4 +28,4 @@ jobs:
       - name: Smoke test (Playwright, Chromium)
         run: |
           npx playwright install --with-deps chromium
-          npx playwright test
+          npx playwright test --workers=1 --reporter=list
