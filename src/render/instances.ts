@@ -487,14 +487,19 @@ export class ChunkSet {
         }
       }
     } else {
-      // blocks first: a block out of view skips its (up to BLOCK^3) chunks' tests
-      for (const b of this.blocks.values()) {
-        if (cull && !this.visible(b, cull)) continue;
-        for (const ch of b.chunks) {
-          if (!ch.groups.size || (cull && !this.visible(ch, cull))) continue;
-          stats.chunks++;
-          this.drawGroups(ch.c, ch.groups);
+      // chunks in their own (insertion) order: the order decides which of two exactly coplanar
+      // faces wins the depth test, so it stays as it always was. A block out of view skips its
+      // chunks' tests (each block is tested once a frame).
+      const seen = new Map<LBlock, boolean>();
+      for (const ch of this.chunks.values()) {
+        if (!ch.groups.size) continue;
+        if (cull) {
+          let v = seen.get(ch.block);
+          if (v === undefined) seen.set(ch.block, (v = this.visible(ch.block, cull)));
+          if (!v || !this.visible(ch, cull)) continue;
         }
+        stats.chunks++;
+        this.drawGroups(ch.c, ch.groups);
       }
     }
     gl.bindVertexArray(null);
@@ -510,12 +515,25 @@ export class ChunkSet {
     const gl = G.gl, u = G.u, o = S.origin, off = this.opts.offset;
     const list: RChunk[] = [], lod = farLod && !sorted && LOD_MATS.includes(m);
     gl.uniform4f(u.uBox, 0, 0, 0, 0);
-    for (const b of (lod ? this.lodBlocks : this.blocks).values()) {
-      if (cull && !this.visible(b, cull)) continue;
-      const L = lod ? this.lodSet(b, false) : null;     // built by draw() (opaque first, same frame)
-      if (L) { const g = L.sgroups.get(m); if (g) this.drawGroups(b.c, g); continue; }
-      if (lod && farLod <= LOD_LEVELS && this.heavy(b)) continue;   // waiting for its coarse set (see draw)
-      for (const ch of b.chunks) if (ch.sgroups.has(m) && (!cull || this.visible(ch, cull))) list.push(ch);
+    if (lod) {
+      for (const b of this.lodBlocks.values()) {
+        if (cull && !this.visible(b, cull)) continue;
+        const L = this.lodSet(b, false);                 // built by draw() (opaque first, same frame)
+        if (L) { const g = L.sgroups.get(m); if (g) this.drawGroups(b.c, g); continue; }
+        if (farLod <= LOD_LEVELS && this.heavy(b)) continue;   // waiting for its coarse set (see draw)
+        for (const ch of b.chunks) if (ch.sgroups.has(m) && (!cull || this.visible(ch, cull))) list.push(ch);
+      }
+    } else {
+      const seen = new Map<LBlock, boolean>();          // chunk order kept, as in draw()
+      for (const ch of this.chunks.values()) {
+        if (!ch.sgroups.has(m)) continue;
+        if (cull) {
+          let v = seen.get(ch.block);
+          if (v === undefined) seen.set(ch.block, (v = this.visible(ch.block, cull)));
+          if (!v || !this.visible(ch, cull)) continue;
+        }
+        list.push(ch);
+      }
     }
     if (!list.length) { gl.bindVertexArray(null); return; }
     if (sorted) {
