@@ -23,6 +23,9 @@ function same(bytes: Uint8Array): void {
   expect(b.store.flagFields).toEqual(a.store.flagFields);
   expect(b.report).toEqual(a.report);
   expect(b.unsupported).toEqual(a.unsupported);
+  expect(b.order.chunks).toEqual(a.order.chunks);
+  expect(Array.from(b.order.seqChunk)).toEqual(Array.from(a.order.seqChunk));
+  expect(Array.from(b.order.seqIndex)).toEqual(Array.from(a.order.seqIndex));
 }
 
 describe('fast load path', () => {

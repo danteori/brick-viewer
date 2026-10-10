@@ -33,6 +33,8 @@ import { initFilePanel, waitForOpeners } from '../ui/panels/file.ts';
 import { initSaveGame } from '../ui/panels/savegame.ts';
 import { initProps, tickProps } from '../ui/panels/props.ts';
 import { initSelectionPanel, tickSelection } from '../ui/panels/selection.ts';
+import { initComponentsPanel, tickComponents } from '../ui/panels/components.ts';
+import { drawWires, initWires } from '../ui/overlay/wires.ts';
 import { initCataloguePanel } from '../ui/panels/catalogue.ts';
 import { drawDims, initDims } from '../ui/overlay/dims.ts';
 import { drawHud, initHud } from '../ui/overlay/hud.ts';
@@ -65,6 +67,7 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
   initCamera(canvas);
   initSizePanel();
   initDims(canvas);
+  initWires(canvas);
   selectBrick(S.scene.first());               // the startup brick
 
   // --- input, in the legacy order
@@ -102,6 +105,7 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
   initViewPanel();
   if (opts.features.brdbRead) initWorlds();
   initProps();
+  initComponentsPanel();
   initSelectionPanel();
   initGhost(canvas);
   initOps();
@@ -126,7 +130,9 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
       const { sx, sy } = renderFrame(w, h, canvas);
       drawHud();
       drawDims(sx, sy);
+      drawWires(sx, sy);
       tickProps();
+      tickComponents();
       tickSelection();
     }
     requestAnimationFrame(frame);

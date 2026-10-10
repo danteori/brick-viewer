@@ -17,9 +17,7 @@ import { r3 } from '../core/units.ts';
 import type { Brick, V3 } from '../scene/brick.ts';
 import { histEnd, txBegin, txEnd } from '../scene/history.ts';
 import { brickView, centreOf } from '../scene/view.ts';
-import { filesOf } from '../scene/load.ts';
-import { componentSeqs } from '../scene/remap.ts';
-import type { FileMap } from '../format/brz.ts';
+import { componentsOf } from '../scene/compmodel.ts';
 import { clearSelection, effectiveIds } from './select.ts';
 import { focusKeepZoom, listTx, nearestBrick } from './ops.ts';
 import { itemName } from './ghost.ts';
@@ -33,13 +31,11 @@ function refuse(msg: string): void { setStatus(msg); initAudio(); playError(); }
 
 // --- components ------------------------------------------------------------------------------------
 
-let compCache: { files: FileMap; seqs: Set<number> } | null = null;
-/** Ids among `ids` whose bricks carry components or wires in the save they were loaded from. */
+/** Ids among `ids` whose bricks carry components or wires (as they stand now: the live model of the save). */
 export function componentBricks(ids: readonly number[]): number[] {
-  const files = filesOf(S.scene);
-  if (!files) return [];
-  if (!compCache || compCache.files !== files) compCache = { files, seqs: componentSeqs(files) };
-  const seqs = compCache.seqs, s = S.scene;
+  const m = componentsOf(S.scene);
+  if (!m) return [];
+  const seqs = m.componentSeqs(), s = S.scene;
   if (!seqs.size) return [];
   return ids.filter((id) => s.srcOrder[id]! >= 0 && seqs.has(s.srcOrder[id]!));
 }

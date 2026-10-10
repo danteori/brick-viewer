@@ -8,6 +8,7 @@ import { forEachRawBrickChunk, type PlainBrick, type RawBrickChunk, type WorldCo
 import { packedField, type PackedStructs } from '../format/schema.ts';
 import { ASSETS, F_ALIVE, F_HAS_FLAGS, F_LINEAR, FLAG_NAMES, GRIDS, Kind, MATERIALS, SAME_OWNER, SceneStore } from './store.ts';
 import { kindOf, roundHalfOf, supportedAsset } from './view.ts';
+import type { LoadOrder } from './compmodel.ts';
 
 type Col = (i: number) => number;
 
@@ -20,7 +21,10 @@ function column(a: PackedStructs | Record<string, number>[] | undefined, f: stri
 }
 const lengthOf = (a: PackedStructs | unknown[] | undefined): number => (!a ? 0 : Array.isArray(a) ? a.length : a.n);
 
-export interface FastLoad { store: SceneStore; skipped: number; skippedTypes: Record<string, number>; unsupported: (PlainBrick & { seq: number })[]; sideways: number }
+export interface FastLoad { store: SceneStore; skipped: number; skippedTypes: Record<string, number>; unsupported: (PlainBrick & { seq: number })[]; sideways: number; order: LoadOrder }
+
+/** Save chunk size (units), for the LoadOrder (scene/compmodel.ts loadOrderOf). */
+const SAVE_CHUNK = 2048;
 
 /** Grid 1's bricks -> a new store (drawable ones), plus the ones the viewer can't draw. */
 export function fastStore(files: FileMap): FastLoad {
@@ -36,6 +40,19 @@ export function fastStore(files: FileMap): FastLoad {
     return v;
   };
   const gridId = GRIDS.id('1');
+  // the LoadOrder, as loadOrderOf builds it from every brick's position (supported or not)
+  const oChunks: string[] = [], oAt = new Map<string, number>(), oCounts: number[] = [], seqChunk: number[] = [], seqIndex: number[] = [];
+  let lastK = '', lastC = -1, lx = NaN, ly = NaN, lz = NaN;
+  const orderOf = (x: number, y: number, z: number): void => {
+    const kx = Math.floor(Math.round(x) / SAVE_CHUNK), ky = Math.floor(Math.round(y) / SAVE_CHUNK), kz = Math.floor(Math.round(z) / SAVE_CHUNK);
+    if (kx !== lx || ky !== ly || kz !== lz) {
+      lx = kx; ly = ky; lz = kz; lastK = `${kx}_${ky}_${kz}`;
+      let c = oAt.get(lastK);
+      if (c === undefined) { oAt.set(lastK, (c = oChunks.push(lastK) - 1)); oCounts.push(0); }
+      lastC = c;
+    }
+    seqChunk.push(lastC); seqIndex.push(oCounts[lastC]!++);
+  };
   let flagIds: number[] = [];
   let ctx!: WorldContext;
   forEachRawBrickChunk(files, (ch: RawBrickChunk, centre, linear) => {
@@ -59,6 +76,7 @@ export function fastStore(files: FileMap): FastLoad {
     const cx = centre[0]!, cy = centre[1]!, cz = centre[2]!, n = types.length;
     for (let i = 0; i < n; i++, seq++) {
       const t = types[i]!, proc = t >= start, asset = proc ? procAsset[t - start]! : g.BasicBrickAssetNames[t]!;
+      orderOf(rx(i) + cx, ry(i) + cy, rz(i) + cz);
       if (!isSupported(asset, proc)) {
         const k = asset || 'unknown';
         skipped++; skippedTypes[k] = (skippedTypes[k] || 0) + 1;
@@ -110,5 +128,5 @@ export function fastStore(files: FileMap): FastLoad {
     flagIds = store.flagFields;
   });
   store.drain();
-  return { store, skipped, skippedTypes, unsupported, sideways };
+  return { store, skipped, skippedTypes, unsupported, sideways, order: { chunks: oChunks, seqChunk: Int32Array.from(seqChunk), seqIndex: Int32Array.from(seqIndex) } };
 }

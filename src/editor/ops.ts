@@ -29,6 +29,7 @@ export function initOps(): void {
   S.hooks.afterTx.push((t, side) => {
     if (listTx.has(t) && S.scene.alive(S.sel)) keepZoom(keep);
     if (t.kind === 'scene') setSelection([]);                              // another scene: its own ids
+    else if (t.kind === 'data') { /* the selection stays */ }
     else if (t.selBefore || t.selAfter) setSelection((side === 'before' ? t.selBefore : t.selAfter) ?? []);
     else pruneSelection();
   });
