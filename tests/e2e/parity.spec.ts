@@ -157,10 +157,25 @@ async function run(page: Page): Promise<{ step: string; snap: unknown }[]> {
   await page.mouse.up();
   await snap('place ramp');
 
-  // catalogue: click Microbrick, turn it with R, click to place
-  await page.locator('.bitem', { hasText: /^Microbrick$/ }).click();
-  // only with a ghost: without one the app's R turns the focused brick (E-05), which legacy can't
-  if (await page.evaluate(() => (window.__brickTest.snapshot() as { ghost: boolean }).ghost)) await page.keyboard.press('r');
+  // catalogue: click Microbrick (press and release on it: placing by click), turn it with R, click to place.
+  // Pressing it puts "Placing ..." in the status line above the catalogue; where that rewraps (the
+  // Linux runner's fonts) the list shifts under the pointer, a release on ANOTHER item, and legacy
+  // cancels. So the release follows the item to where it is then, in both viewers.
+  const micro = page.locator('.bitem', { hasText: /^Microbrick$/ });
+  await micro.scrollIntoViewIfNeeded();
+  const centre = async (): Promise<P2> => { const b = (await micro.boundingBox())!; return [b.x + b.width / 2, b.y + b.height / 2]; };
+  let at = await centre();
+  await page.mouse.move(at[0], at[1]);
+  await frames(page);
+  await page.mouse.down();
+  await frames(page);
+  at = await centre();
+  await page.mouse.move(at[0], at[1]);
+  await page.mouse.up();
+  await frames(page);
+  // both must hold a ghost now (without one the app's R would turn the focused brick, E-05)
+  expect(await page.evaluate(() => (window.__brickTest.snapshot() as { ghost: boolean }).ghost), 'Microbrick click gives a ghost').toBe(true);
+  await page.keyboard.press('r');
   await click(page, await beside(page, 0, -0.3));
   await snap('place microbrick');
 

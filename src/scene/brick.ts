@@ -45,6 +45,11 @@ export interface Brick {
   save?: SaveExtras;
   /** the save grid this brick is in (unset = the main static grid, '1'); only same-grid bricks collide */
   grid?: string;
+  /**
+   * A copy's components (C-04): a handle into scene/compmodel.ts's carried-component registry (the
+   * data holds Maps and marked arrays, which this JSON-cloned record can't), placed with the brick.
+   */
+  comps?: number;
 }
 
 /**

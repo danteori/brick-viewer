@@ -85,13 +85,13 @@ function render(): void {
   body.replaceChildren();
   const msg = h('div', { class: 'cmsg', role: 'status', 'aria-live': 'polite' });
   if (!m) { body.append(h('p', { class: 'cnote' }, 'Open a save to see its components.')); return; }
-  const ref = m.refOfRow(S.sel);
-  if (!ref) { body.append(h('p', { class: 'cnote' }, 'A new brick: components can be added to bricks loaded from the save (save and reopen first).')); return; }
-  const list = m.store.onBrick(ref);
+  // a new brick has no place in the save until it gets a component (C-04): Add gives it one
+  const ref = m.refOfRow(S.sel), types = m.addableOn(S.sel);
+  if (!ref && !S.scene.alive(S.sel)) { body.append(h('p', { class: 'cnote' }, 'Focus a brick to see its components.')); return; }
+  const list = ref ? m.store.onBrick(ref) : [];
   if (!list.length) body.append(h('p', { class: 'cnote' }, 'No components on this brick.'));
   for (const c of list) body.append(componentBlock(m, c));
   // add a component of a type this save knows
-  const types = m.store.addable(ref);
   const row = h('div', { class: 'cadd' });
   const sel = h('select', { 'aria-label': 'Component type to add', 'data-k': 'add-type' });
   for (const t of types) sel.append(new Option(shortType(t), t));

@@ -220,6 +220,7 @@ export function drawWires(sx: number, sy: number): void {
     const a = layout.get(brickKey(w.source))?.get(`${w.source.component}/${w.source.port}/out`);
     const b = layout.get(brickKey(w.target))?.get(`${w.target.component}/${w.target.port}/in`);
     if (!a && !b) continue;
+    if (m.orphan(w.source) || m.orphan(w.target)) continue;   // an end on a new brick that is gone (its paste undone)
     const col = KIND_COLOUR[m.wireKind(w)], i = wires.push(w) - 1, on = selKey === endKey(w.source) + '>' + endKey(w.target);
     let d: string;
     if (a && b) {
