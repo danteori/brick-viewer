@@ -28,8 +28,12 @@ On top of that:
 - **Environment:** a world's own environment lights the scene and shows its ground plate; the full
   build adds an Environment panel for every sky, sun, cloud, fog, water and ground plate setting,
   with `.bp` load and save.
-- **Worlds (full build):** open `.brdb` worlds, view any earlier revision, see moving grids
-  (vehicles, doors) where they are parked (read-only), and save as a new world (experimental).
+- **Worlds (full build):** open `.brdb` worlds, view any earlier revision, and save as a new world
+  (experimental).
+- **Moving grids:** a save's moving grids (vehicles, doors) load where they are parked. Click one of
+  their bricks to select the whole grid: the Move tool drags it, R turns it a quarter turn. Brick
+  Properties > Grid makes a new grid from the selection, moves bricks into another grid and types a
+  grid's location and rotation. Saving writes the grids' bricks and their entities back.
 - **Map (full build):** a top-down map of the opened save; click it to jump to that spot.
 - **Components and wires:** Brick Properties > Components lists the focused brick's components
   with an editor per setting (numbers, toggles, choices, text, colours, vectors, map entries,
@@ -98,9 +102,9 @@ in both and compares the results.
 
 | Path | What |
 |---|---|
-| `src/format/` | DOM-free save format code: MessagePack, BLAKE3, `.schema`/`.mps`, `.brz` read/write, bricks to and from save chunks, `.bp` environment presets, `.brdb` worlds (revisions, schema-at-time decoding, new-world and append-revision writers, stale-schema re-encoding), entities, colour palettes, the chunk-index overview and a lazy `.brz` reader |
+| `src/format/` | DOM-free save format code: MessagePack, BLAKE3, `.schema`/`.mps`, `.brz` read/write, bricks to and from save chunks, `.bp` environment presets, `.brdb` worlds (revisions, schema-at-time decoding, new-world and append-revision writers, stale-schema re-encoding), entities and writing them back (`entitywrite.ts`), colour palettes, the chunk-index overview and a lazy `.brz` reader |
 | `src/core/` | Units, matrices, colour helpers and the orientation byte to rotation table |
-| `src/scene/` | The brick record and its size rules, save loading and saving, picking / overlap grid, undo history, dynamic grids placed by their entities (`grids.ts`, `worldgrids.ts`) |
+| `src/scene/` | The brick record and its size rules, save loading and saving, picking / overlap grid, undo history, dynamic grids placed by their entities (`grids.ts`, `worldgrids.ts`), in the scene and saved back (`dyngrids.ts`, `gridsave.ts`) |
 | `src/render/` | WebGL2 renderer: the brick shader (GLSL 3.00, tone map in the shader), instancing (every non-box shape drawn from one shared vertex table, one draw per vertex-count family), far LOD, camera, lighting, grid, ground plate, read-only extra bricks (moving grids), shape meshes; map tiles (`maptiles.ts`, `tileraster.ts`) |
 | `src/env/` | Environment to lighting (the calibrated model) and the ground plate's look |
 | `src/workers/` | The map tile worker, and the parse worker (full build: big saves are read and face-culled off the main thread) |

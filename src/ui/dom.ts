@@ -104,6 +104,30 @@ const MARKUP = `
       <button type="button" data-mirror="1" title="Mirror the selection, or the brick in hand, across Y (Alt+Y)">Mirror Y</button>
     </div>
   </div>
+  <button type="button" id="gridtoggle" aria-expanded="false" aria-controls="gridbody" hidden title="Moving grids (vehicles, doors): select one, make one from the selection, move bricks between grids, type a grid's place">Grid
+    <span id="gridname"></span>${CHEV}</button>
+  <div id="gridbody" hidden>
+    <div class="gridrow g2">
+      <button type="button" data-grid="select" title="Select every brick of the focused brick's grid">Select grid</button>
+      <button type="button" data-grid="new" title="Make the selection (or the focused brick) a new moving grid, where it is">New grid</button>
+    </div>
+    <div class="gridrow gto">
+      <select id="gridto" aria-label="Grid to move the selection into"></select>
+      <button type="button" data-grid="to" title="Move the selection (or the focused brick) into the chosen grid, where it is">Move to grid</button>
+    </div>
+    <div id="gridxf">
+      <span class="gk">Location</span>
+      <input type="number" step="1" data-xf="0" aria-label="Grid location X (units)" title="X, in units (a stud is 10)">
+      <input type="number" step="1" data-xf="1" aria-label="Grid location Y (units)" title="Y, in units">
+      <input type="number" step="1" data-xf="2" aria-label="Grid location Z (units)" title="Z, in units (a plate is 4)">
+      <span class="gk">Rotation</span>
+      <input type="number" step="90" data-xf="3" aria-label="Grid yaw (degrees, about Z)" title="Yaw: degrees about Z">
+      <input type="number" step="90" data-xf="4" aria-label="Grid pitch (degrees, about Y)" title="Pitch: degrees about Y">
+      <input type="number" step="90" data-xf="5" aria-label="Grid roll (degrees, about X)" title="Roll: degrees about X">
+      <button type="button" data-grid="apply" title="Place the grid there (Enter in a box does the same)">Apply</button>
+      <span id="gridnote"></span>
+    </div>
+  </div>
   <button type="button" id="painttoggle" aria-expanded="false" aria-controls="paintbody" title="Colour palette, material and intensity: paint the selection (or the focused brick)">Paint
     ${CHEV}</button>
   <div id="paintbody" hidden></div>

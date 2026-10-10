@@ -1,6 +1,6 @@
 // .brdb worlds in the open-file flow (both builds when FEATURES.brdbRead): open (button, drop,
-// paste), the live revision or any earlier one, and dynamic grids drawn read-only at their
-// transforms.
+// paste), the live revision or any earlier one. Its dynamic grids load into the scene with grid 1
+// (scene/dyngrids.ts), as for any save.
 //
 // Worlds are read lazily (backlog S-08, src/format/brdblazy.ts): the file is never read whole. At
 // open only the SQLite header, the revisions / folders / files tables and the blob index are read
@@ -22,15 +22,12 @@ import { flattenTree } from '../format/stale.ts';
 import { fileMapView, type SaveView } from '../format/saveview.ts';
 import { writeBrz, type FileMap } from '../format/brz.ts';
 import { buildWorldModel, buildWorldModelLazy, type WorldModel } from '../scene/grids.ts';
-import { placedGridStore } from '../scene/worldgrids.ts';
 import { ensureLoadedFiles, loadedName, loadFilesAsync } from '../scene/load.ts';
 import { download, savedName, sceneFiles } from '../scene/save.ts';
-import { setExtraStores } from '../render/extras.ts';
 import { openers } from '../ui/panels/file.ts';
 import { initAudio, playClick } from '../ui/audio.ts';
 import { setStatus } from '../ui/status.ts';
 import { $ } from '../ui/dom.ts';
-import { SceneStore } from '../scene/store.ts';
 
 /** One state of a world, ready for the scene. */
 interface WorldState {
@@ -161,34 +158,17 @@ export function initWorlds(): void {
       .catch((err) => { setStatus(`Couldn't load that revision: ${(err as Error).message}`); console.error(err); })
       .finally(() => { rev.disabled = false; });
   });
-  // any other save replaces the world: hide its revision list and dynamic grids
-  S.hooks.beforeLoad.push(() => { setExtraStores([], null); });
+  // any other save replaces the world: hide its revision list
   S.hooks.loaded.push(() => { if (!loading) { revBox.hidden = true; world?.close(); world = null; } });
 }
 
-/** Loads a world as of a revision (null = live): grid 1 as the scene, dynamic grids read-only. */
+/** Loads a world as of a revision (null = live): grid 1 and the dynamic grids as the scene (scene/dyngrids.ts). */
 async function loadRevision(w: OpenWorld, revisionId: number | null, name: string): Promise<void> {
-  const { files, model, complete, skipped: staleFiles } = await w.state(revisionId);
-  const extras = new SceneStore();
-  let placed = 0, snapped = 0, skipped = 0, failed = 0;
-  for (const g of model.grids) {
-    if (g.kind !== 'dynamic') continue;
-    let p: ReturnType<typeof placedGridStore>;
-    try { p = placedGridStore(fileMapView(files), g, extras); }
-    catch (err) { failed++; console.warn(`grid ${g.id} not shown`, err); continue; }
-    if (p.placed) placed++;
-    if (p.snapped) snapped++;
-    skipped += p.skipped;
-
-  }
-  const others = model.grids.filter((g) => g.id !== 1).length;
-  const note = [`${placed} of ${others} moving grid(s) shown (read-only)`, snapped && `${snapped} turned to the nearest quarter turn`, skipped && `${skipped} of their bricks unsupported`,
-    failed && `${failed} unreadable`, staleFiles && `${staleFiles} file(s) in a newer layout left out (saving this world will fail)`].filter(Boolean).join(', ');
+  const { files, complete, skipped: staleFiles } = await w.state(revisionId);
+  const note = staleFiles ? `${staleFiles} file(s) in a newer layout left out (saving this world will fail)` : null;
   const label = revisionId === null ? name : `${name} @ revision ${revisionId}`;
   loading = true;
-  try { if (!(await loadFilesAsync(files, label, writeBrz(files), note, complete))) return; } finally { loading = false; }
-  extras.drain();
-  setExtraStores(extras.count ? [{ store: extras, origin: [0, 0, 0] }] : [], S.scene);
+  try { await loadFilesAsync(files, label, writeBrz(files), note, complete); } finally { loading = false; }
 }
 
 /** "Save as new world": the scene as a fresh .brdb (two revisions, raw blobs). */

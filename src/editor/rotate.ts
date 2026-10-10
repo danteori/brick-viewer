@@ -21,6 +21,7 @@ import { cameraBasisFromView, dragToWorldDir, reorientTo, rotateBy } from './reo
 import { ed, ghostName, itemName, rotateItems } from './ghost.ts';
 import { keepZoom, noteBlock, pushFocus, selectBrick } from './resize.ts';
 import { initAudio, playClick, playError } from '../ui/audio.ts';
+import { rotateSelectedGrid, selectedGrid } from './grids.ts';
 import { setStatus } from '../ui/status.ts';
 
 /** The fields that describe a brick's orientation (everything else survives a turn untouched). */
@@ -92,6 +93,7 @@ export function rotateTap(dir: 1 | -1): void {
     rotateItems(G.items, dir); initAudio(); playClick();          // a group turns about world Z
     return;
   }
+  if (rotateSelectedGrid(dir)) return;    // a whole dynamic grid selected: the grid turns (W-03)
   if (!hasFocus()) return;
   const tx = { open: false };
   const ok = turnFocused(f, 'rotate', tx);
@@ -128,6 +130,7 @@ export function reorientMove(p: [number, number]): void {
     if (turnGhostItem(f)) { initAudio(); playClick(); } else { setStatus(`Can't turn ${ghostName(G.items)} that way`); initAudio(); playError(); }
     return;
   }
+  if (selectedGrid()) { setStatus('A whole grid turns with R taps (quarter turns about Z); Esc, then click, to reorient one of its bricks'); return; }
   if (turnFocused(f, 'reorient', g.tx)) { initAudio(); playClick(); setStatus(`Reoriented ${itemName(S.focus!)}: top toward ${axisLabel(d)}`); }
 }
 

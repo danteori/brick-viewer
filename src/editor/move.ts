@@ -7,7 +7,8 @@
 // Collision: a step that would put any moved brick into another brick of its grid stops the move
 // at the last free offset; the moved bricks never block themselves. A brick that carries
 // components or wires may not leave its 2048-unit save chunk (scene/remap.ts), which stops the move
-// the same way. The whole drag, right-click commits included, is one undo step.
+// the same way. The whole drag, right-click commits included, is one undo step. When the moved
+// bricks are a whole dynamic grid, its transform moves with them (W-03).
 
 import { S, type EditTx } from '../app/state.ts';
 import { BRZ_UNIT } from '../core/units.ts';
@@ -17,6 +18,7 @@ import { histEnd, txBegin, txEnd } from '../scene/history.ts';
 import { brickView } from '../scene/view.ts';
 import { saveChunkOf } from '../scene/remap.ts';
 import { componentBricks } from './selectops.ts';
+import { shiftGrids, wholeGrids } from './grids.ts';
 
 export interface MoveState {
   ids: number[];
@@ -28,6 +30,8 @@ export interface MoveState {
   lo: number[]; hi: number[];
   /** the last refusal: 'collision' or 'components' */
   blocked: string;
+  /** dynamic grids moved whole: their transforms follow (editor/grids.ts) */
+  grids: number[];
 }
 
 /** The bricks a Move drag takes: the selection when there is one, else the focused brick. */
@@ -43,7 +47,7 @@ export function beginMove(): MoveState | null {
   histEnd();
   const s = S.scene, b = new Array<number>(6), lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
   for (const id of ids) { s.box(id, b); for (let i = 0; i < 3; i++) { lo[i] = Math.min(lo[i]!, b[i]! * BRZ_UNIT); hi[i] = Math.max(hi[i]!, b[i + 3]! * BRZ_UNIT); } }
-  S.move = { ids, set: new Set(ids), tx: txBegin(ids.length === 1 ? 'move brick' : 'move bricks', ids, { selBefore: [...S.selection] }), comps: componentBricks(ids), lo, hi, blocked: '' };
+  S.move = { ids, set: new Set(ids), tx: txBegin(ids.length === 1 ? 'move brick' : 'move bricks', ids, { selBefore: [...S.selection] }), comps: componentBricks(ids), lo, hi, blocked: '', grids: wholeGrids(ids) };
   return S.move;
 }
 
@@ -110,6 +114,7 @@ export function applyMove(i: number, n: number): void {
     s.touch(id);
   }
   for (const a of [m.lo, m.hi]) a[i] = +(a[i]! + du * BRZ_UNIT).toFixed(3);
+  shiftGrids(m.grids, i, du);
   if (m.set.has(S.sel)) {                                  // the focused brick: its record and faces follow
     const b = brickView(s, S.sel);
     S.focus = Object.assign(S.focus!, b, { lo: S.lo, hi: S.hi });

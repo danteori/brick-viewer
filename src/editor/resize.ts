@@ -15,6 +15,7 @@ import { farOf, fitHalf, PITCH_MAX, PITCH_MIN, snapToIso, studPx, toView, update
 import { viewOf } from '../core/math.ts';
 import { histBegin, histEnd } from '../scene/history.ts';
 import { applyMove, beginMove, endMove, moveFree } from './move.ts';
+import { gridClick } from './grids.ts';
 import { initAudio, playClick, playError, playResize, playSelect } from '../ui/audio.ts';
 import { drawGuide, clearGuide } from '../ui/overlay/dims.ts';
 import { syncSizeUi, updateMenuUnits, setModeButtons } from '../ui/panels/size.ts';
@@ -223,8 +224,9 @@ export function onDown(e: PointerEvent, canvas: HTMLCanvasElement): void {
   if (e.button === 1) { startOrbit(e, canvas); return; }
   if (e.button !== 0 || S.orbit.dragging || !hasFocus()) return;
   if (S.hoverBrick >= 0 && S.hoverBrick !== S.sel) {            // clicked another brick: just move the focus
-    const keep = S.cam.half;
+    const keep = S.cam.half, prev = S.sel;
     histEnd(); initAudio(); selectBrick(S.hoverBrick); playSelect();
+    gridClick(prev);                                             // a moving grid's brick: its whole grid is selected
     keepZoom(keep);
     return;
   }

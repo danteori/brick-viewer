@@ -200,6 +200,30 @@ body.placing canvas { cursor:copy !important; }
   font-size:11.5px; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 #props #selbody button:hover:not(:disabled) { color:#fff; border-color:#e8590c; }
 #props #selbody button:disabled { opacity:.4; cursor:default; }
+/* Grid (W-03 / W-04): a section of Brick Properties under Selection, shown for saves that can hold moving grids */
+#props #gridtoggle { display:flex; align-items:center; gap:8px; width:100%; padding:6px 0 4px;
+  border-top:1px solid rgba(255,255,255,.07); font-weight:600; color:#c9ccd3; }
+#props #gridtoggle[hidden] { display:none; }
+#props #gridtoggle .chev { margin-left:auto; }
+#props #gridtoggle:hover { color:#eee; }
+#gridname { font-weight:400; font-size:12px; color:#9a9ca3; }
+#gridname.on { color:#ffb070; font-weight:600; }
+#gridbody { display:grid; gap:4px; padding:2px 0 8px; font-size:11.5px; }
+#gridbody[hidden] { display:none; }
+#gridbody .gridrow { display:grid; gap:4px; }
+#gridbody .gridrow.g2 { grid-template-columns:1fr 1fr; }
+#gridbody .gridrow.gto { grid-template-columns:1fr auto; }
+#gridxf { display:grid; grid-template-columns:auto 1fr 1fr 1fr; gap:4px; align-items:center; color:#9a9ca3; }
+#gridxf button { grid-column:1 / -1; }
+#gridnote { grid-column:1 / -1; font-size:11px; color:#9a9ca3; }
+#gridnote:empty { display:none; }
+#props #gridbody button { padding:5px 4px; border-radius:7px; background:#2b2c30; border:1px solid rgba(255,255,255,.1); color:#c9ccd3;
+  font-size:11.5px; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+#props #gridbody button:hover:not(:disabled) { color:#fff; border-color:#e8590c; }
+#props #gridbody button:disabled { opacity:.4; cursor:default; }
+#gridbody input, #gridbody select { box-sizing:border-box; min-width:0; width:100%; padding:3px 4px; border-radius:6px; border:1px solid rgba(255,255,255,.18);
+  background:#2b2c30; color:#eee; font:12px system-ui, sans-serif; font-variant-numeric:tabular-nums; }
+#gridbody input:disabled, #gridbody select:disabled { opacity:.4; }
 #marquee { position:fixed; z-index:3; pointer-events:none; border:1px dashed #ffb070; background:rgba(255,160,90,.12); }
 #marquee.remove { border-color:#ff7a66; background:rgba(255,90,70,.12); }
 #marquee[hidden] { display:none; }

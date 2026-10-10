@@ -11,6 +11,7 @@ import { hasFocus, S, type EditTx, type SceneSnap, type Tx } from '../app/state.
 import type { V3 } from './brick.ts';
 import { packRecords, readRecord, REC_BYTES } from './record.ts';
 import { kindOf } from './view.ts';
+import { restoreGrids, sameGrids, snapGrids } from './dyngrids.ts';
 import { selectBrick } from '../editor/resize.ts';
 import { setStatus } from '../ui/status.ts';
 import { initAudio, playClick } from '../ui/audio.ts';
@@ -29,7 +30,10 @@ const has = (ids: readonly number[]): Uint8Array => Uint8Array.from(ids, (id) =>
 
 /** Opens an edit of rows `ids` (records taken now); txEnd closes it. */
 export function txBegin(label: string, ids: readonly number[], opts: { selBefore?: number[] } = {}): EditTx {
-  return { kind: 'edit', label, sel: S.sel, ids: ids.slice(), before: packRecords(S.scene, ids.filter((id) => S.scene.alive(id))), beforeHas: has(ids), focusBefore: S.sel, focusAfter: S.sel, selBefore: opts.selBefore };
+  const t: EditTx = { kind: 'edit', label, sel: S.sel, ids: ids.slice(), before: packRecords(S.scene, ids.filter((id) => S.scene.alive(id))), beforeHas: has(ids), focusBefore: S.sel, focusAfter: S.sel, selBefore: opts.selBefore };
+  const g = snapGrids(S.scene);
+  if (g) t.gridsBefore = g;
+  return t;
 }
 
 /** Finishes an edit: takes the after records; pushes it unless nothing changed. Returns whether it was pushed. */
@@ -38,7 +42,12 @@ export function txEnd(t: EditTx, opts: { selAfter?: number[]; force?: boolean } 
   t.after = packRecords(S.scene, t.ids.filter((id) => S.scene.alive(id)));
   t.focusAfter = S.sel;
   if (opts.selAfter) t.selAfter = opts.selAfter;
-  const same = t.afterHas.every((v, j) => v === t.beforeHas[j]) && t.after.length === t.before.length && t.after.every((v, j) => v === t.before[j]);
+  if (t.gridsBefore) {
+    const g = snapGrids(S.scene);
+    if (sameGrids(t.gridsBefore, g)) delete t.gridsBefore;   // the grids didn't change: nothing to keep
+    else t.gridsAfter = g;
+  }
+  const same = !t.gridsBefore && t.afterHas.every((v, j) => v === t.beforeHas[j]) && t.after.length === t.before.length && t.after.every((v, j) => v === t.before[j]);
   if (same && !opts.force) return false;
   histPush(t);
   return true;
@@ -83,6 +92,7 @@ function putSide(t: EditTx, side: 'before' | 'after'): void {
     if (present[i]) { readRecord(s, id, dv, j * REC_BYTES, kindOf); j++; }
     else s.remove(id);
   });
+  if (t.gridsBefore) restoreGrids(s, side === 'before' ? t.gridsBefore : t.gridsAfter);
 }
 
 /** side: 'before' (undo) or 'after' (redo) */

@@ -21,7 +21,8 @@ import { localHalf, rampDir, sideCode, topStyle, type Brick } from './brick.ts';
 import { loadedFiles, loadedUnsupported, type SeqBrick } from './load.ts';
 import { isFixedAsset, plainOf } from './view.ts';
 import { remapBrickRefs } from './remap.ts';
-import type { SceneStore } from './store.ts';
+import { GRIDS, type SceneStore } from './store.ts';
+import { writeDynamicGrids } from './gridsave.ts';
 import { componentsOf, type NewPlace, type SceneComponents } from './compmodel.ts';
 import { chunkName, saveContext, type ChunkKey } from './components.ts';
 
@@ -118,9 +119,11 @@ export function shiftedComponentChunks(template: FileMap, before: readonly Plain
 /**
  * Every row of a store as a save brick, in list order, colour bytes converted for the target
  * chunks (`linear`: they store linear bytes); a row's own bytes are kept when they already match.
+ * `grid`: only that grid's rows (default the main grid; null = every row, world units).
  */
-export function scenePlain(s: SceneStore, linear: boolean): SeqBrick[] {
-  return s.ordered().map((id) => {
+export function scenePlain(s: SceneStore, linear: boolean, grid: string | null = '1'): SeqBrick[] {
+  const gi = grid === null ? -1 : GRIDS.id(grid);
+  return s.ordered().filter((id) => gi < 0 || s.grid[id] === gi).map((id) => {
     const { linear: lin, ...pb } = plainOf(s, id);
     if (lin !== linear) {
       const f = linear ? srgbToLinearByte : linearToSrgbByte;
@@ -142,7 +145,10 @@ export function sceneFiles(template: FileMap | null = loadedFiles): SavedScene |
   const lin = linear.length ? linear[0]! : false;
   const scene = scenePlain(S.scene, lin).concat(loadedUnsupported);
   // edited components and wires go into the template first; the writer then re-indexes them
-  return writeModel(template, scene, componentsOf(S.scene));
+  const main = writeModel(template, scene, componentsOf(S.scene));
+  // then the dynamic grids: their bricks (grid-local) and their entities' transforms
+  const dyn = writeDynamicGrids(template, main.files, S.scene, lin);
+  return { files: dyn.files, warnings: main.warnings.concat(dyn.warnings) };
 }
 
 /**
@@ -281,7 +287,7 @@ function partTemplate(template: FileMap): FileMap {
 export function partFiles(ids: readonly number[], template: FileMap | null = loadedFiles): SavedScene | null {
   if (!template) return null;
   const { linear } = extractBricks(template), lin = linear.length ? linear[0]! : false, want = new Set(ids);
-  const ord = S.scene.ordered(), bricks = scenePlain(S.scene, lin).filter((_, j) => want.has(ord[j]!));
+  const ord = S.scene.ordered(), bricks = scenePlain(S.scene, lin, null).filter((_, j) => want.has(ord[j]!));
   return rebuildPart(template, bricks);
 }
 
