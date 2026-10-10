@@ -10,6 +10,13 @@
 //
 // Every edit is one undo step (a DataTx). Undo steps name components by (brick, type) and wires by
 // their two ends, never by object, so they still apply after other steps re-created them.
+//
+// New bricks (C-04): a brick placed in the viewer has no place in the save, so before it can carry
+// components it is given one: a seq past the save's last brick (in srcOrder, so undo records carry
+// it), and the index after the bricks its 2048-unit chunk already holds (and after the new bricks
+// placed there before it). The writer treats it like a loaded brick: remap moves those indices to
+// where the brick is written. A new brick whose row is gone (its paste undone, say) is an orphan:
+// saving leaves its components and wires out.
 
 import { S, type DataTx } from '../app/state.ts';
 import type { FileMap } from '../format/brz.ts';
@@ -20,9 +27,27 @@ import {
 } from './components.ts';
 import { WireError, WireGraph, type Wire, type WireEnd, type WireIssue } from './wires.ts';
 import { histEnd, histPush } from './history.ts';
-import type { SceneStore } from './store.ts';
+import { GRIDS, type SceneStore } from './store.ts';
 
 const SAVE_CHUNK = 2048;
+const chunkOfPos = (x: number, y: number, z: number): string => [x, y, z].map((v) => Math.floor(Math.round(v) / SAVE_CHUNK)).join('_');
+
+/** A new brick's place in the save (C-04): its chunk and its index there (after the loaded bricks). */
+export interface NewPlace { seq: number; chunk: string; index: number }
+
+/** A copied brick's components (type and a deep copy of the data), carried to where it is placed. */
+export interface CarriedComponent { type: string; data: MpsObject | null }
+const carried = new Map<number, CarriedComponent[]>();
+let nextCarry = 1;
+/** Registers carried components; returns the handle a copied Brick keeps in `comps`. */
+export function carryComponents(list: readonly CarriedComponent[]): number {
+  const h = nextCarry++;
+  carried.set(h, list.map((c) => ({ type: c.type, data: cloneValue(c.data) })));
+  return h;
+}
+/** The components behind a handle (deep copies). */
+export const carriedComponents = (h: number | undefined): CarriedComponent[] =>
+  (h === undefined ? [] : carried.get(h) ?? []).map((c) => ({ type: c.type, data: cloneValue(c.data) }));
 
 /** Where each loaded brick (by seq) sits in its save chunk. */
 export interface LoadOrder {
@@ -99,10 +124,21 @@ export class SceneComponents {
   version = 0;
   private byChunk: Map<string, number[]> | null = null;
   private seqRow: Int32Array | null = null;
+  private newRow = new Map<number, number>();
   private seqRowRev = -1;
   private seqCache: { v: number; seqs: Set<number> } | null = null;
+  /** new bricks given a place in the save (C-04), by seq (>= base) */
+  private placed = new Map<number, NewPlace>();
+  private placedAt = new Map<string, number>();
+  private placedIn = new Map<string, number>();
+  private nextSeq: number;
 
-  constructor(readonly scene: SceneStore, readonly store: ComponentStore, readonly wires: WireGraph, readonly order: LoadOrder) {}
+  constructor(readonly scene: SceneStore, readonly store: ComponentStore, readonly wires: WireGraph, readonly order: LoadOrder) {
+    this.nextSeq = order.seqChunk.length;
+  }
+
+  /** Seqs from here on are new bricks given a place in the save. */
+  get base(): number { return this.order.seqChunk.length; }
 
   get dirty(): boolean { return this.store.dirty || this.wires.dirty; }
   get empty(): boolean { return !this.store.instances.length && !this.wires.size; }
@@ -111,13 +147,13 @@ export class SceneComponents {
 
   /** The save brick (grid 1) of a load-order position. */
   refOfSeq(seq: number): BrickRef | null {
-    if (seq < 0 || seq >= this.order.seqChunk.length) return null;
+    if (seq >= this.base) { const p = this.placed.get(seq); return p ? { grid: 1, chunk: parseKey(p.chunk), brick: p.index } : null; }
+    if (seq < 0) return null;
     return { grid: 1, chunk: parseKey(this.order.chunks[this.order.seqChunk[seq]!]!), brick: this.order.seqIndex[seq]! };
   }
 
-  /** Load-order position of a grid-1 save brick, or -1. */
-  seqOfRef(ref: BrickRef): number {
-    if (ref.grid !== 1) return -1;
+  /** Seqs of the loaded bricks of a chunk, by index. */
+  private loadedIn(chunk: string): number[] {
     if (!this.byChunk) {
       const m = new Map<string, number[]>(), { seqChunk, chunks } = this.order;
       for (let s = 0; s < seqChunk.length; s++) {
@@ -128,29 +164,123 @@ export class SceneComponents {
       }
       this.byChunk = m;
     }
-    return this.byChunk.get(keyOf(ref.chunk))?.[ref.brick] ?? -1;
+    return this.byChunk.get(chunk) ?? [];
   }
 
-  /** The save brick a scene row was loaded as (null for a new brick). */
+  /** Load-order position of a grid-1 save brick (or of a new brick's place), or -1. */
+  seqOfRef(ref: BrickRef): number {
+    if (ref.grid !== 1) return -1;
+    const k = keyOf(ref.chunk);
+    return this.loadedIn(k)[ref.brick] ?? this.placedAt.get(`${k}/${ref.brick}`) ?? -1;
+  }
+
+  /**
+   * The save brick a scene row was loaded as, or the place a new brick was given. Null for a new
+   * brick without one (or one that has left that place's chunk since: it carries nothing there).
+   */
   refOfRow(id: number): BrickRef | null {
-    if (!this.scene.alive(id)) return null;
-    const seq = this.scene.srcOrder[id]!;
-    return seq >= 0 ? this.refOfSeq(seq) : null;
+    const s = this.scene;
+    if (!s.alive(id)) return null;
+    const seq = s.srcOrder[id]!;
+    if (seq < this.base) return seq >= 0 ? this.refOfSeq(seq) : null;
+    const p = this.placed.get(seq);
+    return p && p.chunk === chunkOfPos(s.px[id]!, s.py[id]!, s.pz[id]!) ? this.refOfSeq(seq) : null;
+  }
+
+  /** True for a new brick's place whose row is gone (its paste undone): saving leaves its components and wires out. */
+  orphan(ref: BrickRef): boolean {
+    return this.seqOfRef(ref) >= this.base && this.rowOfRef(ref) < 0;
+  }
+
+  /** New bricks' places whose rows are live (for the writer: remap names them like loaded bricks). */
+  newPlaces(): NewPlace[] {
+    return [...this.placed.values()].filter((p) => this.rowOfRef(this.refOfSeq(p.seq)!) >= 0);
+  }
+
+  /**
+   * Gives new grid-1 row `id` a place in the save and returns its seq; the caller's undo step
+   * records the srcOrder. A row that has one keeps it.
+   */
+  placeNew(id: number): number {
+    const s = this.scene;
+    if (!s.alive(id) || s.grid[id] !== GRIDS.id('1')) throw new ComponentEditError('only bricks of the main grid can carry components');
+    if (this.refOfRow(id)) return s.srcOrder[id]!;
+    const seq0 = s.srcOrder[id]!;
+    if (seq0 >= 0 && seq0 < this.base) throw new ComponentEditError('this brick has no place in the save');
+    const chunk = chunkOfPos(s.px[id]!, s.py[id]!, s.pz[id]!), n = this.placedIn.get(chunk) ?? 0;
+    const p: NewPlace = { seq: this.nextSeq++, chunk, index: this.loadedIn(chunk).length + n };
+    this.placed.set(p.seq, p); this.placedAt.set(`${chunk}/${p.index}`, p.seq); this.placedIn.set(chunk, n + 1);
+    this.setSeq(id, p.seq);
+    return p.seq;
+  }
+
+  /** Sets a row's srcOrder (placeNew, and its undo / redo). */
+  private setSeq(id: number, seq: number): void {
+    const s = this.scene;
+    if (!s.alive(id) || s.srcOrder[id] === seq) return;
+    s.srcOrder[id] = seq; s.touch(id);
+  }
+
+  /**
+   * Puts carried components (a paste, C-04) on new row `id`, giving it a place in the save. Not an
+   * undo step of its own: the paste's records carry the srcOrder, and undoing the paste orphans
+   * them. Returns the types that could not be added (not a type of this save, or data that doesn't fit).
+   */
+  attachCarried(id: number, list: readonly CarriedComponent[]): string[] {
+    if (!list.length) return [];
+    const failed: string[] = [];
+    let ref: BrickRef | null = null;
+    try { this.placeNew(id); ref = this.refOfRow(id); } catch { /* not placeable: none fit */ }
+    for (const c of list) {
+      try {
+        if (!ref) throw new ComponentEditError('no place in the save');
+        this.store.addInstance(ref, c.type, c.data === null ? null : cloneValue(c.data));
+      } catch { failed.push(c.type); }
+    }
+    if (ref && !this.store.onBrick(ref).length) this.setSeq(id, -1);   // nothing carried: a plain new brick
+    this.changed();
+    return failed;
+  }
+
+  /** Component types that could be added to row `id` (a new brick: as if at the place it would get). */
+  addableOn(id: number): string[] {
+    const ref = this.refOfRow(id) ?? this.prospectiveRef(id);
+    return ref ? this.store.addable(ref) : [];
+  }
+
+  /** The place placeNew would give row `id` now, or null when it can't have one. */
+  private prospectiveRef(id: number): BrickRef | null {
+    const s = this.scene, seq = s.alive(id) ? s.srcOrder[id]! : -1;
+    if (!s.alive(id) || s.grid[id] !== GRIDS.id('1') || (seq >= 0 && seq < this.base)) return null;
+    const chunk = chunkOfPos(s.px[id]!, s.py[id]!, s.pz[id]!);
+    return { grid: 1, chunk: parseKey(chunk), brick: this.loadedIn(chunk).length + (this.placedIn.get(chunk) ?? 0) };
+  }
+
+  /** Deep copies of the components on row `id` (a copy takes them along). */
+  carriedOf(id: number): CarriedComponent[] {
+    return this.componentsOf(id).map((c) => ({ type: c.type, data: cloneValue(c.data) }));
   }
 
   /** The scene row showing a save brick, or -1 (not in the scene: another grid, an unsupported type, deleted). */
   rowOfRef(ref: BrickRef): number {
     const seq = this.seqOfRef(ref);
     if (seq < 0) return -1;
-    const s = this.scene;
-    let row = this.seqRow?.[seq] ?? -1;
+    const s = this.scene, at = (q: number): number => (q < this.base ? this.seqRow?.[q] ?? -1 : this.newRow.get(q) ?? -1);
+    let row = at(seq);
     const stale = !this.seqRow || (row >= 0 ? !s.alive(row) || s.srcOrder[row] !== seq : this.seqRowRev !== s.rev);
     if (stale) {
-      this.seqRow = new Int32Array(this.order.seqChunk.length).fill(-1);
+      this.seqRow = new Int32Array(this.base).fill(-1);
+      this.newRow.clear();
       this.seqRowRev = s.rev;
-      for (const id of s.ids()) { const q = s.srcOrder[id]!; if (q >= 0 && q < this.seqRow.length) this.seqRow[q] = id; }
-      row = this.seqRow[seq]!;
+      for (const id of s.ids()) {
+        const q = s.srcOrder[id]!;
+        if (q >= 0 && q < this.seqRow.length) this.seqRow[q] = id;
+        else if (q >= this.base) this.newRow.set(q, id);
+      }
+      row = at(seq);
     }
+    // a new brick's place counts only while the row is still in that chunk
+    if (row >= 0 && seq >= this.base && !this.refOfRow(row)) return -1;
     return row;
   }
 
@@ -209,7 +339,8 @@ export class SceneComponents {
     return c;
   }
 
-  private changed(): void {
+  /** Bumps the version and tells the views (also after a change outside the steps here: a paste). */
+  changed(): void {
     this.version++;
     for (const f of listeners) f();
   }
@@ -243,10 +374,21 @@ export class SceneComponents {
 
   /** Adds a component of `type` (with defaults) to scene row `id`, as one undo step. */
   addComponent(id: number, type: string): ComponentInstance {
-    const ref = this.refOfRow(id);
-    if (!ref) throw new ComponentEditError('only bricks loaded from the save can carry components here (a new brick has no place in the save yet)');
-    const c = this.store.addInstance(ref, type), data = cloneValue(c.data);
-    this.push(`add ${shortType(type)}`, ref, () => { this.store.removeInstance(this.instance(ref, type)); }, () => { this.store.addInstance(ref, type, cloneValue(data)); });
+    let ref = this.refOfRow(id), fresh = -1;
+    if (!ref) {
+      // a new brick: give it a place in the save; that goes with this step (undo makes it a plain new brick again)
+      const at = this.prospectiveRef(id);
+      if (!at) throw new ComponentEditError('this brick has no place in the save');
+      const why = this.store.canAdd(at, type);
+      if (why) throw new ComponentEditError(why);
+      fresh = this.placeNew(id); ref = this.refOfRow(id)!;
+    }
+    const r = ref;
+    let c: ComponentInstance;
+    try { c = this.store.addInstance(r, type); } catch (e) { if (fresh >= 0) this.setSeq(id, -1); throw e; }
+    const data = cloneValue(c.data);
+    this.push(`add ${shortType(type)}`, r, () => { this.store.removeInstance(this.instance(r, type)); if (fresh >= 0) this.setSeq(id, -1); },
+      () => { if (fresh >= 0) this.setSeq(id, fresh); this.store.addInstance(r, type, cloneValue(data)); });
     return c;
   }
 
@@ -303,7 +445,19 @@ export class SceneComponents {
     const out: FileMap = new Map(template);
     this.store.encode({ into: out, counts: true });
     this.wires.encode({ into: out });
-    return out;
+    return this.dropOrphans(out);
+  }
+
+  /** `files` without the components and wires on orphaned new-brick places (removed in a copy of the model). */
+  private dropOrphans(files: FileMap): FileMap {
+    const gone = (r: BrickRef): boolean => r.grid === 1 && this.orphan(r);
+    if (!this.store.instances.some((c) => gone(c.brickRef)) && !this.wires.wires().some((w) => gone(w.source) || gone(w.target))) return files;
+    const ctx = saveContext(files), store = new ComponentStore(ctx), wires = new WireGraph(ctx, { components: store });
+    for (const w of wires.wires()) if (gone(w.source) || gone(w.target)) wires.removeWire(w.id);
+    for (const c of [...store.instances]) if (gone(c.brickRef)) store.removeInstance(c);
+    store.encode({ into: files });
+    wires.encode({ into: files });
+    return files;
   }
 }
 

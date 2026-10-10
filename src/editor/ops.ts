@@ -6,6 +6,7 @@ import { S, hasFocus } from '../app/state.ts';
 import { r3 } from '../core/units.ts';
 import { cloneBrick, type Brick, type V3 } from '../scene/brick.ts';
 import { histEnd, txBegin, txEnd } from '../scene/history.ts';
+import { carriedComponents, componentsOf, shortType } from '../scene/compmodel.ts';
 import { addBrick, brickView, centreOf } from '../scene/view.ts';
 import { keepZoom, selectBrick } from './resize.ts';
 import { pruneSelection, setSelection } from './select.ts';
@@ -36,12 +37,26 @@ export function initOps(): void {
   S.hooks.beforeLoad.push(() => { endPlacing(); setSelection([]); });
 }
 
-/** Adds bricks (absolute faces) as one undo step; returns their ids. */
+/** Component types a paste could not carry over (last addBricks; not types of this save, say). */
+export let lastUncarried: string[] = [];
+
+/**
+ * Adds bricks (absolute faces) as one undo step; returns their ids. Bricks with carried components
+ * (a paste, C-04) get them, and a place in the save, inside the same step (the records take the
+ * place along; undoing the paste orphans the components, which saving then leaves out).
+ */
 export function addBricks(bricks: readonly Brick[], label: string, focus: 'first' | 'keep' = 'first'): number[] {
   histEnd();
   const keep = S.cam.half, ids: number[] = [];
   const t = txBegin(label, []);
   for (const b of bricks) ids.push(addBrick(S.scene, b));
+  lastUncarried = [];
+  const m = componentsOf(S.scene);
+  bricks.forEach((b, j) => {
+    if (b.comps === undefined) return;
+    const list = carriedComponents(b.comps);
+    lastUncarried.push(...(m ? m.attachCarried(ids[j]!, list) : list.map((c) => c.type)));
+  });
   t.ids = ids; t.beforeHas = new Uint8Array(ids.length);
   if (focus === 'first' && ids.length) focusKeepZoom(ids[0]!, keep);
   listTx.add(t); txEnd(t);
@@ -67,7 +82,8 @@ export function placeGhost(): boolean {
   ed.lastPlaceT = performance.now();
   initAudio(); if (G.drop) playPaste(); else playClick();
   setStatus(G.drop
-    ? `Pasted ${G.items.length === 1 ? ghostName(placed) : `${placed.length} brick${placed.length === 1 ? '' : 's'}`}${skipped ? ` (${skipped} skipped: overlapping)` : ''}`
+    ? `Pasted ${G.items.length === 1 ? ghostName(placed) : `${placed.length} brick${placed.length === 1 ? '' : 's'}`}${skipped ? ` (${skipped} skipped: overlapping)` : ''}` +
+      (lastUncarried.length ? ` · ${lastUncarried.length} component${lastUncarried.length === 1 ? '' : 's'} left behind (${[...new Set(lastUncarried)].map(shortType).join(', ')}: this save can't take them)` : '')
     : `Placed ${ghostName(G.items)}`);
   return true;
 }
