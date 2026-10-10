@@ -1,9 +1,11 @@
 // Hidden-face culling wired into the renderer (S-02 / U-02). A scene mirror keeps a FaceCuller
 // (scene/cull.ts) over the scene store's rows: ids are store row ids, dead and hidden rows are
 // empty slots. The masks go into the store's faceMask column, which the instance records carry
-// (iMisc.x); the vertex shader collapses the hidden faces of box meshes and render chunks skip
-// fully hidden bricks. A hidden face is exactly covered by opaque coplanar neighbours, so no pixel
-// it could have drawn is visible: the image is unchanged, only the work goes.
+// (iMisc.x). At the far LOD levels (render/lod.ts hidesCovered) the vertex shader collapses the
+// hidden faces of box meshes and the coarse sets leave fully hidden bricks out. Not at full
+// detail: a hidden face is exactly covered by opaque coplanar neighbours, but where bricks of
+// different sizes meet, their outer faces leave sub-pixel slivers (T-junctions) that the covered
+// faces behind fill, so culling there would let the background sparkle through the seams.
 //
 // Rows hidden while a selection is being moved (S.hidden) don't cover anything, so their
 // neighbours' faces come back while the ghost is out.

@@ -45,6 +45,14 @@ export function lodLevel(studPx: number): number {
   while (L < LOD_LEVELS && 4 * 4 ** L * studPx <= LOD_CELL_PX) L++;
   return L;
 }
+/**
+ * Does this level drop covered faces and fully hidden bricks (render/facecull.ts)? Not at full
+ * detail: where bricks of different sizes meet, their outer faces leave sub-pixel slivers
+ * (T-junctions), and the covered faces behind are what fills them, so dropping those would let
+ * the background sparkle through the seams. From LOD_MERGED_BOX on the picture is approximate anyway.
+ */
+export const hidesCovered = (level: number): boolean => level !== 0 && level !== LOD_MERGED;
+
 /** Switches (test hook / bench). */
 export const lodSettings = { on: true };
 

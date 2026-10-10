@@ -7,8 +7,8 @@ import { mul } from '../core/math.ts';
 import { BEVEL, BEVEL_FIT, SHADE, STEP } from '../core/units.ts';
 import type { V3 } from '../scene/brick.ts';
 import { G, bodyShape, drawBody, setBox } from './draw.ts';
-import { drawInstances, inst, setFarLod, setShowHidden, syncInstances, type ViewCull } from './instances.ts';
-import { lodLevel, lodSettings } from './lod.ts';
+import { drawInstances, inst, setFarLod, syncInstances, type ViewCull } from './instances.ts';
+import { hidesCovered, lodLevel, lodSettings } from './lod.ts';
 import { syncScene } from '../scene/sync.ts';
 import { drawGrid } from './grid.ts';
 import { drawExtras, extrasDepth } from './extras.ts';
@@ -45,8 +45,6 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
   gl.uniformMatrix4fv(u.uMVP, false, mul(ortho, view));
   gl.uniform3f(u.uEye, view[2], view[6], view[10]);   // view-space +z (toward the camera) in world/GL space
   if (cutOn) setCutUniforms(G);
-  gl.uniform1f(u.uShowHidden, cutOn ? 1 : 0);   // the cutaway's hole exposes culled faces and fully hidden bricks
-  setShowHidden(cutOn);
   { const P = LIGHTING[S.lighting]; gl.uniform3fv(u.uSun, P.sun); gl.uniform3fv(u.uSky, P.sky); gl.uniform3fv(u.uFloor, P.floor); gl.uniform1f(u.uExposure, P.exposure); }
   { const L = lightDir(); gl.uniform3f(u.uLight, L[0], L[1], L[2]); }
   gl.clearColor(0.169, 0.173, 0.188, 1);          // #2b2c30, matches --bg
@@ -61,7 +59,11 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
   const zr = reach * 1.05 + 1 > 60 ? reach * 1.05 + 1 : 60;
   if (zr !== 60) { ortho[10] = -1 / zr; cull.depth = zr; gl.uniformMatrix4fv(u.uMVP, false, mul(ortho, view)); }
   // far LOD (render/lod.ts) by how many device pixels a stud (0.2 view units) is
-  setFarLod(lodSettings.on ? lodLevel(0.2 * h / (2 * half * fy)) : 0);
+  const level = lodSettings.on ? lodLevel(0.2 * h / (2 * half * fy)) : 0;
+  setFarLod(level);
+  // covered faces are dropped only from the approximate levels on, and never in the X-ray cutaway
+  // (its hole exposes them)
+  gl.uniform1f(u.uShowHidden, cutOn || !hidesCovered(level) ? 1 : 0);
   perfMark('opaque');
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxIB);
   gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(1, 1);

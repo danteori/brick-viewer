@@ -1,5 +1,5 @@
-// U-02 render optimisations keep the picture: hidden-face culling changes no pixel, and the far
-// LOD switches on when zoomed far out and draws fewer instances. Synthetic save, no private data.
+// U-02 render optimisations keep the picture: hidden-face culling changes no pixel at full detail,
+// and the far LOD switches on when zoomed far out and draws fewer instances. Synthetic save, no private data.
 // Drives the dev server's own modules (same instances the app uses) to flip the switches.
 
 import { expect, test, type Page } from '@playwright/test';
@@ -37,7 +37,7 @@ type Mod = any;
 /** A dev-server module by path (the instance the app runs), inside page.evaluate. */
 declare function devImport(p: string): Promise<Mod>;
 
-test('hidden-face culling changes no pixel', async ({ page }) => {
+test('hidden-face culling changes no pixel at full detail', async ({ page }) => {
   const errors = await open(page);
   await page.evaluate(() => { (window as unknown as { devImport: typeof devImport }).devImport = (p: string) => import(/* @vite-ignore */ p) as Promise<Mod>; });
   const hidden = await page.evaluate(() => devImport('/src/render/facecull.ts').then((m: Mod) => m.faceCull.hiddenFaces as number));

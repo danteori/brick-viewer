@@ -76,14 +76,6 @@ interface LBlock {
   box: [number, number, number, number, number, number];
 }
 
-/** Fully hidden bricks are drawn too (the X-ray cutaway exposes them); changing it re-packs every chunk. */
-let showHidden = false, showHiddenSets: ChunkSet[] = [];
-export function setShowHidden(on: boolean): void {
-  if (on === showHidden) return;
-  showHidden = on;
-  for (const set of showHiddenSets) set.repackAll();
-}
-
 /** Far-LOD level for this frame, 0 = full detail (pipeline.ts sets it from the zoom). */
 let farLod = 0;
 export function setFarLod(level: number): void { farLod = level; }
@@ -177,9 +169,6 @@ export class ChunkSet {
   }
 
   changed(ids: ReadonlySet<number>): void { for (const id of ids) this.place(id); }
-
-  /** marks every chunk for re-packing */
-  repackAll(): void { for (const ch of this.chunks.values()) ch.dirty = true; }
 
   /** marks row id's chunk dirty (focus / selection / hidden changes) */
   touch(id: number): void { const ch = this.rowChunk[id]; if (ch) ch.dirty = true; }
@@ -283,18 +272,24 @@ export class ChunkSet {
         if (l) for (const [mesh, ids] of l) {
           let o = lists.get(mesh);
           if (!o) lists.set(mesh, (o = []));
-          if (!boxes || mesh === BOX_MESH) { for (const id of ids) o.push(id); continue; }
+          if (!boxes) { for (const id of ids) o.push(id); continue; }
           let bo = lists.get(BOX_MESH);
           if (!bo) lists.set(BOX_MESH, (bo = []));
-          for (const id of ids) (s.hx[id]! <= CELL && s.hy[id]! <= CELL && s.hz[id]! <= CELL ? bo : o).push(id);
+          for (const id of ids) {
+            if (s.faceMask[id]! & FULLY_HIDDEN) continue;        // culled from this level on (hidesCovered)
+            (mesh === BOX_MESH || (s.hx[id]! <= CELL && s.hy[id]! <= CELL && s.hz[id]! <= CELL) ? bo : o).push(id);
+          }
         }
       }
       for (const [mesh, ids] of lists) if (!ids.length) lists.delete(mesh);
       this.fill(b, groups, lists);
       return;
     }
-    const all: number[] = [], meshes: Mesh[] = [];
-    for (const ch of b.chunks) { const l = per(ch); if (l) for (const [mesh, ids] of l) for (const id of ids) { all.push(id); meshes.push(mesh); } }
+    const all: number[] = [], meshes: Mesh[] = [], fm = this.store.faceMask;
+    for (const ch of b.chunks) {
+      const l = per(ch);
+      if (l) for (const [mesh, ids] of l) for (const id of ids) if (!(fm[id]! & FULLY_HIDDEN)) { all.push(id); meshes.push(mesh); }
+    }
     const L = buildLod(this.store, all, b.c, level);
     const lists = new Map<Mesh, number[]>();
     for (const q of L.keep) {
@@ -378,7 +373,6 @@ export class ChunkSet {
       if (id === sel) continue;
       ch.minZ = Math.min(ch.minZ, z - h[2]);
       if (hidden && hidden.size && hidden.has(id)) continue;
-      if (!showHidden && s.faceMask[id]! & FULLY_HIDDEN) continue;   // covered on all six sides (render/facecull.ts)
       const mesh = meshOf(s.shape[id]!, ASSETS.name(s.asset[id]!), s.hx[id]!, s.hy[id]!, s.hz[id]!);
       const m = scene ? materialCode(s.material[id]!) : 0;   // extras draw every brick as plastic, as before
       let into = lists;
@@ -615,7 +609,6 @@ export const inst = {
 
 export function initInstances(): void {
   inst.set = new ChunkSet(S.scene);
-  showHiddenSets = [inst.set];
   addMirror({
     reset: (s) => { inst.set!.reset(s); },
     changed: (_s, ids) => { inst.set!.changed(ids); },
