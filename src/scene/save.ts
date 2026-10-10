@@ -14,6 +14,7 @@ import { BrickShapes } from '../render/meshes/shapes.js';
 import { BRZ_UNIT } from '../core/units.ts';
 import { extractBricks, rebuildFromLoaded, type PlainBrick } from '../format/world.ts';
 import { writeBrz, type FileMap } from '../format/brz.ts';
+import { decodeMps, encodeMps, parseSchema, schemaPathFor } from '../format/schema.ts';
 import { srgbToLinearByte } from '../format/palette.ts';
 import { linearToSrgbByte } from '../format/stale.ts';
 import { localHalf, rampDir, sideCode, topStyle, type Brick } from './brick.ts';
@@ -151,6 +152,43 @@ export function writeScene(template: FileMap, scene: readonly SeqBrick[]): Saved
   out.files = r.files;
   out.warnings = out.warnings.filter((w) => !/components \/ wires: they index bricks/.test(w));
   if (r.problems.length) out.warnings.push(`components / wires: ${r.problems.length} reference${r.problems.length === 1 ? '' : 's'} could not follow their bricks (${r.problems[0]})`);
+  return out;
+}
+
+/**
+ * A template for saving a PART of the scene: the save's files without grid 1's components and wires
+ * (copies never take those along), with their counts in grid 1's ChunkIndex and in Owners zeroed.
+ */
+function partTemplate(template: FileMap): FileMap {
+  const out: FileMap = new Map(), G1 = 'World/0/Bricks/Grids/1/';
+  for (const [p, b] of template) if (!(p.startsWith(G1) && /\/(Components|Wires)\//.test(p))) out.set(p, b);
+  const zero = (path: string, fields: string[]): void => {
+    const bytes = out.get(path), sp = schemaPathFor(path, out), sb = sp ? out.get(sp) : undefined;
+    if (!bytes || !sb) return;
+    const schema = parseSchema(sb), v = decodeMps<Record<string, unknown>>(bytes, schema);
+    for (const f of fields) { const a = v[f]; if (Array.isArray(a)) a.fill(0); }
+    out.set(path, encodeMps(v, schema));
+  };
+  zero(G1 + 'ChunkIndex.mps', ['NumComponents', 'NumWires']);
+  zero('World/0/Owners.mps', ['ComponentCounts', 'WireCounts']);
+  return out;
+}
+
+/**
+ * Rows `ids` of the scene written into a template save (default: the one opened) as a save of
+ * their own (a prefab of the selection), or null without a template. The bricks are new bricks:
+ * components and wires stay behind, everything else of the template (other grids, entities) is kept.
+ */
+export function partFiles(ids: readonly number[], template: FileMap | null = loadedFiles): SavedScene | null {
+  if (!template) return null;
+  const { linear } = extractBricks(template), lin = linear.length ? linear[0]! : false, want = new Set(ids);
+  const ord = S.scene.ordered(), bricks = scenePlain(S.scene, lin).filter((_, j) => want.has(ord[j]!));
+  return rebuildPart(template, bricks);
+}
+
+function rebuildPart(template: FileMap, bricks: SeqBrick[]): SavedScene {
+  const out = rebuildFromLoaded(partTemplate(template), bricks.map(({ seq: _s, ...pb }) => pb));
+  out.warnings = out.warnings.filter((w) => !/components \/ wires: they index bricks/.test(w));
   return out;
 }
 

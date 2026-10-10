@@ -61,8 +61,10 @@ export const ed = {
 /** Items above this count are drawn instanced (a store of their own) and outlined as one box. */
 const BATCH_AT = 64;
 let batch: { items: Brick[]; rev: number; set: ChunkSet } | null = null;
-/** bumped whenever the ghost's items change in place (a turn) */
+/** bumped whenever the ghost's items change in place (a turn, a mirror) */
 let itemsRev = 0;
+/** The ghost's items were changed in place: redraw its batch. */
+export function ghostItemsChanged(): void { itemsRev++; }
 function ghostBatch(items: Brick[]): ChunkSet {
   if (batch && batch.items === items && batch.rev === itemsRev) return batch.set;
   batch?.set.dispose();

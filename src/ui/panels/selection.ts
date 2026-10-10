@@ -8,11 +8,12 @@ import { loadString, saveString } from '../../app/settings.ts';
 import { copySelection, cutSelection, deleteSelection } from '../../editor/selectops.ts';
 import { setTool } from '../../editor/tools.ts';
 import { ed } from '../../editor/ghost.ts';
+import { mirror } from '../../editor/mirrortool.ts';
 import { initAudio, playClick, playSelect } from '../audio.ts';
 import { setStatus } from '../status.ts';
 import { $ } from '../dom.ts';
 
-let countEl: HTMLElement, buttons: HTMLButtonElement[] = [], shown = '';
+let countEl: HTMLElement, buttons: HTMLButtonElement[] = [], mirrorBtns: HTMLButtonElement[] = [], shown = '';
 
 const ACTIONS: Record<string, () => void> = {
   all: () => { const n = selectAll(); setStatus(`Selected all ${n} brick${n === 1 ? '' : 's'}`); playSelect(); },
@@ -57,6 +58,8 @@ export function initSelectionPanel(): void {
     setMode(b.dataset.selector as 'brick' | 'box'); initAudio(); playClick();
     setStatus(b.dataset.selector === 'box' ? 'Selector: Box. Shift+click grows a box from the focused brick; every brick fully inside is selected' : 'Selector: Brick. Shift+click adds one brick at a time');
   });
+  mirrorBtns = [...body.querySelectorAll<HTMLButtonElement>('button[data-mirror]')];
+  for (const b of mirrorBtns) b.addEventListener('click', () => { if (!S.held) mirror(Number(b.dataset.mirror) as 0 | 1); });
   for (const b of buttons) {
     b.addEventListener('click', () => {
       if (S.held || ed.ghost) return;
@@ -78,4 +81,5 @@ export function tickSelection(): void {
     const a = b.dataset.sel!;
     b.disabled = busy || (a === 'clear' ? !n : a === 'all' ? !S.scene.count : a === 'colour' || a === 'type' ? !focus : !(n || focus));
   }
+  for (const b of mirrorBtns) b.disabled = S.held || !(ed.ghost || n || focus);   // the ghost mirrors too
 }

@@ -1,5 +1,4 @@
-// Lite size budget (ARCHITECTURE.md section 2): dist-lite/brick-viewer.html must stay <= 450 KB (raised
-// from 300 KB when the fixed-mesh bricks came in, 2026-10-10),
+// Lite size budget (ARCHITECTURE.md section 2): dist-lite/brick-viewer.html must stay <= 450 KB (raised from 300 KB on 2026-10-10 as the editor grew),
 // and full-only libraries must stay out of it (sql.js is loaded lazily by the full build only).
 import { readFileSync, statSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';

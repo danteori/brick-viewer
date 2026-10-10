@@ -169,7 +169,7 @@ test('cut and paste, and painting the selection', async ({ page }) => {
   expect((await snap(page)).bricks.map((b) => b.color.join())).toEqual(before);
 });
 
-test('Paint tool: a stroke over both bricks paints each once as one undo step; Alt+click takes a paint', async ({ page }) => {
+test('Paint tool: a stroke over both bricks paints each once as one undo step; Ctrl+click takes a paint', async ({ page }) => {
   await twoBricks(page);
   await page.locator('#painttoggle').click();
   await page.locator('#paintbody .bvp-sw').nth(5).click();
@@ -189,8 +189,8 @@ test('Paint tool: a stroke over both bricks paints each once as one undo step; A
   await page.keyboard.press('Control+z');
   await settle(page);
   expect((await snap(page)).bricks.map((b) => b.color.join())).toEqual(before);
-  // Alt+click: the eyedropper takes brick 0's paint (the startup red)
-  await click(page, await onBrick(page, 0, [0.5, 0.5, 1]), 'Alt');
+  // Ctrl+click: the eyedropper takes brick 0's paint (the startup red)
+  await click(page, await onBrick(page, 0, [0.5, 0.5, 1]), 'Control');
   await expect(page.locator('#paintbody .bvp-hex')).toHaveText(/#fa4040/i);
   await page.keyboard.press('1');
 });
