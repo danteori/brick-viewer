@@ -14,6 +14,7 @@ import { setStatus } from '../ui/status.ts';
 import { farOf, fitHalf, PITCH_MAX, PITCH_MIN, snapToIso, studPx, toView, updateDirs, viewDir, ZOOM_MAX, ZOOM_MIN } from '../render/camera.ts';
 import { viewOf } from '../core/math.ts';
 import { histBegin, histEnd } from '../scene/history.ts';
+import { applyMove, beginMove, endMove, moveFree } from './move.ts';
 import { initAudio, playClick, playError, playResize, playSelect } from '../ui/audio.ts';
 import { drawGuide, clearGuide } from '../ui/overlay/dims.ts';
 import { syncSizeUi, updateMenuUnits, setModeButtons } from '../ui/panels/size.ts';
@@ -25,12 +26,15 @@ export const maxUnits = (i: number): number => (isFixedAxis(i) ? units(i) : Math
 export const minUnits = (i: number): number => (isFixedAxis(i) ? units(i) : S.RULE.min[i]);
 
 /** dragging toward the near face's outside pushes it out */
-export const grows = (q: { i: number; d: number }): boolean => q.d * S.ns[q.i] > 0;
+export const grows = (q: { i: number; d: number }): boolean => (S.move ? q.d > 0 : q.d * S.ns[q.i] > 0);
 
 /** [lo, hi] with the pending step applied */
 export function proposedBox(): [V3, V3] {
   const l = S.lo.slice() as V3, h = S.hi.slice() as V3;
-  if (S.pendAxis >= 0) {
+  if (S.pendAxis >= 0 && S.move) {                         // Move tool: the focused brick shifts (when it moves)
+    const i = S.pendAxis, dv = S.pendUnits * S.STEPS[i];
+    if (S.move.set.has(S.sel)) { l[i] = +(S.lo[i] + dv).toFixed(3); h[i] = +(S.hi[i] + dv).toFixed(3); }
+  } else if (S.pendAxis >= 0) {
     const i = S.pendAxis, dv = S.pendUnits * S.STEPS[i];
     if (S.ns[i] > 0) h[i] = +(S.hi[i] + dv).toFixed(3); else l[i] = +(S.lo[i] - dv).toFixed(3);
   }
@@ -61,6 +65,18 @@ export function step(q: { i: number; d: number }): void {
   const i = q.i;
   if (S.pendAxis !== i) { S.pendAxis = i; S.pendUnits = 0; }
   const was = S.pendUnits;
+  if (S.move) {                                            // Move tool: shift along the axis, stop where it would collide
+    S.pendUnits = moveFree(i, was, was + q.d);
+    if (S.pendUnits !== was) { S.grab[i] = 1; S.lastAxis = i; playResize(12 + Math.abs(S.pendUnits)); }
+    else if (S.move.blocked) {
+      resizeBlock.t = performance.now(); resizeBlock.reason = S.move.blocked === 'components' ? 'carries components / wires (save chunk)' : 'overlaps a brick';
+      setStatus(S.move.blocked === 'components' ? "Move stopped: a brick with components / wires can't leave its 2048-unit chunk yet" : 'Move stopped: overlaps a brick');
+      initAudio(); playError();
+    }
+    S.lockAxis = S.pendUnits ? i : -1;
+    if (!S.pendUnits) S.pendAxis = -1;
+    return;
+  }
   // keep the proposed size within 1 unit .. MAX, and stop at the last size that doesn't overlap a brick
   S.pendUnits = growFree(i, was, Math.max(minUnits(i) - units(i), Math.min(maxUnits(i) - units(i), S.pendUnits + q.d * S.ns[i])));
   if (S.pendUnits !== was) { S.grab[i] = 1; S.lastAxis = i; playResize(units(i) + S.pendUnits); }   // no tick when clamped; pitch = new size
@@ -79,6 +95,12 @@ export function pushFocus(orient = -1): void {
 /** the ghost becomes part of the solid brick; returns the committed axis or -1 */
 export function commit(): number {
   if (S.pendAxis < 0) return -1;
+  if (S.move) {
+    const i = S.pendAxis;
+    applyMove(i, S.pendUnits);
+    S.pendAxis = -1; S.pendUnits = 0; S.lockAxis = -1;
+    return i;
+  }
   const i = S.pendAxis, [l, h] = proposedBox();
   S.lo[i] = l[i]; S.hi[i] = h[i];
   S.pendAxis = -1; S.pendUnits = 0; S.lockAxis = -1;
@@ -204,9 +226,10 @@ export function onDown(e: PointerEvent, canvas: HTMLCanvasElement): void {
     keepZoom(keep);
     return;
   }
-  if (fixedSize(S.focus)) return;                     // rounds / cones can't be resized
+  const moving = S.tool === 'move';
+  if (!moving && fixedSize(S.focus)) return;          // rounds / cones can't be resized (they can move)
   snapToIso();                                           // resize from a balanced iso corner
-  histBegin('resize');                                    // the whole drag is one undo step
+  if (moving) { if (!beginMove()) return; } else histBegin('resize');   // the whole drag is one undo step
   S.held = true; S.grab = [0, 0, 0]; S.steppedThisDrag = false; S.userZoomed = false;
   S.lockAxis = -1; S.bannedAxis = -1; S.lastAxis = -1;
   S.pendAxis = -1; S.pendUnits = 0;
@@ -224,7 +247,7 @@ export function onUp(e?: { type: string }): void {
   else { S.pendAxis = -1; S.pendUnits = 0; S.lockAxis = -1; }         // window blur / cancel: discard the step
   S.held = false; S.anchor = S.cursor = S.active = null; S.grab = [0, 0, 0];
   recenter();
-  histEnd();
+  if (S.move) endMove(); else histEnd();
 }
 
 export function onMove(e: PointerEvent): void {

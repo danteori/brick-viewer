@@ -10,7 +10,7 @@ const MARKUP = `
 <div id="side">
   <div id="tool" role="group" aria-label="Tool">
     <button type="button" data-tool="resize" aria-pressed="true" title="Resize (1): drag to resize the focused brick">Resize</button>
-    <button type="button" data-tool="move" aria-pressed="false" title="Move (2): drag a brick, or the selection it's in, to move it">Move</button>
+    <button type="button" data-tool="move" aria-pressed="false" title="Move (2 or M): drag like Resize, but the focused brick or the selection moves along one axis">Move</button>
     <button type="button" data-tool="paint" aria-pressed="false" title="Paint (3): click or drag over bricks to paint them; Alt+click takes a brick's paint">Paint</button>
   </div>
   <div id="menu" aria-label="Brick size"><div class="mtitle">Brick size</div></div>
@@ -68,6 +68,11 @@ const MARKUP = `
   <button type="button" id="seltoggle" aria-expanded="true" aria-controls="selbody" title="Select several bricks (Shift+click, Shift+drag, Ctrl+A) and move, copy, cut or delete them together">Selection
     <span id="selcount"></span>${CHEV}</button>
   <div id="selbody">
+    <div class="selrow selmode" role="group" aria-label="Selector: what Shift+click does">
+      <span>Shift+click</span>
+      <button type="button" data-selector="brick" aria-pressed="true" title="Shift+click adds one brick at a time">Brick</button>
+      <button type="button" data-selector="box" aria-pressed="false" title="Shift+click grows a box from the focused brick; everything fully inside it is selected">Box</button>
+    </div>
     <div class="selrow sel3">
       <button type="button" data-sel="all" title="Select every brick (Ctrl+A)">All</button>
       <button type="button" data-sel="colour" title="Select every brick with the focused brick's colour">Colour</button>

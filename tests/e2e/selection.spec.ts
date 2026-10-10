@@ -75,7 +75,9 @@ test('Shift+click, Ctrl+A, Esc, box select and select by colour', async ({ page 
   expect(await page.locator('#hud').innerHTML()).toMatch(/2 bricks selected/);
   expect(await page.locator('#selcount').textContent()).toBe('2 selected');
   await click(page, await onBrick(page, 0, [0.5, 0.5, 1]), 'Shift');
-  expect(await selection(page)).toEqual([1]);
+  expect(await selection(page)).toEqual([0, 1]);          // Shift+click never drops the focused brick
+  await click(page, await onBrick(page, 1, [0.5, 0.5, 1]), 'Shift');
+  expect(await selection(page)).toEqual([0]);             // a second Shift+click takes another brick out
   await page.mouse.move(640, 790);
   await page.keyboard.press('Escape');
   expect(await selection(page)).toEqual([]);
@@ -154,71 +156,6 @@ test('cut and paste, and painting the selection', async ({ page }) => {
   expect((await snap(page)).bricks.map((b) => b.color.join())).toEqual(before);
 });
 
-test('move a selection: the originals don\'t block it; Esc puts it back; one undo step', async ({ page }) => {
-  await twoBricks(page);
-  const start = (await snap(page)).bricks.map((b) => [b.lo.slice(), b.hi.slice()]);
-  await page.mouse.move(640, 790);
-  await page.keyboard.press('Control+a');
-  // Esc while moving puts them back
-  await page.keyboard.press('m');
-  expect((await snap(page)).ghost).toBe(true);
-  await page.keyboard.press('Escape');
-  await settle(page);
-  expect((await snap(page)).bricks.map((b) => [b.lo, b.hi])).toEqual(start);
-  // move one stud along -Y: overlaps where they were, which is fine
-  await page.keyboard.press('m');
-  const at = await ground(page, 0, -0.2);
-  await page.mouse.move(at[0], at[1], { steps: 5 }); await frames(page, 5);
-  await page.mouse.down(); await page.mouse.up(); await settle(page);
-  const s = await snap(page);
-  expect(s.status).toMatch(/Moved 2 bricks/);
-  expect(s.bricks.length).toBe(2);
-  const dx = r3(s.bricks[0].lo[0] - start[0][0][0]), dy = r3(s.bricks[0].lo[1] - start[0][0][1]);
-  expect(Math.abs(dx) + Math.abs(dy)).toBeGreaterThan(0);
-  // both moved by the same offset, sizes unchanged
-  for (let k = 0; k < 2; k++) for (let i = 0; i < 2; i++) expect(r3(s.bricks[k].lo[i] - start[k][0][i])).toBe(i ? dy : dx);
-  expect(await selection(page)).toEqual([0, 1]);
-  await page.mouse.move(640, 790);
-  await page.keyboard.press('Control+z');
-  await settle(page);
-  expect((await snap(page)).bricks.map((b) => [b.lo, b.hi])).toEqual(start);
-});
-
-test('Move tool: drag a brick to a new place, one undo step; a click only focuses', async ({ page }) => {
-  await twoBricks(page);
-  const start = (await snap(page)).bricks.map((b) => [b.lo.slice(), b.hi.slice()]);
-  await page.mouse.move(640, 790);
-  await page.keyboard.press('2');
-  await expect(page.locator('#tool button[data-tool="move"]')).toHaveAttribute('aria-pressed', 'true');
-  // a click on B focuses it and moves nothing
-  await click(page, await onBrick(page, 1, [0.5, 0.5, 1]));
-  let s = await snap(page);
-  expect(s.sel).toBe(1);
-  expect(s.bricks.map((b) => [b.lo, b.hi])).toEqual(start);
-  // drag B by its top to the ground two studs further along -Y
-  const from = await onBrick(page, 1, [0.5, 0.5, 1]);
-  const to = await page.evaluate(() => {
-    const t = (window as unknown as W).__brickTest, { lo, hi } = t.brickBox(1);
-    return t.project((lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2 - 0.6, lo[2]);
-  });
-  await page.mouse.move(from[0], from[1]); await frames(page);
-  await page.mouse.down();
-  await page.mouse.move(to[0], to[1], { steps: 10 }); await frames(page, 5);
-  expect((await snap(page)).ghost).toBe(true);
-  await page.mouse.up(); await settle(page);
-  s = await snap(page);
-  expect(s.ghost).toBe(false);
-  expect(s.bricks.length).toBe(2);
-  expect(s.bricks[0].lo).toEqual(start[0][0]);              // A stays
-  expect(s.bricks[1].lo).not.toEqual(start[1][0]);          // B moved
-  expect(r3(s.bricks[1].hi[0] - s.bricks[1].lo[0])).toBe(r3(start[1][1][0] - start[1][0][0]));
-  await page.mouse.move(640, 790);
-  await page.keyboard.press('Control+z');
-  await settle(page);
-  expect((await snap(page)).bricks.map((b) => [b.lo, b.hi])).toEqual(start);
-  await page.keyboard.press('1');
-});
-
 test('Paint tool: a stroke over both bricks paints each once as one undo step; Alt+click takes a paint', async ({ page }) => {
   await twoBricks(page);
   await page.locator('#painttoggle').click();
@@ -243,4 +180,121 @@ test('Paint tool: a stroke over both bricks paints each once as one undo step; A
   await click(page, await onBrick(page, 0, [0.5, 0.5, 1]), 'Alt');
   await expect(page.locator('#paintbody .bvp-hex')).toHaveText(/#fa4040/i);
   await page.keyboard.press('1');
+});
+
+/** screen point of brick k's box (its list index) at fractions f */
+const at = (page: Page, k: number, f: [number, number, number]): Promise<P2> => onBrick(page, k, f);
+/** a drag with the left button from a to b */
+async function drag(page: Page, a: P2, b: P2): Promise<void> {
+  await page.mouse.move(a[0], a[1]); await frames(page);
+  await page.mouse.down();
+  await page.mouse.move(b[0], b[1], { steps: 14 }); await frames(page);
+}
+
+test('Move tool: the Resize drag moves the brick; it stops at a brick; one undo step', async ({ page }) => {
+  await twoBricks(page);
+  const start = (await snap(page)).bricks.map((b) => [b.lo.slice(), b.hi.slice()]);
+  await page.mouse.move(640, 790);
+  await page.keyboard.press('2');
+  await expect(page.locator('#tool button[data-tool="move"]')).toHaveAttribute('aria-pressed', 'true');
+  // grab A's +X face and pull far along +X: A slides 2 studs and stops against B
+  await drag(page, await at(page, -1, [1, 0.5, 0.5]), await at(page, -1, [5, 0.5, 0.5]));
+  expect(await page.locator('#hud').innerHTML()).toMatch(/blocked: overlaps a brick/);
+  await page.mouse.up(); await settle(page);
+  let s = await snap(page);
+  expect(r3(s.bricks[0].lo[0] - start[0][0][0])).toBe(0.4);
+  expect(r3(s.bricks[0].hi[0] - s.bricks[0].lo[0])).toBe(r3(start[0][1][0] - start[0][0][0]));   // same size
+  expect(s.bricks[0].lo[1]).toBe(start[0][0][1]);
+  expect(s.bricks[1].lo).toEqual(start[1][0]);                       // B untouched
+  expect(s.status).toMatch(/Move stopped: overlaps a brick/);
+  await page.mouse.move(640, 790);
+  await page.keyboard.press('Control+z'); await settle(page);
+  s = await snap(page);
+  expect(s.bricks.map((b) => [b.lo, b.hi])).toEqual(start);
+  await page.keyboard.press('1');
+});
+
+test('Move tool: right-click commits one axis and the drag goes on along another, one undo step', async ({ page }) => {
+  await twoBricks(page);
+  const start = (await snap(page)).bricks.map((b) => [b.lo.slice(), b.hi.slice()]);
+  await page.mouse.move(640, 790);
+  await page.keyboard.press('2');
+  // -X first (away from B), then right-click, then along Y from the same press
+  const x0 = await at(page, -1, [1, 0.5, 0.5]), x1 = await at(page, -1, [0, 0.5, 0.5]);
+  await drag(page, x0, x1);
+  await page.mouse.down({ button: 'right' }); await page.mouse.up({ button: 'right' }); await frames(page);
+  const y1 = await page.evaluate(([p]) => {
+    const t = (window as unknown as W).__brickTest, { lo, hi } = t.focusBox();
+    const a = t.project((lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2), b = t.project((lo[0] + hi[0]) / 2, hi[1] + 0.6, (lo[2] + hi[2]) / 2);
+    return [p![0] + b[0] - a[0], p![1] + b[1] - a[1]];
+  }, [x1] as const) as P2;
+  await page.mouse.move(y1[0], y1[1], { steps: 14 }); await frames(page);
+  await page.mouse.up(); await settle(page);
+  const s = await snap(page);
+  expect(r3(s.bricks[0].lo[0] - start[0][0][0])).toBeLessThan(0);   // moved along -X
+  expect(r3(s.bricks[0].lo[1] - start[0][0][1])).toBeGreaterThan(0); // and along +Y
+  expect(s.bricks[0].lo[2]).toBe(start[0][0][2]);
+  await page.mouse.move(640, 790);
+  await page.keyboard.press('Control+z'); await settle(page);
+  expect((await snap(page)).bricks.map((b) => [b.lo, b.hi])).toEqual(start);   // both axes in one step
+  await page.keyboard.press('1');
+});
+
+test('Selector: Brick adds one brick per Shift+click; Box selects what is fully inside a growing box', async ({ page }) => {
+  await twoBricks(page);
+  // Brick mode: exactly the two
+  await click(page, await at(page, 1, [0.5, 0.5, 1]), 'Shift');
+  expect(await selection(page)).toEqual([0, 1]);
+  await page.mouse.move(640, 790); await page.keyboard.press('Escape');
+  // a group: M (1x1), Mid (1x1) between M and B2 (2x2), P (1x2) half outside in Y, Out (1x1) beyond
+  await page.evaluate(() => {
+    const it = (lo: number[], hi: number[], c: number[]) => ({ lo, hi, micro: false, up: 1, color: c });
+    (window as unknown as W & { __brickTest: { paste(i: unknown[]): void } }).__brickTest.paste([
+      it([0, 0, 0], [0.2, 0.2, 0.24], [0, 0, 1]), it([0.3, 0.1, 0], [0.5, 0.3, 0.24], [0, 1, 0]), it([0.6, 0, 0], [1.0, 0.4, 0.24], [1, 1, 0]),
+      it([0.2, 0.3, 0], [0.4, 0.7, 0.24], [1, 0, 1]), it([1.2, 0, 0], [1.4, 0.2, 0.24], [0, 1, 1]),
+    ]);
+  });
+  const g = await ground(page, -0.4, -1.4);
+  await page.mouse.move(g[0], g[1]); await frames(page, 4);
+  await page.mouse.down(); await page.mouse.up(); await settle(page);
+  expect((await snap(page)).bricks.length, (await snap(page)).status).toBe(7);
+  await page.mouse.move(640, 790); await page.keyboard.press('Escape');
+  // list indices 2..6 = M, Mid, B2, P, Out; focus M, Box mode, Shift+click B2
+  await click(page, await at(page, 2, [0.5, 0.5, 1]));
+  await settle(page);
+  expect((await snap(page)).sel).toBe(2);
+  await page.locator('#selbody button[data-selector="box"]').click();
+  await click(page, await at(page, 4, [0.5, 0.5, 1]), 'Shift');
+  expect(await selection(page)).toEqual([2, 3, 4]);       // M, Mid between, B2; not P (partly out) nor Out
+  // the box grows: Shift+click P takes P in (and keeps the rest); Out still outside
+  await click(page, await at(page, 5, [0.5, 0.5, 1]), 'Shift');
+  expect(await selection(page)).toEqual([2, 3, 4, 5]);
+  // selecting changed no brick
+  expect((await snap(page)).bricks.length).toBe(7);
+  await page.locator('#selbody button[data-selector="brick"]').click();
+});
+
+test('middle-click a brick places a copy (Ctrl+V repeats it); a middle drag still orbits', async ({ page }) => {
+  await twoBricks(page);
+  const b = await at(page, 1, [0.5, 0.5, 1]);
+  await page.mouse.move(b[0], b[1]); await frames(page);
+  await page.mouse.down({ button: 'middle' }); await page.mouse.up({ button: 'middle' }); await frames(page);
+  let s = await snap(page);
+  expect(s.ghost).toBe(true);
+  expect(s.status).toMatch(/Copied .*click to place/);
+  await click(page, await ground(page, 0, -1.2)); await settle(page);
+  s = await snap(page);
+  expect(s.bricks.length).toBe(3);
+  expect(s.bricks[2].hi[0] - s.bricks[2].lo[0]).toBeCloseTo(s.bricks[1].hi[0] - s.bricks[1].lo[0]);
+  await page.mouse.move(640, 790);
+  await page.keyboard.press('Control+v');
+  expect((await snap(page)).ghost).toBe(true);
+  await page.keyboard.press('Escape');
+  // a middle drag orbits and copies nothing
+  const yaw0 = await page.locator('#hud').innerHTML();
+  await page.mouse.move(b[0], b[1]); await page.mouse.down({ button: 'middle' });
+  await page.mouse.move(b[0] + 120, b[1], { steps: 8 }); await page.mouse.up({ button: 'middle' }); await frames(page);
+  expect((await snap(page)).ghost).toBe(false);
+  expect(await page.locator('#hud').innerHTML()).not.toBe(yaw0);
+  expect((await snap(page)).bricks.length).toBe(3);
 });
