@@ -18,6 +18,23 @@ function renameLiteHtml(): Plugin {
   };
 }
 
+/**
+ * Drops // line comments from the modules that hold GLSL in template strings. The minifier removes
+ * the TypeScript comments but has to keep the shader ones (they're string contents), and they cost
+ * the size-budgeted lite build several KB. Only these files: none has '//' in a string or regex.
+ */
+const GLSL_FILES = /src[\\/]render[\\/](shaders[\\/]brick|shaders[\\/]tonemap|bloom|cutaway|gl|materials)\.ts$/;
+function stripGlslComments(): Plugin {
+  return {
+    name: 'strip-glsl-comments',
+    apply: 'build',
+    transform(code, id) {
+      if (!GLSL_FILES.test(id)) return null;
+      return { code: code.replace(/(^|[ \t])\/\/[^\n]*/gm, '$1'), map: null };
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => {
   const lite = mode === 'lite';
   return {
@@ -35,6 +52,6 @@ export default defineConfig(({ mode }) => {
           emptyOutDir: true,
           rollupOptions: { input: 'index.html' },
         },
-    plugins: lite ? [viteSingleFile(), renameLiteHtml()] : [],
+    plugins: lite ? [stripGlslComments(), viteSingleFile(), renameLiteHtml()] : [stripGlslComments()],
   };
 });
