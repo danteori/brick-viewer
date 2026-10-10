@@ -11,6 +11,7 @@ import { viewOf } from '../core/math.ts';
 import { sizeRule, type Brick, type SizeRule, type V3 } from '../scene/brick.ts';
 import { ASSETS, F_ALIVE, GRIDS, MATERIALS, SceneStore } from '../scene/store.ts';
 import type { GroundPlateLook } from '../env/ground-plate.ts';
+import type { MoveState } from '../editor/move.ts';
 
 export const ELEV = Math.atan(1 / Math.SQRT2);             // 35.2644 degrees
 export const YAW0 = -Math.PI / 4;
@@ -96,6 +97,8 @@ export const S = {
   selection: new Set<number>(),
   /** the tool mode (editor/tools.ts): what a left drag on the canvas does */
   tool: 'resize' as 'resize' | 'move' | 'paint',
+  /** a Move-tool drag in progress (editor/move.ts) */
+  move: null as MoveState | null,
   micro: false,
   STEPS: BRICK.steps.slice() as V3,
   START: BRICK.start.slice() as V3,

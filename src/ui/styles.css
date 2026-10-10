@@ -181,6 +181,8 @@ body.placing canvas { cursor:copy !important; }
 #selbody { display:grid; gap:4px; padding:2px 0 8px; }
 #selbody .selrow { display:grid; grid-template-columns:repeat(4, 1fr); gap:4px; }
 #selbody .selrow.sel3 { grid-template-columns:repeat(3, 1fr); }
+#selbody .selrow.selmode { grid-template-columns:auto 1fr 1fr; align-items:center; font-size:11.5px; color:#9a9ca3; }
+#props #selbody button[aria-pressed="true"] { background:#e8590c; border-color:#e8590c; color:#fff; }
 #props #selbody button { padding:5px 4px; border-radius:7px; background:#2b2c30; border:1px solid rgba(255,255,255,.1); color:#c9ccd3;
   font-size:11.5px; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 #props #selbody button:hover:not(:disabled) { color:#fff; border-color:#e8590c; }

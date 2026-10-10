@@ -20,6 +20,7 @@ import { nearOf, studPx } from './camera.ts';
 import { BOX_EDGE_COUNT, boxEB, boxIB } from './meshes/registry.ts';
 import { proposedBox } from '../editor/resize.ts';
 import { perfBegin, perfEnd, perfMark } from './perf.ts';
+import { movedBox } from '../editor/move.ts';
 
 /** index in the cube's faces of the near face for X (+-x), Y (+-GL z), Z (top +y, bottom -y) */
 export const faceOf = (i: number): number => (i === 0 ? (S.ns[0] > 0 ? 0 : 1) : i === 1 ? (S.ns[1] > 0 ? 4 : 5) : (S.ns[2] > 0 ? 2 : 3));
@@ -121,9 +122,13 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
   // white beyond the solid brick; shrinking: the part to be removed, darkened, seen through it.
   // Edges go on top of everything.
   if (S.pendAxis >= 0 && S.pendUnits) {
-    const i = S.pendAxis, gL = dlo.slice() as V3, gH = dhi.slice() as V3, shrink = S.pendUnits < 0;
-    const cn = nearOf(i, dlo, dhi), pn = nearOf(i, pl, ph);
-    gL[i] = Math.min(cn, pn); gH[i] = Math.max(cn, pn);
+    const i = S.pendAxis, mb = movedBox(), shrink = !mb && S.pendUnits < 0;
+    let gL = dlo.slice() as V3, gH = dhi.slice() as V3;
+    if (mb) { gL = mb[0] as V3; gH = mb[1] as V3; }        // Move tool: where the bricks (their box) would go
+    else {
+      const cn = nearOf(i, dlo, dhi), pn = nearOf(i, pl, ph);
+      gL[i] = Math.min(cn, pn); gH[i] = Math.max(cn, pn);
+    }
     setBox(gL, gH);
     gl.uniform1f(u.uEdge, 1); gl.uniform1f(u.uFadeR, 0);
     gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false);

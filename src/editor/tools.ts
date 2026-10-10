@@ -2,11 +2,9 @@
 // or the keys 1 / 2 / 3. Shift+click / Shift+drag select in every mode (editor/input.ts).
 //
 //   Resize  the legacy behaviour: drag resizes the focused brick, click focuses another.
-//   Move    press on a brick and drag: the brick, or the whole selection when the brick is in it,
-//           follows the cursor as the placement ghost (held by the point that was pressed, snapped
-//           to the grid, collision-checked; R turns it, PgUp / PgDn raise / lower a plate) and is
-//           put down on release as one undo step (editor/selectops.ts startMove). A click without
-//           a drag just focuses the brick.
+//   Move    the Resize drag, but it moves: grab a face (or drag anywhere) and the focused brick,
+//           or the whole selection, shifts along one axis in grid steps; axis lock, right-click
+//           commit, edge auto-drag and release work as in Resize (editor/move.ts). M also picks it.
 //   Paint   click paints the brick under the cursor with the current paint (colour, material,
 //           intensity: the palette's PaintModel); dragging paints every brick the cursor passes
 //           over, picking along the path between pointer events so fast strokes skip nothing.
@@ -17,10 +15,9 @@ import { S, type EditTx } from '../app/state.ts';
 import { pickRay, viewRay } from '../scene/spatial.ts';
 import { histEnd, txBegin, txEnd } from '../scene/history.ts';
 import { packRecords, REC_BYTES } from '../scene/record.ts';
-import { cursorRay, ed } from './ghost.ts';
-import { startMove } from './selectops.ts';
-import { setSelection } from './select.ts';
-import { keepZoom, selectBrick } from './resize.ts';
+import { cursorRay, ed, itemName } from './ghost.ts';
+import { clip, setPasteMode, startPaste } from './clipboard.ts';
+import { groupItems } from './selectops.ts';
 import { eyedropBrick, paintModel, refreshFocus, sceneTarget } from '../ui/panels/paint.ts';
 import { hexOfRgb8, materialLabel } from './paint.ts';
 import { initAudio, playClick, playSelect } from '../ui/audio.ts';
@@ -29,6 +26,8 @@ import { saveString, loadString } from '../app/settings.ts';
 import { isTyping } from './input.ts';
 
 export type Tool = 'resize' | 'move' | 'paint';
+/** middle-click vs middle-drag: at most this many px of movement and this many ms */
+export const MID_PX = 5, MID_MS = 400;
 export const TOOLS: Tool[] = ['resize', 'move', 'paint'];
 const TOOL_KEY = 'brickViewer.tool';
 const LABEL: Record<Tool, string> = { resize: 'Resize', move: 'Move', paint: 'Paint' };
@@ -44,7 +43,7 @@ export function setTool(t: Tool, quiet = false): void {
   saveString(TOOL_KEY, t);
   if (!quiet) {
     setStatus(t === 'resize' ? 'Resize tool: drag to resize the focused brick, click another brick to focus it'
-      : t === 'move' ? 'Move tool: drag a brick (or the selection it is in) to move it; R turns it while dragging, PgUp / PgDn raise / lower'
+      : t === 'move' ? 'Move tool: drag like Resize, but the focused brick (or the selection) moves along the axis; right-click commits an axis, release puts it down'
         : 'Paint tool: click or drag over bricks to paint them with the current paint; Alt+click takes a brick\'s paint');
     initAudio(); playClick();
   }
@@ -116,25 +115,20 @@ export function initTools(c: HTMLCanvasElement): void {
     if (isTyping(e.target) || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
     const i = ['1', '2', '3'].indexOf(e.key);
     if (i >= 0 && !ed.ghost && !S.held) { e.preventDefault(); setTool(TOOLS[i]!); }
+    else if ((e.key === 'm' || e.key === 'M') && !e.shiftKey && !ed.ghost && !S.held) { e.preventDefault(); setTool('move'); }
   });
 
-  // Move / Paint: a left press on the canvas is theirs (not a resize). Shift (select) and a ghost
-  // that is out are handled by editor/input.ts before this.
-  let press: { x: number; y: number; id: number; at: number[]; id0: number } | null = null;
+  // Paint: a left press on the canvas is its own (not a resize). Shift (select) and a ghost that is
+  // out are handled by editor/input.ts before this. Move goes through the resize drag (move.ts).
   addEventListener('pointerdown', (e) => {
-    if (S.tool === 'resize' || e.button !== 0 || e.target !== canvas || e.shiftKey || ed.ghost || S.held || S.orbit.dragging) return;
+    if (S.tool !== 'paint' || e.button !== 0 || e.target !== canvas || e.shiftKey || ed.ghost || S.held || S.orbit.dragging) return;
     e.stopImmediatePropagation(); e.preventDefault();
     initAudio();
     const h = pickAt(e.clientX, e.clientY);
-    if (S.tool === 'paint') {
-      if (e.altKey) { if (h) { eyedropBrick(h.id); playSelect(); } return; }
-      histEnd();
-      stroke = { tx: txBegin('paint', []), done: new Set(), last: [e.clientX, e.clientY] };
-      if (h) paintId(h.id);
-      try { canvas.setPointerCapture(e.pointerId); } catch { /* not capturable */ }
-      return;
-    }
-    press = h ? { x: e.clientX, y: e.clientY, id: h.id, at: h.at, id0: S.sel } : null;
+    if (e.altKey) { if (h) { eyedropBrick(h.id); playSelect(); } return; }
+    histEnd();
+    stroke = { tx: txBegin('paint', []), done: new Set(), last: [e.clientX, e.clientY] };
+    if (h) paintId(h.id);
     try { canvas.setPointerCapture(e.pointerId); } catch { /* not capturable */ }
   }, true);
   addEventListener('pointermove', (e) => {
@@ -145,29 +139,35 @@ export function initTools(c: HTMLCanvasElement): void {
       paintAlong(a, b);
       return;
     }
-    if (!press || ed.ghost) return;
-    if (!(e.buttons & 1)) { press = null; return; }
-    if (Math.hypot(e.clientX - press.x, e.clientY - press.y) < 4) return;
-    const p = press;
-    press = null;
-    // the pressed brick moves with the selection it's in, else alone (it takes the focus)
-    if (!S.selection.has(p.id)) {
-      if (S.selection.size) setSelection([]);
-      if (p.id !== S.sel) { const keep = S.cam.half; histEnd(); selectBrick(p.id); keepZoom(keep); }
-    }
-    startMove({ drag: true, grab: p.at });
   }, true);
   const up = (e: PointerEvent): void => {
     if (stroke) { e.stopImmediatePropagation(); endStroke(); return; }
-    const p = press;
-    press = null;
-    if (!p || e.type !== 'pointerup') return;
-    e.stopImmediatePropagation();
-    if (p.id !== S.sel) { const keep = S.cam.half; histEnd(); selectBrick(p.id); keepZoom(keep); playSelect(); }   // a click focuses
   };
   addEventListener('pointerup', up, true);
   addEventListener('pointercancel', up, true);
-  addEventListener('blur', () => { if (stroke) endStroke(); press = null; });
+  addEventListener('blur', () => { if (stroke) endStroke(); });
 
-  S.hooks.hud.push(() => `tool <b>${LABEL[S.tool]}</b> (1 Resize · 2 Move · 3 Paint)`);
+  // Middle-click (no drag) on a brick: copy it and hold the copy in a place ghost, as Ctrl+C then
+  // Ctrl+V (U-23). A middle drag still orbits: it's a click while it moves under MID_PX and lets go
+  // within MID_MS.
+  let mid: { x: number; y: number; t: number; id: number } | null = null;
+  addEventListener('pointerdown', (e) => {
+    if (e.button !== 1 || e.target !== canvas) { mid = null; return; }
+    const h = ed.ghost || S.held ? null : pickAt(e.clientX, e.clientY);
+    mid = h ? { x: e.clientX, y: e.clientY, t: performance.now(), id: h.id } : null;
+  }, true);
+  addEventListener('pointerup', (e) => {
+    const m = mid;
+    mid = null;
+    if (!m || e.button !== 1 || ed.ghost || S.held) return;
+    if (Math.hypot(e.clientX - m.x, e.clientY - m.y) > MID_PX || performance.now() - m.t > MID_MS || !S.scene.alive(m.id)) return;
+    S.orbit.dragging = false;
+    clip.items = groupItems([m.id]);
+    setPasteMode('brick');
+    startPaste();
+    setStatus(`Copied ${itemName(clip.items[0]!)}: click to place it (R turns, PgUp / PgDn raise / lower, Esc cancels); Ctrl+V places another`);
+    initAudio(); playClick();
+  }, true);
+
+  S.hooks.hud.push(() => `tool <b>${LABEL[S.tool]}</b> (1 Resize · 2 Move · 3 Paint) · middle-click a brick to place a copy`);
 }
