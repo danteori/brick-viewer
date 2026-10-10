@@ -63,10 +63,14 @@ out vec2 vBevelK;
 // No flat varyings: ANGLE on D3D11 emulates flat shading with a geometry shader that broke line
 // draws (the overlay outlines rendered as filled triangles). These are constant over a brick anyway.
 out float vOrient; out vec2 vMisc;
+// the material intensity (iColor.a holds the stored 0-10 byte; used when uIntensity < 0: instanced)
+out float vIntensity;
 out vec3 vLightL; out vec3 vEyeL;
 uniform vec3 uEye; uniform vec3 uLight;
 // units per viewer unit (50), a uniform so the scale is a true, correctly rounded division
 uniform float uUnitDiv;
+// 1: draw hidden faces too (render/facecull.ts; the cutaway)
+uniform float uShowHidden;
 ${ORIENT_GLSL}
 // Bevel band width for a face L viewer units long along an axis:
 // W(L) = 0.43 / (0.957 + 0.86 / L) Brickadia units, which is uBevelMax at L = 20 units.
@@ -100,9 +104,19 @@ void main(){
   vFlags = vec4((top == 0u ? s : 0.0)*uStudFade, s*uStudFade, 1.0, top == 2u ? s : 0.0);
   vMisc = vec2((w & 256u) != 0u ? 1.0 : 0.0, (iMisc.w & 1u) != 0u ? 1.0 : 0.0);
   vOrient = float(w & 31u);
+  vIntensity = iColor.a * 255.0;
   mat3 Rt = transpose(R);   // turned once per vertex, not per fragment (slow on software GL)
   vLightL = Rt * uLight; vEyeL = Rt * uEye;
   gl_Position = uMVP * vec4(p, 1.0);
+  // hidden faces (render/facecull.ts; cube meshes only): bits +X -X +Y -Y +Z -Z in save axes.
+  // Every vertex of a hidden face lands on one point outside the clip volume, so it draws nothing.
+  // Full detail and the X-ray cutaway set uShowHidden = 1 and draw them (render/lod.ts hidesCovered).
+  uint hid = single || uShowHidden > 0.5 ? 0u : iMisc.x;
+  if (hid != 0u) {
+    vec3 nw = R * aNrm;
+    uint bit = abs(nw.x) > 0.5 ? (nw.x > 0.0 ? 1u : 2u) : abs(nw.z) > 0.5 ? (nw.z > 0.0 ? 4u : 8u) : (nw.y > 0.0 ? 16u : 32u);
+    if ((hid & bit) != 0u) gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+  }
 }`;
 
 export const BRICK_FS = `#version 300 es
@@ -141,6 +155,7 @@ uniform float uExposure;
 // everything else uses), 1 glass, 2 translucent plastic, 3 glow. uMatPass: glass 0 = the multiply
 // pass, 1 = the reflection add pass; 2 = linear emission for the bloom buffer.
 uniform float uMat, uIntensity, uMatPass;
+in float vIntensity;
 // specular anti-aliasing (U-10): strength by stud size on screen, variance threshold, fade, cap
 uniform float uSpecAA;
 const float SPEC_AA_T = ${glf(SHADE.SPEC_AA_T)}, SPEC_AA_K = ${glf(SHADE.SPEC_AA_K)}, SPEC_AA_CAP = ${glf(SHADE.SPEC_AA_CAP)};
@@ -347,20 +362,21 @@ void main(){
   vec3 albedo = vMisc.x > 0.5 ? vBase : toLinear(vBase);
   vec3 lit = (albedo * (uSky + uSun*d) + uFloor + spec) * shade;
   if (uMat > 0.5) {
+    float inten = uIntensity < 0.0 ? vIntensity : uIntensity;
     // Blended in display space over the tone-mapped scene (the forward pipeline has no linear
     // buffer): glass multiplies what is behind by its transmission (approximately display-encoded)
     // and adds the Fresnel sky reflection; translucent plastic alpha-blends its lit surface.
     if (uMat < 1.5) {
       float c = abs(dot(nG, normalize(vEyeL)));
-      float t = matLerp3(GLASS_TINT, uIntensity);
+      float t = matLerp3(GLASS_TINT, inten);
       vec3 T = pow(1.0 - t + t*albedo, vec3(1.0/pow(max(c, 0.05), GLASS_PATH_EXP)));
       float F = matFresnel(c);
       fragColor = uMatPass < 0.5 ? vec4(pow((1.0 - F)*T, vec3(1.0/2.2)), 1.0) : vec4(ueFilmic(uExposure * F * uSky), 1.0);
     } else if (uMat < 2.5) {
       vec3 surf = (albedo * (uSky + uSun*d) + uFloor*TRANSLUCENT_FLOOR_SCALE) * shade;
-      fragColor = vec4(ueFilmic(uExposure * surf), translucentOpacity(uIntensity));
+      fragColor = vec4(ueFilmic(uExposure * surf), translucentOpacity(inten));
     } else {
-      vec3 e = uExposure * glowColor(albedo, uIntensity);
+      vec3 e = uExposure * glowColor(albedo, inten);
       fragColor = uMatPass > 1.5 ? vec4(e, 1.0) : vec4(mix(ueFilmic(e), SEL_TINT, vMisc.y * SEL_MIX), 1.0);
     }
     return;

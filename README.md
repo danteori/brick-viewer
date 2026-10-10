@@ -31,6 +31,12 @@ On top of that:
 - **Worlds (full build):** open `.brdb` worlds, view any earlier revision, see moving grids
   (vehicles, doors) where they are parked (read-only), and save as a new world (experimental).
 - **Map (full build):** a top-down map of the opened save; click it to jump to that spot.
+- **Components and wires:** Brick Properties > Components lists the focused brick's components
+  with an editor per setting (numbers, toggles, choices, text, colours, vectors, map entries,
+  variant values), built from the save's own schema; add a component of a type the save uses, or
+  remove one. **Wires (W)** draws the save's wires between port dots on the bricks; click an output
+  dot, then an input dot, to connect them (one wire per input), or click a wire and press Delete.
+  Every edit is one undo step, and saving writes them back.
 
 **Under the hood:** the scene is one structure-of-arrays store in whole save units with stable
 brick ids; it renders in chunks of instanced bricks (24 bytes each) positioned relative to the

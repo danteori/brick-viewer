@@ -41,7 +41,12 @@ export interface EditTx {
 /** A scene as a load's undo keeps it: the store, the focus, the zoom and the render origin (the camera's frame). */
 export interface SceneSnap { scene: SceneStore; sel: number; zoom: number; origin: V3 }
 export interface SceneTx { kind: 'scene'; label: string; before: SceneSnap; after: SceneSnap }
-export type Tx = EditTx | SceneTx;
+/**
+ * An undoable edit of data that isn't brick rows (components and wires, C-02 / C-03): the edit
+ * knows how to undo and redo itself. `focus` is the brick it concerned (it gets the focus back).
+ */
+export interface DataTx { kind: 'data'; label: string; focus: number; undo: () => void; redo: () => void; bytes: number }
+export type Tx = EditTx | SceneTx | DataTx;
 
 export interface Hooks {
   /** end of the frame: the placement ghost */

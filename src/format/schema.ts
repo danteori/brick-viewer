@@ -162,14 +162,51 @@ function sizer(schema: Schema): (t: SchemaType) => number {
   return size;
 }
 
+/**
+ * A packed array of structs left as its bytes (decodeMps with `rawStructs`): element i's field f
+ * is at i * k + fields.get(f)[0], of primitive type fields.get(f)[1]. Saves one object per element
+ * on hot paths (millions of brick positions and colours).
+ */
+export interface PackedStructs { raw: true; bin: Uint8Array; dv: DataView; k: number; n: number; fields: Map<string, [offset: number, type: string]> }
+
+/** A reader for field f of a PackedStructs (undefined when it has no such primitive field). */
+export function packedField(p: PackedStructs, f: string): ((i: number) => number) | undefined {
+  const e = p.fields.get(f);
+  if (!e) return undefined;
+  const [o, t] = e, dv = p.dv, k = p.k;
+  switch (t) {
+    case 'u8': case 'bool': return (i) => dv.getUint8(i * k + o);
+    case 'i8': return (i) => dv.getInt8(i * k + o);
+    case 'u16': return (i) => dv.getUint16(i * k + o, true);
+    case 'i16': return (i) => dv.getInt16(i * k + o, true);
+    case 'u32': return (i) => dv.getUint32(i * k + o, true);
+    case 'i32': return (i) => dv.getInt32(i * k + o, true);
+    case 'f32': return (i) => dv.getFloat32(i * k + o, true);
+    case 'f64': return (i) => dv.getFloat64(i * k + o, true);
+    default: return undefined;
+  }
+}
+
 /** Schema-driven reader over one .mps byte array. */
 export class MpsDecoder {
   readonly r: MsgReader;
   private readonly packedSize: (t: SchemaType) => number;
 
-  constructor(readonly schema: Schema, readonly bytes: Uint8Array) {
+  /** `rawStructs`: packed arrays of flat structs come back as PackedStructs, not objects. */
+  constructor(readonly schema: Schema, readonly bytes: Uint8Array, readonly rawStructs = false) {
     this.r = new MsgReader(bytes);
     this.packedSize = sizer(schema);
+  }
+
+  /** The flat layout of struct t (field -> offset, primitive type), or null if a field isn't primitive. */
+  private flat(t: string): Map<string, [number, string]> | null {
+    const out = new Map<string, [number, string]>();
+    let o = 0;
+    for (const [f, ft] of structOf(this.schema, t) ?? []) {
+      if (typeof ft !== 'string' || !PRIM[ft]) return null;
+      out.set(f, [o, ft]); o += PRIM[ft][0];
+    }
+    return out;
   }
 
   get done(): boolean {
@@ -198,8 +235,13 @@ export class MpsDecoder {
           const bin = r.next();
           if (bin === null) return Object.defineProperty([], PACKED_NIL, { value: true });
           if (!(bin instanceof Uint8Array)) throw new Error('mps: expected a bin for a packed array');
-          const k = this.packedSize(t.of), n = bin.length / k, out: unknown[] = new Array(n);
+          const k = this.packedSize(t.of), n = bin.length / k;
           const dv = new DataView(bin.buffer, bin.byteOffset, bin.byteLength);
+          if (this.rawStructs && typeof t.of === 'string' && !PRIM[t.of]) {
+            const fields = this.flat(t.of);
+            if (fields) return { raw: true, bin, dv, k, n, fields } satisfies PackedStructs;
+          }
+          const out: unknown[] = new Array(n);
           for (let i = 0; i < n; i++) out[i] = this.unpack(t.of as string, dv, i * k);
           return out;
         }
@@ -335,8 +377,8 @@ export class MpsEncoder {
 }
 
 /** Decodes an .mps file's root struct. Anything after it is kept (see MPS_TRAILER). */
-export function decodeMps<T = MpsObject>(u8: Uint8Array, schema: Schema): T {
-  const d = new MpsDecoder(schema, u8);
+export function decodeMps<T = MpsObject>(u8: Uint8Array, schema: Schema, rawStructs = false): T {
+  const d = new MpsDecoder(schema, u8, rawStructs);
   const root = d.value(schema.root);
   if (!d.done && root && typeof root === 'object') {
     Object.defineProperty(root, MPS_TRAILER, { value: u8.slice(d.r.p), enumerable: false, writable: true, configurable: true });

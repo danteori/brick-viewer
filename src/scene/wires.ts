@@ -335,13 +335,16 @@ export class WireGraph {
 
   // ------------------------------------------------------------------ edits
 
-  /** Adds a wire after check(); throws WireError when there are errors (warnings are allowed). */
-  addWire(source: WireEnd, target: WireEnd): Wire {
-    const errors = this.check(source, target).filter((i) => i.severity === 'error');
+  /**
+   * Adds a wire after check(); throws WireError when there are errors (warnings are allowed).
+   * `force` skips the check (an undo putting back a wire the save already had).
+   */
+  addWire(source: WireEnd, target: WireEnd, opts: { force?: boolean; pending?: boolean } = {}): Wire {
+    const errors = opts.force ? [] : this.check(source, target).filter((i) => i.severity === 'error');
     if (errors.length) throw new WireError(errors);
     const s = { ...source, chunk: { ...source.chunk } }, t = { ...target, chunk: { ...target.chunk } };
     const ch = this.chunkFor(t);
-    const w = this.insert(s, t, false);
+    const w = this.insert(s, t, !!opts.pending);
     (sameChunk(s, t) ? ch.local : ch.remote).push(w);
     ch.dirty = true;
     for (const p of [s.port, t.port]) this.portIndex(p);
