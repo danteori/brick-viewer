@@ -138,7 +138,7 @@ test('X-ray: a click through the hole focuses an interior brick; the hole slider
     const t = (window as unknown as W).__brickTest, { lo, hi } = t.brickBox(k);
     return t.project((lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, hi[2]);
   }, k);
-  const pick = async (): Promise<number> => { const T0 = Date.now(); console.log('TMPDIAG frame ms', await page.evaluate(async () => { const t = performance.now(); for (let i = 0; i < 5; i++) await new Promise((r) => requestAnimationFrame(r)); return (performance.now() - t) / 5; })); await click(page, await topOf(k)); await settle(page); const s = (await snap(page)).sel; await focus0(); console.log('TMPDIAG pick ms', Date.now() - T0); return s; };
+  const pick = async (): Promise<number> => { await click(page, await topOf(k)); await settle(page); const s = (await snap(page)).sel; await focus0(); return s; };
 
   expect(k).toBeGreaterThan(0);
   expect(await pick()).not.toBe(k);                           // X-ray off: the roof is in the way
