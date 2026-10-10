@@ -21,7 +21,7 @@ export function updateHover(canvas: HTMLCanvasElement, sx: number, sy: number): 
       const cw = canvas.clientWidth, ch = canvas.clientHeight, m = S.mouse!;
       const hit = pickRay((2 * m[0] / cw - 1) / sx + cam.x, (1 - 2 * m[1] / ch) / sy + cam.y);
       if (hit) { S.hoverBrick = hit.k; S.hoverFace = hit.ax >= 0 ? hit.ax : 2; }
-      if (S.tool === 'resize' && S.hoverBrick === S.sel && !fixedSize(S.focus) && !isFixedAxis(S.hoverFace)) S.hoverAxis = S.hoverFace;   // fixed rounds / axes, other tools: no grab faces
+      if ((S.tool === 'move' || (S.tool === 'resize' && !fixedSize(S.focus) && !isFixedAxis(S.hoverFace))) && S.hoverBrick === S.sel) S.hoverAxis = S.hoverFace;   // grab faces: Resize (not fixed rounds / axes) and Move
     }
   }
   canvas.style.cursor = orbit.dragging ? 'move' : S.held ? (S.lockAxis >= 0 ? 'grabbing' : 'default')
