@@ -62,6 +62,8 @@ out vec2 vBevelK;
 // No flat varyings: ANGLE on D3D11 emulates flat shading with a geometry shader that broke line
 // draws (the overlay outlines rendered as filled triangles). These are constant over a brick anyway.
 out float vOrient; out vec2 vMisc;
+// the material intensity (iColor.a holds the stored 0-10 byte; used when uIntensity < 0: instanced)
+out float vIntensity;
 // units per viewer unit (50), a uniform so the scale is a true, correctly rounded division
 uniform float uUnitDiv;
 ${ORIENT_GLSL}
@@ -97,6 +99,7 @@ void main(){
   vFlags = vec4((top == 0u ? s : 0.0)*uStudFade, s*uStudFade, 1.0, top == 2u ? s : 0.0);
   vMisc = vec2((w & 256u) != 0u ? 1.0 : 0.0, (iMisc.w & 1u) != 0u ? 1.0 : 0.0);
   vOrient = float(w & 31u);
+  vIntensity = iColor.a * 255.0;
   gl_Position = uMVP * vec4(p, 1.0);
 }`;
 
@@ -137,6 +140,7 @@ uniform float uExposure;
 // everything else uses), 1 glass, 2 translucent plastic, 3 glow. uMatPass: glass 0 = the multiply
 // pass, 1 = the reflection add pass; 2 = linear emission for the bloom buffer.
 uniform float uMat, uIntensity, uMatPass;
+in float vIntensity;
 ${TONEMAP_GLSL}
 ${MATERIALS_GLSL}
 float smin(float a, float b, float k){ float h = clamp(0.5 + 0.5*(b-a)/k, 0.0, 1.0); return mix(b, a, h) - k*h*(1.0-h); }
@@ -325,20 +329,21 @@ void main(){
   vec3 albedo = vMisc.x > 0.5 ? vBase : toLinear(vBase);
   vec3 lit = (albedo * (uSky + uSun*d) + uFloor + spec) * shade;
   if (uMat > 0.5) {
+    float inten = uIntensity < 0.0 ? vIntensity : uIntensity;
     // Blended in display space over the tone-mapped scene (the forward pipeline has no linear
     // buffer): glass multiplies what is behind by its transmission (approximately display-encoded)
     // and adds the Fresnel sky reflection; translucent plastic alpha-blends its lit surface.
     if (uMat < 1.5) {
       float c = abs(dot(nG, normalize(vEyeL)));
-      float t = matLerp3(GLASS_TINT, uIntensity);
+      float t = matLerp3(GLASS_TINT, inten);
       vec3 T = pow(1.0 - t + t*albedo, vec3(1.0/pow(max(c, 0.05), GLASS_PATH_EXP)));
       float F = matFresnel(c);
       fragColor = uMatPass < 0.5 ? vec4(pow((1.0 - F)*T, vec3(1.0/2.2)), 1.0) : vec4(ueFilmic(uExposure * F * uSky), 1.0);
     } else if (uMat < 2.5) {
       vec3 surf = (albedo * (uSky + uSun*d) + uFloor*TRANSLUCENT_FLOOR_SCALE) * shade;
-      fragColor = vec4(ueFilmic(uExposure * surf), translucentOpacity(uIntensity));
+      fragColor = vec4(ueFilmic(uExposure * surf), translucentOpacity(inten));
     } else {
-      vec3 e = uExposure * glowColor(albedo, uIntensity);
+      vec3 e = uExposure * glowColor(albedo, inten);
       fragColor = uMatPass > 1.5 ? vec4(e, 1.0) : vec4(mix(ueFilmic(e), SEL_TINT, vMisc.y * SEL_MIX), 1.0);
     }
     return;

@@ -17,6 +17,7 @@ import { LIGHTING, lightDir } from './lighting.ts';
 import { nearOf, studPx } from './camera.ts';
 import { BOX_EDGE_COUNT, boxEB, boxIB } from './meshes/registry.ts';
 import { proposedBox } from '../editor/resize.ts';
+import { perfBegin, perfEnd, perfMark } from './perf.ts';
 
 /** index in the cube's faces of the near face for X (+-x), Y (+-GL z), Z (top +y, bottom -y) */
 export const faceOf = (i: number): number => (i === 0 ? (S.ns[0] > 0 ? 0 : 1) : i === 1 ? (S.ns[1] > 0 ? 4 : 5) : (S.ns[2] > 0 ? 2 : 3));
@@ -24,6 +25,7 @@ export const faceOf = (i: number): number => (i === 0 ? (S.ns[0] > 0 ? 0 : 1) : 
 /** Draws one frame into a w x h drawing buffer; returns the ortho scale (sx, sy) for the DOM overlays. */
 export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { sx: number; sy: number } {
   const { gl, u } = G, { cam, dlo, dhi } = S;
+  perfBegin(); perfMark('setup');
   gl.viewport(0, 0, w, h);
   const asp = w / h, fx = Math.max(asp, 1), fy = Math.max(1 / asp, 1);
   const [pl, ph] = proposedBox();
@@ -42,8 +44,10 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
   // bodies: all but the focused one come from the instance buffers; the focused one is drawn live
+  perfMark('sync');
   syncScene();
   syncInstances();
+  perfMark('opaque');
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxIB);
   gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(1, 1);
   gl.uniform1f(u.uEdge, 0); gl.uniform1f(u.uBevelMax, BEVEL); gl.uniform1f(u.uBevelFit, BEVEL_FIT ? 1 : 0);
@@ -59,13 +63,17 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
     drawBody(b, dlo, dhi, S.selection.has(S.sel) ? 1 : 0, bodyShape(b, dlo, dhi, S.scene.orient[S.sel]));
   };
   drawInstances(drawFocus, cull);
+  perfMark('extras');
   drawExtras(cull);                          // read-only dynamic grids (none unless a world placed some)
   drawGround();                              // the ground plate (off unless an environment is applied)
+  perfMark('materials');
   drawMaterials(dlo, dhi);                   // glow, then glass / translucent back to front (if any)
+  perfMark('bloom');
   if (bloomPass && hasGlow()) {              // full build: the glow halo
     bloomPass(w, h, () => { drawInstances(drawFocus, cull); drawExtras(cull); drawGround(); }, () => drawGlow(dlo, dhi, 2));
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxIB);
   }
+  perfMark('overlays');
   gl.uniform1f(u.uEdge, 1); gl.uniform1f(u.uFadeR, 0);
   // hovering another brick: a faint wash on the face under the cursor (click = focus it)
   if (!S.held && S.hoverBrick >= 0 && S.hoverBrick !== S.sel && S.scene.alive(S.hoverBrick)) {
@@ -122,5 +130,6 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
   }
 
   if (!S.noOverlay) for (const f of S.hooks.draw) f();   // the placement ghost (editor)
+  perfEnd();
   return { sx, sy };
 }
