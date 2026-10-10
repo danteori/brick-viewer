@@ -1,10 +1,11 @@
-// Lite size budget (ARCHITECTURE.md section 2): dist-lite/brick-viewer.html must stay <= 300 KB,
+// Lite size budget (ARCHITECTURE.md section 2): dist-lite/brick-viewer.html must stay <= 450 KB (raised
+// from 300 KB when the fixed-mesh bricks came in, 2026-10-10),
 // and full-only libraries must stay out of it (sql.js is loaded lazily by the full build only).
 import { readFileSync, statSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 
 const FILE = 'dist-lite/brick-viewer.html';
-const BUDGET = 300 * 1024;
+const BUDGET = 450 * 1024;
 const FULL_ONLY = [['sql.js', /initSqlJs|sqlite3_open/]];
 const bytes = statSync(FILE).size;
 const html = readFileSync(FILE);

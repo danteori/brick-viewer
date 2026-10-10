@@ -18,7 +18,7 @@ import { srgbToLinearByte } from '../format/palette.ts';
 import { linearToSrgbByte } from '../format/stale.ts';
 import { localHalf, rampDir, sideCode, topStyle, type Brick } from './brick.ts';
 import { loadedFiles, loadedUnsupported, type SeqBrick } from './load.ts';
-import { plainOf } from './view.ts';
+import { isFixedAsset, plainOf } from './view.ts';
 import { remapBrickRefs } from './remap.ts';
 import type { SceneStore } from './store.ts';
 
@@ -64,7 +64,7 @@ export function plainBrick(b: Brick, origin: readonly number[], linear: boolean)
   const pos = [0, 1, 2].map((i) => Math.round(((b.lo[i] + b.hi[i]) / 2 + origin[i]!) / BRZ_UNIT)) as [number, number, number];
   const rgb = b.color.slice(0, 3).map(byte).map((v) => (linear ? srgbToLinearByte(v) : v));
   const out: SeqBrick = {
-    asset, size: b.shape === 'round' ? null : half, pos, orient: o,
+    asset, size: b.shape === 'round' || isFixedAsset(asset) ? null : half, pos, orient: o,
     color: [rgb[0]!, rgb[1]!, rgb[2]!, b.intensity ?? 5],
     material: b.material ?? 'BMC_Plastic',
   };

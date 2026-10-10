@@ -15,7 +15,7 @@ import { roundHalf } from '../render/meshes/registry.ts';
 import { histEnd, histPush, sceneSnap } from './history.ts';
 import { selectBrick } from '../editor/resize.ts';
 import { FLAG_NAMES, SceneStore } from './store.ts';
-import { putPlain, supportedAsset } from './view.ts';
+import { fixedHalfOf, isFixedAsset, isStretchedAsset, putPlain, supportedAsset } from './view.ts';
 import { fitHalf, ZOOM_MAX } from '../render/camera.ts';
 import { setStatus } from '../ui/status.ts';
 
@@ -41,11 +41,14 @@ export function viewerBrick(pb: PlainBrick, linear: boolean): Brick | Skip {
   // fixed-asset (B_*) rounds / cones: no size in the save, the generator gives their half-extents
   const basic = procedural ? null : asset;
   const isRound = !!basic && BrickShapes.isRound(basic);
-  const isMicroShape = procedural && !isMicro && BrickShapes.isMicro(asset), isSpecial = procedural && BrickShapes.isSpecial(asset);
-  if (!isRound && (!procedural || !(isMicro || isBrick || isTile || isPlain || isMicroShape || isSpecial))) return { skip: asset || 'unknown' };
+  const isMicroShape = procedural && !isMicro && BrickShapes.isMicro(asset);
+  // fixed-mesh B_* bricks (their box from the generator) and the stretched designs (PB_Frog, ...) draw as local shapes
+  const isFixed = !!basic && isFixedAsset(basic);
+  const isSpecial = (procedural && (BrickShapes.isSpecial(asset) || isStretchedAsset(asset))) || isFixed;
+  if (!isRound && !isFixed && (!procedural || !(isMicro || isBrick || isTile || isPlain || isMicroShape || isSpecial))) return { skip: asset || 'unknown' };
   // World box from the verified orientation rule: h[i] = sum_j |M[i][j]| s[j].
   const o = pb.orient, M = BrickShapes.brickOrient(o), dir = (o >> 2) % 6;
-  const s = isRound ? roundHalf(basic!) : pb.size!;
+  const s = isRound ? roundHalf(basic!) : isFixed ? fixedHalfOf(basic!) : pb.size!;
   const half = [0, 1, 2].map((r) => Math.abs(M[r][0]) * s[0] + Math.abs(M[r][1]) * s[1] + Math.abs(M[r][2]) * s[2]);
   const up = dir === 4 ? 1 : dir === 5 ? -1 : 0;
   // Ramps / crests upright or upside down keep their world-frame meshes; sideways they're special shapes.

@@ -132,6 +132,11 @@ export const SIZE_RULES: Record<string, LocalRule> = (() => {
     PB_Baguette: R([10, 10, 6], [20, 10, 6], [0, 1, 1]),
     PB_AerodynamicSurface: R([10, 10, 2], [10, 10, 2], [0, 0, 1]),
     PB_AerodynamicSurfaceVertical: R([10, 10, 4], [10, 10, 8]),
+    // the stretched fixed designs (sizes seen in saves; the in-game steps are a guess, UX_ASSUMPTIONS C-01)
+    PB_Frog: R([2, 2, 2], [2, 2, 2]),
+    BP_ZoneProjector: R([2, 2, 4], [10, 10, 4], [0, 0, 1]),
+    PB_SliderJoint: R([2, 10, 2], [10, 10, 2], [0, 1, 1]), PB_RigidSliderJoint: R([2, 10, 2], [10, 10, 2], [0, 1, 1]),
+    PB_MotorSliderJoint: R([2, 10, 2], [10, 10, 2], [0, 1, 1]), PB_ServoSliderJoint: R([2, 10, 2], [10, 10, 2], [0, 1, 1]),
   };
   for (const a of Object.keys(BrickShapes.MICRO_TYPES)) t[a] = R([2, 2, 2], [2, 2, 2]);
   return t;
@@ -141,7 +146,7 @@ const NO_FIX: [boolean, boolean, boolean] = [false, false, false];
 
 export function sizeRule(b: Brick | null | undefined): SizeRule {
   if (!b) return { steps: BRICK.steps.slice() as V3, min: [1, 1, 1], fix: NO_FIX };
-  if (b.shape === 'round') return { steps: [STEP, STEP, PLATE], min: [1, 1, 1], fix: [true, true, true] };
+  if (fixedSize(b)) return { steps: [STEP, STEP, PLATE], min: [1, 1, 1], fix: [true, true, true] };
   if (b.shape === 'special' || b.shape === 'micro') {
     const R = SIZE_RULES[b.asset!] || (b.shape === 'micro' ? SIZE_RULES.PB_DefaultMicroWedge : SIZE_RULES.PB_DefaultWedge);
     const M = BrickShapes.brickOrient(b.o ?? 16), r = { steps: [] as number[], min: [] as number[], fix: [] as boolean[] };
@@ -159,7 +164,23 @@ export function sizeRule(b: Brick | null | undefined): SizeRule {
 }
 
 /** rounds / cones are fixed meshes: no resize handles, no typed sizes, no type switch */
-export const fixedSize = (b: Brick | null | undefined): boolean => b?.shape === 'round';
+export const fixedSize = (b: Brick | null | undefined): boolean => b?.shape === 'round' || (b?.shape === 'special' && !!b.asset && isFixedAsset(b.asset));
+
+/** Logic-gate assets: B_1x1_Gate_*, B_1x1_EntityGate_*, and the older B_1x1_AND_Gate style names. */
+const GATE_ASSET = /^B_1x1_(?:Entity)?Gate_\w+$|^B_1x1_[A-Z]+_Gate$/;
+/**
+ * A fixed-mesh B_* brick (decor, food, chess, gadgets, joints, logic gates; not the rounds): no size
+ * in the save, its box comes from the generator (shapes.js FIXED_SHAPES, hand-built approximations).
+ * A gate the generator doesn't list (older or newer gate names) gets the common 1x1f gate plate,
+ * added to FIXED_SHAPES under its own name the first time it's asked for.
+ */
+export function isFixedAsset(asset: string): boolean {
+  const F = BrickShapes.FIXED_SHAPES;
+  if (Object.prototype.hasOwnProperty.call(F, asset)) return true;
+  if (!GATE_ASSET.test(asset)) return false;
+  F[asset] = F.B_1x1_Gate_Expr_LogicalAND!;
+  return true;
+}
 /** the export-measured shapes keep their type: no Brick / Tile / Microbrick switch */
 export const lockedType = (b: Brick | null | undefined): boolean => fixedSize(b) || b?.shape === 'special' || b?.shape === 'micro';
 
