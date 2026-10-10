@@ -33,6 +33,12 @@ export const LOD_CELL_PX = 4;
 export const MERGE_STUD_PX = 12;
 /** Below this, merged blocks also draw small non-box bricks (ramps, rounds, special shapes) as their boxes: far fewer meshes, so far fewer draws. */
 export const MERGE_BOX_STUD_PX = 1.5;
+/**
+ * Merging only pays off with many chunks, and it changes the draw order, which decides which of two
+ * exactly coplanar faces (a brick sitting flush on a plate draws its bottom there too) wins the
+ * depth test. Scenes with fewer render chunks than this keep per-chunk full detail at these zooms.
+ */
+export const MERGE_MIN_CHUNKS = 64;
 /** The pseudo-levels for merged full detail, and merged with small shapes as boxes. */
 export const LOD_MERGED = LOD_LEVELS + 1, LOD_MERGED_BOX = LOD_LEVELS + 2;
 
