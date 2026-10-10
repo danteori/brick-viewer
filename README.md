@@ -32,6 +32,9 @@ On top of that:
   (vehicles, doors) where they are parked (read-only), and save as a new world (experimental).
   **Compare** counts what the shown revision changed since the previous one (or any other): bricks
   added, removed and changed, component and wire totals, files; **Highlight** outlines those bricks.
+- **Applicator:** change the brick type or the material of the selection (or the focused brick).
+  Resizable types keep their size (only types whose size grid fits are applied), fixed types take their
+  own size; changes that would overlap a brick are left out. One undo step, saved with Save .brz.
 - **Map (full build):** a top-down map of the opened save; click it to jump to that spot.
 - **Components and wires:** Brick Properties > Components lists the focused brick's components
   with an editor per setting (numbers, toggles, choices, text, colours, vectors, map entries,

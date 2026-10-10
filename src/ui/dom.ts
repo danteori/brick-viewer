@@ -107,6 +107,15 @@ const MARKUP = `
   <button type="button" id="painttoggle" aria-expanded="false" aria-controls="paintbody" title="Colour palette, material and intensity: paint the selection (or the focused brick)">Paint
     ${CHEV}</button>
   <div id="paintbody" hidden></div>
+  <button type="button" id="apptoggle" aria-expanded="false" aria-controls="appbody" title="Change the brick type or the material of the selection (or the focused brick), like the game's applicator">Applicator
+    ${CHEV}</button>
+  <div id="appbody" hidden>
+    <div class="approw"><span>Type</span><select id="apptype" aria-label="Brick type to apply"></select>
+      <button type="button" id="appapplytype" title="Change the selection (or the focused brick) to this type: resizable types keep their size, fixed ones take their own">Apply</button></div>
+    <div class="approw"><span>Material</span><select id="appmat" aria-label="Material to apply"></select>
+      <button type="button" id="appapplymat" title="Give the selection (or the focused brick) this material, keeping its colour and intensity">Apply</button></div>
+    <button type="button" id="apppick" title="Set both lists to the focused brick's type and material">Take from the focused brick</button>
+  </div>
 </section>`;
 
 /** Builds the page into document.body (the #app placeholder is replaced). */
