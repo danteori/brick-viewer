@@ -19,6 +19,19 @@
 //   GLOW_BASE is about the light a daylight top face receives, so intensity 0 looks like lit plastic by
 //   day and stays visible ("self-lit") at night. 5 and 10 clip most colours to white.
 //   Bloom: add sum_k weight_k * gaussianBlur(emission, sigma_k * viewportWidth) before tonemapping.
+//
+// Metallic (opaque, fitted to daylight top-down captures):
+//   scene = albedo * (METAL_SKY * env(r) + metalRough(i) * K)
+//   env(r) = the preset sky light for reflections pointing up, METAL_GROUND x it pointing down (r = the
+//   reflected view vector, smooth blend around the horizon); K = the usual lit-plastic light (sky + sun N.L).
+//   Intensity 0 is a dark, sky-tinted mirror; higher intensities pick up more of the scene light (a rough,
+//   sun-lit look): metalRough = METAL_ROUGH_MAX * (i / 10)^METAL_ROUGH_EXP.
+//
+// Hologram (transparent, glowing, animated):
+//   scene = background * (1 - opacity(i)) + albedo * GLOW_BASE * holoLevel(i) * holoPattern(z, t)
+//   holoPattern = 1 + s1 + s2: two layers of irregular horizontal stripes (0 or 1 each) in WORLD height z
+//   (Brickadia units), scrolling in opposite directions (layer 1 up, layer 2 down). Where both overlap the
+//   brick is three times as bright as where neither does. Opacity and brightness both rise with intensity.
 
 export type Rgb = [number, number, number];
 
@@ -41,6 +54,26 @@ export const GLOW_BLOOM: readonly { weight: number; sigma: number }[] = [
   { weight: 0.00638, sigma: 0.00751 },
   { weight: 0.00364, sigma: 0.0373 },
   { weight: 0.00481, sigma: 0.0952 },
+];
+
+/** Metallic: sky reflection strength (x the preset sky light) at every intensity. */
+export const METAL_SKY = 2.35;
+/** Metallic: the reflection pointing below the horizon is this fraction of the sky one. */
+export const METAL_GROUND = 0.35;
+/** Metallic: lit-plastic fraction at intensity 10 and its growth exponent (0 / 0.07 / 0.44 at 0 / 5 / 10). */
+export const METAL_ROUGH_MAX = 0.44;
+export const METAL_ROUGH_EXP = 2.6;
+/** Hologram opacity at intensity 0 / 5 / 10. */
+export const HOLO_OPACITY: readonly number[] = [0.15, 0.36, 0.48];
+/** Hologram emission (x GLOW_BASE, i.e. x a daylight top face's light) of the dark level, at 0 / 5 / 10. */
+export const HOLO_LEVEL: readonly number[] = [0.066, 0.361, 0.611];
+/**
+ * The two stripe layers. Each `cell` units of height holds one stripe whose width is a random fraction
+ * (between `duty[0]` and `duty[1]`) of the cell at a random offset; `speed` in units per second, + = up.
+ */
+export const HOLO_LAYERS: readonly { cell: number; duty: readonly [number, number]; speed: number; seed: number }[] = [
+  { cell: 11, duty: [0.13, 0.53], speed: 4.5, seed: 0 },
+  { cell: 7, duty: [0.1, 0.44], speed: -9.3, seed: 57.31 },
 ];
 
 function clampI(i: number): number { return Math.min(10, Math.max(0, i)); }
@@ -90,7 +123,53 @@ export function glowColor(albedo: Rgb, i: number): Rgb {
   return albedo.map((a) => a * s) as Rgb;
 }
 
+/** Metallic lit-plastic fraction. */
+export function metalRough(i: number): number { return METAL_ROUGH_MAX * (clampI(i) / 10) ** METAL_ROUGH_EXP; }
+
+/** Smooth 0..1 weight of the sky in a reflection whose vertical component is rz (save Z up / GL y up). */
+export function metalSkyWeight(rz: number): number {
+  const t = Math.min(1, Math.max(0, (rz + 0.2) / 0.4));
+  return t * t * (3 - 2 * t);
+}
+
+/** Metallic: scene-linear colour. rz = up component of the reflected view vector; K = lit-plastic light. */
+export function metalColor(albedo: Rgb, i: number, rz: number, sky: Rgb, K: Rgb): Rgb {
+  const w = METAL_GROUND + (1 - METAL_GROUND) * metalSkyWeight(rz), g = metalRough(i);
+  return [0, 1, 2].map((k) => albedo[k]! * (METAL_SKY * w * sky[k]! + g * K[k]!)) as Rgb;
+}
+
+export function holoOpacity(i: number): number { return lerp3(HOLO_OPACITY, i); }
+export function holoLevel(i: number): number { return lerp3(HOLO_LEVEL, i); }
+
+/** A repeatable 0..1 hash of a number (the same formula as the GLSL one). */
+export function hash1(x: number): number { const s = Math.sin(x * 12.9898) * 43758.5453; return s - Math.floor(s); }
+
+/** One stripe layer at height u (units, already scrolled): 1 inside the cell's stripe, else 0. */
+export function holoStripe(u: number, cell: number, duty: readonly [number, number], seed: number): number {
+  const c = Math.floor(u / cell), f = u / cell - c;
+  const w = duty[0] + (duty[1] - duty[0]) * hash1(c + seed), o = hash1(c + seed + 17.3) * (1 - w);
+  return f >= o && f < o + w ? 1 : 0;
+}
+
+/** The hologram's brightness pattern at world height z (units) and time t (seconds): 1, 2 or 3. */
+export function holoPattern(z: number, t: number): number {
+  let p = 1;
+  for (const L of HOLO_LAYERS) p += holoStripe(z - L.speed * t, L.cell, L.duty, L.seed);
+  return p;
+}
+
+/** The pattern's mean over height (1 + the two layers' mean duty), for a static (time-free) look. */
+export const HOLO_PATTERN_MEAN = 1 + HOLO_LAYERS.reduce((s, L) => s + (L.duty[0] + L.duty[1]) / 2, 0);
+
+/** Hologram: scene-linear colour over a background. */
+export function holoColor(albedo: Rgb, i: number, z: number, t: number, background: Rgb): Rgb {
+  const a = holoOpacity(i), e = GLOW_BASE * holoLevel(i) * holoPattern(z, t);
+  return [0, 1, 2].map((k) => background[k]! * (1 - a) + albedo[k]! * e) as Rgb;
+}
+
 const f = (x: number): string => (Number.isInteger(x) ? x.toFixed(1) : String(x));
+type HoloLayer = (typeof HOLO_LAYERS)[number];
+const [H1, H2] = HOLO_LAYERS as readonly [HoloLayer, HoloLayer];
 
 /** GLSL versions of the functions above (no dependencies; pair with TONEMAP_GLSL for display). */
 export const MATERIALS_GLSL = `
@@ -119,4 +198,27 @@ float glowLevel(float i){
   return x <= 5.0 ? GLOW_LADDER.x*pow(GLOW_LADDER.y/GLOW_LADDER.x, x/5.0) : GLOW_LADDER.y*pow(GLOW_LADDER.z/GLOW_LADDER.y, (x - 5.0)/5.0);
 }
 vec3 glowColor(vec3 albedo, float i){ return albedo*GLOW_BASE*glowLevel(i); }
+const float METAL_SKY = ${f(METAL_SKY)}, METAL_GROUND = ${f(METAL_GROUND)};
+const float METAL_ROUGH_MAX = ${f(METAL_ROUGH_MAX)}, METAL_ROUGH_EXP = ${f(METAL_ROUGH_EXP)};
+float metalRough(float i){ return METAL_ROUGH_MAX*pow(clamp(i, 0.0, 10.0)/10.0, METAL_ROUGH_EXP); }
+// rz: up component of the reflected view vector; K: the lit-plastic light (sky + sun N.L)
+vec3 metalColor(vec3 albedo, float i, float rz, vec3 sky, vec3 K){
+  float w = METAL_GROUND + (1.0 - METAL_GROUND)*smoothstep(-0.2, 0.2, rz);
+  return albedo*(METAL_SKY*w*sky + metalRough(i)*K);
+}
+const vec3 HOLO_OPACITY = vec3(${HOLO_OPACITY.map(f).join(', ')});
+const vec3 HOLO_LEVEL = vec3(${HOLO_LEVEL.map(f).join(', ')});
+float holoOpacity(float i){ return matLerp3(HOLO_OPACITY, i); }
+float matHash(float x){ return fract(sin(x*12.9898)*43758.5453); }
+float holoStripe(float u, float cell, vec2 duty, float seed){
+  float c = floor(u/cell), fr = u/cell - c;
+  float w = mix(duty.x, duty.y, matHash(c + seed)), o = matHash(c + seed + 17.3)*(1.0 - w);
+  return step(o, fr)*(1.0 - step(o + w, fr));
+}
+// z: world height in Brickadia units; t: seconds
+float holoPattern(float z, float t){
+  return 1.0 + holoStripe(z - (${f(H1.speed)})*t, ${f(H1.cell)}, vec2(${H1.duty.map(f).join(', ')}), ${f(H1.seed)})
+             + holoStripe(z - (${f(H2.speed)})*t, ${f(H2.cell)}, vec2(${H2.duty.map(f).join(', ')}), ${f(H2.seed)});
+}
+vec3 holoEmission(vec3 albedo, float i, float z, float t){ return albedo*GLOW_BASE*matLerp3(HOLO_LEVEL, i)*holoPattern(z, t); }
 `;

@@ -38,6 +38,9 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
   gl.uniform3f(u.uEye, view[2], view[6], view[10]);   // view-space +z (toward the camera) in world/GL space
   { const P = LIGHTING[S.lighting]; gl.uniform3fv(u.uSun, P.sun); gl.uniform3fv(u.uSky, P.sky); gl.uniform3fv(u.uFloor, P.floor); gl.uniform1f(u.uExposure, P.exposure); }
   { const L = lightDir(); gl.uniform3f(u.uLight, L[0], L[1], L[2]); }
+  // hologram animation clock (seconds, wrapped to keep float precision); frozen in test mode so
+  // golden captures stay deterministic
+  gl.uniform1f(u.uTime, S.testMode ? 0 : (performance.now() / 1000) % 1000);
   gl.clearColor(0.169, 0.173, 0.188, 1);          // #2b2c30, matches --bg
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 

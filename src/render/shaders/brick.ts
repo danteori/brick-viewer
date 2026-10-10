@@ -134,9 +134,10 @@ const float RECESS_SHADE = VOID;
 uniform vec3 uSun, uSky, uFloor;
 uniform float uExposure;
 // Special materials (src/render/materials.ts, wired in render/matpass.ts): 0 plastic (the path above
-// everything else uses), 1 glass, 2 translucent plastic, 3 glow. uMatPass: glass 0 = the multiply
+// everything else uses), 1 glass, 2 translucent plastic, 3 glow, 4 metallic, 5 hologram (animated by uTime,
+// seconds). uMatPass: glass 0 = the multiply
 // pass, 1 = the reflection add pass; 2 = linear emission for the bloom buffer.
-uniform float uMat, uIntensity, uMatPass;
+uniform float uMat, uIntensity, uMatPass, uTime;
 ${TONEMAP_GLSL}
 ${MATERIALS_GLSL}
 float smin(float a, float b, float k){ float h = clamp(0.5 + 0.5*(b-a)/k, 0.0, 1.0); return mix(b, a, h) - k*h*(1.0-h); }
@@ -337,6 +338,17 @@ void main(){
     } else if (uMat < 2.5) {
       vec3 surf = (albedo * (uSky + uSun*d) + uFloor*TRANSLUCENT_FLOOR_SCALE) * shade;
       fragColor = vec4(ueFilmic(uExposure * surf), translucentOpacity(uIntensity));
+    } else if (uMat > 4.5) {
+      // hologram: premultiplied (blend ONE, ONE_MINUS_SRC_ALPHA): the scene behind shows through by
+      // 1 - opacity and the scrolling stripes add their glow; world height in units = viewer y * 50
+      vec3 e = uExposure * holoEmission(albedo, uIntensity, vW.y * 50.0, uTime);
+      fragColor = vec4(mix(ueFilmic(e), SEL_TINT, vMisc.y * SEL_MIX), holoOpacity(uIntensity));
+    } else if (uMat > 3.5) {
+      // metallic (opaque): sky-tinted reflection by the reflected view vector's height, plus a
+      // lit-plastic share that grows with intensity
+      vec3 r = orientGL(uint(vOrient + 0.5)) * reflect(-normalize(vEyeL), n);
+      vec3 c = metalColor(albedo, uIntensity, r.y, uSky, uSky + uSun*d) * shade + spec;
+      fragColor = vec4(mix(ueFilmic(uExposure * c), SEL_TINT, vMisc.y * SEL_MIX), 1.0);
     } else {
       vec3 e = uExposure * glowColor(albedo, uIntensity);
       fragColor = uMatPass > 1.5 ? vec4(e, 1.0) : vec4(mix(ueFilmic(e), SEL_TINT, vMisc.y * SEL_MIX), 1.0);

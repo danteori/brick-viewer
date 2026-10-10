@@ -1,5 +1,8 @@
-// Special materials in the forward pipeline (backlog L-02; the maths is src/render/materials.ts):
+// Special materials in the forward pipeline (backlog L-02 / U-15; the maths is src/render/materials.ts):
 //   - glow: opaque and unlit (emission only), drawn right after the opaque bodies;
+//   - metallic: opaque, drawn right after the glow bricks (never in the bloom buffer);
+//   - hologram: transparent, sorted with glass / translucent, one premultiplied pass (background x
+//     (1 - opacity) + the animated stripe glow; uTime is set per frame by the pipeline);
 //   - glass and translucent plastic: transparent, drawn after every opaque body, back to front
 //     (farthest brick centre first), depth-tested without writing depth. Glass is two blended
 //     passes per brick (multiply by its transmission, then add the Fresnel sky reflection);
@@ -12,7 +15,7 @@ import type { Brick } from '../scene/brick.ts';
 import { brickView } from '../scene/view.ts';
 import { G, bodyShape, drawBody, type BodyShape } from './draw.ts';
 import { inst } from './instances.ts';
-import { MAT_GLASS, MAT_GLOW, matCode } from './matcode.ts';
+import { MAT_GLASS, MAT_GLOW, MAT_HOLOGRAM, MAT_METALLIC, matCode } from './matcode.ts';
 
 type Item = { b: Brick; l: readonly number[]; h: readonly number[]; m: number; shape?: BodyShape; sel: boolean };
 
@@ -67,9 +70,15 @@ export function drawMaterials(dlo: readonly number[], dhi: readonly number[]): v
   if (!inst.special.length && !focusIsSpecial()) return;
   const { gl, u } = G, list = items(dlo, dhi);
   drawGlow(dlo, dhi);
+  const metal = list.filter((it) => it.m === MAT_METALLIC);
+  if (metal.length) {
+    gl.uniform1f(u.uMat, MAT_METALLIC); gl.uniform1f(u.uMatPass, 0);
+    for (const it of metal) { gl.uniform1f(u.uIntensity, intensityOf(it.b)); draw(it); }
+    gl.uniform1f(u.uMat, 0);
+  }
   const v = S.view, eye = [v[2], v[6], v[10]];
   const depth = (it: Item): number => ((it.l[0]! + it.h[0]!) * eye[0]! + (it.l[2]! + it.h[2]!) * eye[1]! + (it.l[1]! + it.h[1]!) * eye[2]!) / 2;
-  const clear = list.filter((it) => it.m !== MAT_GLOW).map((it) => ({ it, d: depth(it) })).sort((a, b) => a.d - b.d);
+  const clear = list.filter((it) => it.m !== MAT_GLOW && it.m !== MAT_METALLIC).map((it) => ({ it, d: depth(it) })).sort((a, b) => a.d - b.d);
   if (!clear.length) return;
   gl.enable(gl.BLEND); gl.depthMask(false);
   for (const { it } of clear) {
@@ -77,6 +86,8 @@ export function drawMaterials(dlo: readonly number[], dhi: readonly number[]): v
     if (it.m === MAT_GLASS) {
       gl.blendFunc(gl.ZERO, gl.SRC_COLOR); gl.uniform1f(u.uMatPass, 0); draw(it);
       gl.blendFunc(gl.ONE, gl.ONE); gl.uniform1f(u.uMatPass, 1); draw(it);
+    } else if (it.m === MAT_HOLOGRAM) {
+      gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); gl.uniform1f(u.uMatPass, 0); draw(it);
     } else {
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.uniform1f(u.uMatPass, 0); draw(it);
     }
