@@ -8,9 +8,11 @@
 //     distance from the axis. P is cut when d > 0 and r < R0 + d * tan(spread).
 //   - R0 = 1.1 x the focused box's half-diagonal (the whole focus shows) + size x the view's
 //     half-height, so the hole keeps its on-screen size as you zoom.
-//   - only above the focused brick's bottom (below its top when looking up from underneath): the
-//     floor it stands on and everything under that level stay, so the hole reads as a cutaway
-//     section at the brick's level instead of a pit in the floor in front of it.
+//   - only above a "keep" level: the focused brick's top plus the dead zone (cut.keep), mirrored
+//     below its bottom when looking up from underneath. The floor, the bricks beside the focus at its
+//     own height and anything low in the room (furniture, counters) stay whole; only what is higher,
+//     the upper walls, ceilings and roofs, is cut, so the hole reads as a dollhouse section through
+//     the room rather than a pit carved into the floor around the focus.
 // The focused brick itself is never cut (fragments inside its box are kept), nor is anything behind
 // the apex plane (d <= 0), nor the ground plate, the grid or the overlays.
 //
@@ -23,6 +25,7 @@
 
 import { S } from '../app/state.ts';
 import type { Gfx } from './gl.ts';
+import { PLATE } from '../core/units.ts';
 
 export const cut = {
   on: false,
@@ -30,6 +33,8 @@ export const cut = {
   size: 0.2,
   /** cone half-angle, degrees: how fast the hole widens toward the camera */
   spread: 15,
+  /** dead zone, viewer units above the focused brick's top (below its bottom from underneath) that are never cut */
+  keep: 9 * PLATE,                     // 3 bricks
 };
 
 /** World [X,Y,Z] (absolute viewer units) apex, axis toward the camera, base radius, tan(half-angle). */
@@ -40,7 +45,7 @@ function params(): { a: number[]; e: number[]; r0: number; t: number; level: num
   const side = m[6] >= 0 ? 1 : -1;                                  // camera above (+1) or below (-1)
   return {
     a, e: [m[2], m[10], m[6]], r0: 1.1 * half + cut.size * S.cam.half, t: Math.tan(cut.spread * Math.PI / 180),
-    level: side > 0 ? lo[2] : hi[2], side,
+    level: side > 0 ? hi[2] + cut.keep : lo[2] - cut.keep, side,
   };
 }
 /** cut only where side * (Z - level) > LEVEL_EPS (the floor the brick stands on stays) */
@@ -50,7 +55,7 @@ const LEVEL_EPS = 1e-3;
 export const cutActive = (): boolean => cut.on && S.sel >= 0 && S.scene.alive(S.sel);
 
 /** For the hover key: changes whenever the hole does. */
-export const cutKey = (): string => (cutActive() ? `${cut.size},${cut.spread}` : '');
+export const cutKey = (): string => (cutActive() ? `${cut.size},${cut.spread},${cut.keep}` : '');
 
 /**
  * The ray parameter where a ray S + s D (D = into the view, world [X,Y,Z], absolute) leaves the

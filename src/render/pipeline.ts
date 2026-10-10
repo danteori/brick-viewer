@@ -7,16 +7,18 @@ import { mul } from '../core/math.ts';
 import { BEVEL, BEVEL_FIT, SHADE, STEP } from '../core/units.ts';
 import type { V3 } from '../scene/brick.ts';
 import { G, bodyShape, drawBody, setBox } from './draw.ts';
-import { drawInstances, syncInstances, type ViewCull } from './instances.ts';
+import { drawInstances, inst, setFarLod, syncInstances, type ViewCull } from './instances.ts';
+import { hidesCovered, LOD_MERGED, LOD_MERGED_BOX, lodLevel, lodSettings, MERGE_MIN_CHUNKS } from './lod.ts';
 import { syncScene } from '../scene/sync.ts';
 import { drawGrid } from './grid.ts';
-import { drawExtras } from './extras.ts';
+import { drawExtras, extrasDepth } from './extras.ts';
 import { drawGround, drawGroundBackdrop } from './ground.ts';
 import { bloomPass, drawGlow, drawMaterials, focusIsSpecial, hasGlow } from './matpass.ts';
 import { LIGHTING, lightDir } from './lighting.ts';
 import { nearOf, studPx } from './camera.ts';
 import { BOX_EDGE_COUNT, boxEB, boxIB } from './meshes/registry.ts';
 import { proposedBox } from '../editor/resize.ts';
+import { perfBegin, perfEnd, perfMark } from './perf.ts';
 import { useBrickVariant } from './gl.ts';
 import { cutActive, setCutUniforms } from './cutaway.ts';
 import { movedBox } from '../editor/move.ts';
@@ -29,6 +31,7 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
   const cutOn = cutActive();
   useBrickVariant(G, cutOn);                 // the X-ray cutaway's program only while it's on
   const { gl, u } = G, { cam, dlo, dhi } = S;
+  perfBegin(); perfMark('setup');
   gl.viewport(0, 0, w, h);
   const asp = w / h, fx = Math.max(asp, 1), fy = Math.max(1 / asp, 1);
   const [pl, ph] = proposedBox();
@@ -48,8 +51,21 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
   // bodies: all but the focused one come from the instance buffers; the focused one is drawn live
+  perfMark('sync');
   syncScene();
   syncInstances();
+  // depth range: +-60 view units as before, or enough to hold the whole scene (big builds zoomed out)
+  const reach = Math.max(inst.set!.depthReach(), extrasDepth(), Math.abs(view[2]! * (dlo[0]! - S.origin[0]) + view[6]! * (dlo[2]! - S.origin[2]) + view[10]! * (dlo[1]! - S.origin[1])));
+  const zr = reach * 1.05 + 1 > 60 ? reach * 1.05 + 1 : 60;
+  if (zr !== 60) { ortho[10] = -1 / zr; cull.depth = zr; gl.uniformMatrix4fv(u.uMVP, false, mul(ortho, view)); }
+  // far LOD (render/lod.ts) by how many device pixels a stud (0.2 view units) is
+  let level = lodSettings.on ? lodLevel(0.2 * h / (2 * half * fy)) : 0;
+  if ((level === LOD_MERGED || level === LOD_MERGED_BOX) && inst.set!.chunks.size < MERGE_MIN_CHUNKS) level = 0;
+  setFarLod(level);
+  // covered faces are dropped only from the approximate levels on, and never in the X-ray cutaway
+  // (its hole exposes them)
+  gl.uniform1f(u.uShowHidden, cutOn || !hidesCovered(level) ? 1 : 0);
+  perfMark('opaque');
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxIB);
   gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(1, 1);
   gl.uniform1f(u.uEdge, 0); gl.uniform1f(u.uBevelMax, BEVEL); gl.uniform1f(u.uBevelFit, BEVEL_FIT ? 1 : 0);
@@ -68,13 +84,18 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
     drawBody(b, dlo, dhi, S.selection.has(S.sel) ? 1 : 0, bodyShape(b, dlo, dhi, S.scene.orient[S.sel]));
   };
   drawInstances(drawFocus, cull);
+  perfMark('extras');
   drawExtras(cull);                          // read-only dynamic grids (none unless a world placed some)
   drawGround();                              // the ground plate (off unless an environment is applied)
+  perfMark('materials');
   drawMaterials(dlo, dhi);                   // glow, then glass / translucent back to front (if any)
+  perfMark('bloom');
   if (bloomPass && hasGlow()) {              // full build: the glow halo
-    bloomPass(w, h, () => { drawInstances(drawFocus, cull); drawExtras(cull); drawGround(); }, () => drawGlow(dlo, dhi, 2));
+    // the depth-only pass takes the shader's early exit (uEdge): its colour is masked off anyway
+    bloomPass(w, h, () => { gl.uniform1f(u.uEdge, 1); drawInstances(drawFocus, cull); drawExtras(cull); drawGround(); gl.uniform1f(u.uEdge, 0); }, () => drawGlow(dlo, dhi, 2));
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxIB);
   }
+  perfMark('overlays');
   gl.uniform1f(u.uEdge, 1); gl.uniform1f(u.uFadeR, 0);
   // hovering another brick: a faint wash on the face under the cursor (click = focus it)
   if (!S.held && S.hoverBrick >= 0 && S.hoverBrick !== S.sel && S.scene.alive(S.hoverBrick)) {
@@ -137,5 +158,6 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
   }
 
   if (!S.noOverlay) for (const f of S.hooks.draw) f();   // the placement ghost (editor)
+  perfEnd();
   return { sx, sy };
 }

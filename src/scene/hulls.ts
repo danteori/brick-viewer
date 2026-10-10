@@ -126,6 +126,7 @@ const { RAMP_CREST, RAMP_LIP, ARCH_LEG, ARCH_CROWN, CAP_SEGMENTS, ROUND_TYPES, R
 const microRoundSegments = (BrickShapes as unknown as { microRoundSegments(R: number): number }).microRoundSegments;
 const CAP_ARC = 1.25;                                 // shapes.js PB_RoundedCap: vertical semi-axis / half height
 const archSegments = (r: number): number => Math.round(14 + 0.4 * r);   // shapes.js archSegments
+const archSegmentsFlat = (r: number): number => 2 * (7 + Math.round(Math.min(r, 15) / 5));   // shapes.js archSegmentsFlat
 
 type Gen = (h: V3) => Piece[];
 
@@ -152,7 +153,7 @@ function crest(h: V3): Piece[] {
   return [cutBox([-hx, -hy, -hz], [hx, hy, hz], [planeXZ(-hx, zl, 0, hz, [0, -hz]), planeXZ(hx, zl, 0, hz, [0, -hz])])];
 }
 function crestEnd(h: V3): Piece[] {
-  const [hx, hy, hz] = h, zl = -hz + Math.min(RAMP_LIP, 2 * hz), ER = Math.min(hx, 2 * hy), ya = -hy + ER;   // CREST_END_PITCH 'match'
+  const [hx, hy, hz] = h, zl = -hz + Math.min(RAMP_LIP, 2 * hz), ya = hy;   // CREST_END_PITCH 'width': the end face rises across the whole width to one apex
   return [cutBox([-hx, -hy, -hz], [hx, hy, hz], [planeXZ(-hx, zl, 0, hz, [0, -hz]), planeXZ(hx, zl, 0, hz, [0, -hz]), planeYZ(-hy, zl, ya, hz, [hy, -hz])])];
 }
 function crestCorner(h: V3): Piece[] {
@@ -172,12 +173,15 @@ function sideWedge(h: V3): Piece[] {
 }
 function arch(h: V3): Piece[] {
   const [hx, hy, hz] = h, r = Math.max(0, hy - ARCH_LEG), b = Math.max(0, Math.min(r, 2 * hz - ARCH_CROWN));
-  const zc = hz - ARCH_CROWN - b, n = archSegments(r), out: Piece[] = [];
+  // b < r: a circular segment through the leg feet and the apex (shapes.js archFaces, X1)
+  const flat = b < r - 1e-9 && b > 0, R = flat ? (r * r + b * b) / (2 * b) : r;
+  const zc = flat ? hz - ARCH_CROWN - R : hz - ARCH_CROWN - b, phi = flat ? Math.asin(r / R) : Math.PI / 2;
+  const n = flat ? archSegmentsFlat(r) : archSegments(r), out: Piece[] = [];
   out.push(cutBox([-hx, -hy, -hz], [hx, -r, hz]), cutBox([-hx, r, -hz], [hx, hy, hz]));
   if (r <= 0) return out.filter((p) => p.v.length);
+  const at = (i: number): [number, number] => { const t = -phi + 2 * phi * i / n; return [R * Math.sin(t), zc + (flat ? R : b) * Math.cos(t)]; };
   for (let i = 0; i < n; i++) {
-    const t0 = Math.PI * (1 - i / n), t1 = Math.PI * (1 - (i + 1) / n);
-    const ya = r * Math.cos(t0), za = zc + b * Math.sin(t0), yb = r * Math.cos(t1), zb = zc + b * Math.sin(t1);
+    const [ya, za] = at(i), [yb, zb] = at(i + 1);
     out.push(prism(0, -hx, hx, [[ya, za], [yb, zb], [yb, hz], [ya, hz]]));
   }
   return out;

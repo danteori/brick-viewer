@@ -1,5 +1,7 @@
-// Brick shapes: every procedural and fixed shape the viewer draws beyond plain boxes. A verbatim
-// port of the legacy viewer's inlined shapes.js (legacy/save-viewer.html), as an ES module.
+// Brick shapes: every procedural and fixed shape the viewer draws beyond plain boxes. Started as a
+// port of the legacy viewer's inlined shapes.js (legacy/save-viewer.html), as an ES module; kept in
+// sync with the shape generator prototype (2026-10-10: export batch 2 settings and the fixed B_*
+// meshes, fixedMesh). The app's own additions (face bevel rectangles, `rect`) stay.
 // Brickadia brick shapes the viewer doesn't draw yet: rounds / cones (fixed B_* meshes), Ramp Crest,
 // Ramp Crest End and the micro family (PB_DefaultMicro* wedges / corners / rounds, PB_DefaultPole). Framework-agnostic: pure functions that return typed
 // arrays, no WebGL calls, so the code can be pasted into save-viewer.html later.
@@ -99,8 +101,10 @@ const CREST_LIP = MICRO;            // A5: vertical lip at the crest's low edges
 const CREST_PEAK_FLAT = 0;          // A6: width of a flat strip at the peak (viewer units); 0 = sharp ridge
 // A7: Crest End's end face. 'match' = same pitch as the side slopes (a true hip roof: the ridge carries
 // on when the brick is wider than half its run); 'width' = the end face always rises across the whole
-// width to an apex at the open end. Identical for every size seen so far (width 1 stud, run 2 studs).
-const CREST_END_PITCH = 'match';
+// width to an apex at the open end. SETTLED by export batch 2 (EXPORT_BATCH2_ANALYSIS.md): 'width'. Every
+// crest end, (5,10,6) (10,20,6) (5,15,12) (10,15,6) and the sideways (10,15,18), is a pyramid whose three
+// sloped faces meet in ONE apex at the top of the open (+Y) end; there is no ridge.
+const CREST_END_PITCH = 'width';
 
 // --- Micro family (PB_DefaultMicro*, PB_DefaultPole): read from in-game shots of a
 // micro-brick test grid (private reference notes) ---
@@ -137,12 +141,14 @@ const MICRO_TYPES = {
 // get none), M4 (1-micro sizes are the same shapes scaled), A2/A4c/A4d (rounds: ROUND_TYPES), A5/A6
 // (crest lip 2 units, sharp ridge), A8 (crest-end closed side = local -Y). What the export can't show:
 const OPEN_QUESTIONS = [
-  'A7: Crest End end face: every crest end exported has width = half its run, so "match" (hip pitch) and "width" give the same mesh. Needs a crest end wider than half its run.',
-  'A9: crest / crest-end / 2x2-4x4 round bottoms were culled in the export (they sat on a floor); the ramp, wedge and corner bottoms use the normal underside (InletBorder/InletCenter), the 1x1 round bottoms a plain face.',
-  'X1: Arch / ArchInverted heights lower than radius + 4 units (an arch flatter than a semicircle) were not in the export; archMesh squashes the arc to an ellipse then (guess).',
+  // A7 settled (batch 2): CREST_END_PITCH = 'width'. A9 settled: crest / crest-end bottoms are the normal
+  // underside (InletBorder + InletCenter); every round and cone bottom is a flat disc with InletCenter.
+  // X1 settled: a low arch is a circular SEGMENT through the leg feet and the apex (archFaces). X3 settled:
+  // the game refuses non-whole-stud SpikePlate / LatticeThin / Spike / PicketFence sizes (not pasted).
+  'X1b: facets of a flattened arch: 20 at r = 15/20, 18 at r = 10 (4 sizes seen); the rule used, 2 x (7 + round(min(r, 15) / 5)), is a fit.',
   'X2: Baguette is an organic loaf (562 triangles, scored every stud); baguetteMesh is a smooth stand-in, about 0.5 unit off.',
-  'X3: SpikePlate / LatticeThin / Spike / PicketFence repeat per 10-unit stud cell; sizes that are not whole studs were not in the export.',
-  'X4: the aerodynamic surfaces were only seen at (10,20,1) / (10,5,10); the arrow and taper are fixed-size in units here.',
+  'X4: aerodynamic taper seen at hx 5 / 10 / 20 = 2 / 4 / 5 units (min(0.4 hx, 5) is a fit); thickness 2 only (hz 2 was refused); Vertical seen only at (10,5,10), (5,5,5) (20,5,15) (15,10,10) were refused.',
+  'F1: B_* fixed meshes (fixedMesh) are hand-built approximations from measured proportions (EXPORT_BATCH2_ANALYSIS.md), not the game mesh.',
 ];
 
 // --- Builder: collects triangles in real (viewer-unit) coordinates around the box centre ---
@@ -498,6 +504,7 @@ const RAMP_LIP = 2;                 // vertical lip at a slope's low edge: 2 uni
 const ARCH_LEG = 10;                // arch legs: 1 stud along Y at each end
 const ARCH_CROWN = 4;               // material above (Arch) / below (ArchInverted) the arc's apex: 1 plate
 const archSegments = r => Math.round(14 + 0.4 * r);         // facets over the half circle: r 5/10/15/20 -> 16/18/20/22
+const archSegmentsFlat = r => 2 * (7 + Math.round(Math.min(r, 15) / 5));   // circular-segment arcs (batch 2 fit: r 10 -> 18, 15/20 -> 20)
 const CAP_SEGMENTS = 10;            // RoundedCap: facets over its half-ellipse top
 const CAP_ARC = 1.25;               // RoundedCap: vertical semi-axis = 1.25 x half height (straight walls below)
 const PLATE_SEGMENTS = 20;          // BP_RoundPlate: facets around
@@ -516,7 +523,7 @@ const FENCE = { base: 4, rails: [[8.236, 11.229], [16.236, 19.229]], railY: 1.17
 const SPIKE = { foot: [[0, 3.536, 0], [0.5, 3.889, 0.354], [2, 3.889, 0.354]], spire: [[0.008, 3.889, 0.354], [0.0903, 3.73, 0.361], [0.9975, 0.362, 0.362]] };
 // PB_AerodynamicSurface(Vertical): slab 1.3 units thick tapering to an edge over the last 4 units of +X;
 // the vertical one stands on a 4-unit base; a +X arrow (shaft and head, +-1 unit thick) in the middle
-const AERO = { t: 0.65, taper: 4, base: 4, shaft: [-2.5, 0.5], shaftW: 0.45, head: [0.5, 2.5], headW: 1.5, at: 1 };
+const AERO = { t: 0.65, taper: 4, taperFrac: 0.4, taperMax: 5, base: 4, shaft: [-2.5, 0.5], shaftW: 0.45, head: [0.5, 2.5], headW: 1.5, at: 1 };
 // PB_Baguette stand-in: a loaf, dips to BAGUETTE_DIP of the height at every interior stud line
 const BAGUETTE_DIP = 0.76, BAGUETTE_SEG = 12;
 
@@ -711,22 +718,26 @@ function sideWedgeFaces(h, tile) {
 // The inverted one is mirrored in Z (a U open at the top): studs on the leg tops, a full underside.
 function archFaces(h, inverted) {
   const [hx, hy, hz] = h, L = new LocalBuilder();
-  const r = Math.max(0, hy - ARCH_LEG), b = Math.max(0, Math.min(r, 2 * hz - ARCH_CROWN));   // b < r: squashed (X1)
-  const zc = hz - ARCH_CROWN - b, n = archSegments(r);
-  const arc = [];                                              // from (-r, zc) over the apex to (r, zc)
-  for (let i = 0; i <= n; i++) { const t = Math.PI * (1 - i / n); arc.push([r * Math.cos(t), zc + b * Math.sin(t)]); }
+  const r = Math.max(0, hy - ARCH_LEG), b = Math.max(0, Math.min(r, 2 * hz - ARCH_CROWN));
+  // b = r: a semicircle on straight walls. b < r (X1, export batch 2): a circular SEGMENT through the leg feet
+  // (+-r, -hz) and the apex (0, hz - ARCH_CROWN), radius R = (r^2 + b^2) / 2b, evenly spaced in angle.
+  const flat = b < r - 1e-9 && b > 0;
+  const R = flat ? (r * r + b * b) / (2 * b) : r, zc = flat ? hz - ARCH_CROWN - R : hz - ARCH_CROWN - b;
+  const phi = flat ? Math.asin(r / R) : Math.PI / 2, n = flat ? archSegmentsFlat(r) : archSegments(r);
+  const arc = [];                                              // from (-r, foot) over the apex to (r, foot)
+  for (let i = 0; i <= n; i++) { const t = -phi + 2 * phi * i / n; arc.push([R * Math.sin(t), zc + (flat ? R : b) * Math.cos(t)]); }
   L.poly([[-hx,-hy,hz], [hx,-hy,hz], [hx,hy,hz], [-hx,hy,hz]], [0,0,1], PART.STUDS);
   for (const s of [-1, 1]) {
     const y0 = s * hy, y1 = s * r, ylo = Math.min(y0, y1), yhi = Math.max(y0, y1);
     L.poly([[-hx,ylo,-hz], [hx,ylo,-hz], [hx,yhi,-hz], [-hx,yhi,-hz]], [0,0,-1], PART.INLET);   // leg bottom
     L.poly([[-hx,y0,-hz], [hx,y0,-hz], [hx,y0,hz], [-hx,y0,hz]], [0,s,0], PART.FACET);           // end face
     // inner wall: the arc's strip continues down it, so its top edge (where the arc starts) has no bevel
-    if (zc > -hz) L.poly([[-hx,y1,-hz], [hx,y1,-hz], [hx,y1,zc], [-hx,y1,zc]], [0,-s,0], PART.FACET, 0, [[-hx,y1,-hz], [hx,y1,zc + 4 * hz]]);
+    if (!flat && zc > -hz) L.poly([[-hx,y1,-hz], [hx,y1,-hz], [hx,y1,zc], [-hx,y1,zc]], [0,-s,0], PART.FACET, 0, [[-hx,y1,-hz], [hx,y1,zc + 4 * hz]]);
     for (const x of [-hx, hx]) L.poly([[x,ylo,-hz], [x,yhi,-hz], [x,yhi,hz], [x,ylo,hz]], [Math.sign(x),0,0], PART.FACET);   // leg sides
   }
   for (let i = 0; i < n; i++) {
     const [ya, za] = arc[i], [yb, zb] = arc[i + 1];
-    const na = norm([0, -ya / ((r || 1) * (r || 1)), -(za - zc) / ((b || 1) * (b || 1))]), nb = norm([0, -yb / ((r || 1) * (r || 1)), -(zb - zc) / ((b || 1) * (b || 1))]);
+    const na = norm([0, -ya, -(za - zc)]), nb = norm([0, -yb, -(zb - zc)]);   // towards the arc's centre
     L.smooth([[-hx,ya,za], [hx,ya,za], [hx,yb,zb], [-hx,yb,zb]], [na, na, nb, nb], PART.FACET);   // the arc (smooth, facing its centre)
     for (const x of [-hx, hx]) L.poly([[x,ya,za], [x,yb,zb], [x,yb,hz], [x,ya,hz]], [Math.sign(x),0,0], PART.FACET);   // side above the arc
   }
@@ -913,7 +924,8 @@ function baguetteFaces(h) {
 // PB_AerodynamicSurface: a 1.3-unit slab tapering to an edge at +X, with a +X arrow (RECESS) through it.
 // PB_AerodynamicSurfaceVertical: the same fin standing in the X-Z plane on a 4-unit base.
 function aeroFaces(h, vertical) {
-  const [hx, hy, hz] = h, L = new LocalBuilder(), A = AERO, t = A.t, xt = hx - A.taper;
+  // taper: 2 / 4 / 5 units at hx 5 / 10 / 20 (export batch 2) -> min(0.4 hx, 5)
+  const [hx, hy, hz] = h, L = new LocalBuilder(), A = AERO, t = A.t, xt = hx - Math.min(A.taperFrac * hx, A.taperMax);
   // airfoil profile across the thickness axis: (x, s) with s the thickness coordinate
   const prof = [[-hx, -t], [xt, -t], [hx, 0], [xt, t], [-hx, t]];
   const arrowPts = [[A.shaft[0], -A.shaftW], [A.shaft[1], -A.shaftW], [A.head[0], -A.headW], [A.head[1], 0], [A.head[0], A.headW], [A.shaft[1], A.shaftW], [A.shaft[0], A.shaftW]];
@@ -952,6 +964,287 @@ function arrowPrism(L, pts, t0, t1, axis) {
     const m = [(a[0] + b[0]) / 2 - cx, (a[1] + b[1]) / 2 - cv];
     L.poly([P(a[0], a[1], s0), P(b[0], b[1], s0), P(b[0], b[1], s1), P(a[0], a[1], s1)], out(m[0], m[1], 0), PART.RECESS);
   }
+}
+
+// --- Fixed B_* meshes, and the few procedural types that are a fixed mesh stretched to their box ---
+// Export batch 2 (EXPORT_BATCH2_ANALYSIS.md, private notes). These are HAND-BUILT APPROXIMATIONS from measured
+// proportions (bounding boxes, radius-vs-height profiles, a few corner points): boxes, octagonal prisms, lathes and
+// ellipsoids. They contain no exported vertex data. The simple geometric ones (octo family, plate centres, tile
+// corners, brick sides, slippers, overhangs, door frame, 2x2 corner) follow the export's planes; the organic ones
+// (plants, food, chess, frog, rat) are rough stand-ins (OPEN_QUESTIONS F1).
+// A shape is a list of primitives in LOCAL units (box centre at the origin, +Z up at orientation 16):
+//   ['box', lo, hi, parts?, skip?]                        axis-aligned box (parts / skip as LocalBuilder.box)
+//   ['poly', pts, out, part]                              one flat polygon
+//   ['prism', poly, z0, z1, top, bottom, side, axis?, c?] star-shaped polygon (u, v) extruded; axis 'z' (u=x, v=y),
+//                                                         'x' (u=y, v=z, over x) or 'y' (u=x, v=z, over y); c = fan centre
+//   ['oct', w, cut, z0, z1, top, bottom, axis?]           octagonal prism, half width w, corner cut
+//   ['octFrustum', w0, w1, z0, z1]                        octagon w0 at z0 to w1 at z1, studded top
+//   ['lathe', prof [[r, z]...], n, part, sx?, sy?, off?]  revolved profile, smooth sides, flat rings / caps
+//   ['ell', centre, radii, part]                          ellipsoid, 12 x 8 bands
+//   ['lattice', hx, hy, hz]                               the BP_LatticeThin pattern
+// Part codes: PART.STUDS / INLET / FACET / RECESS (dark detail). Faces that sit on the floor get INLET.
+const S_ = PART.STUDS, I_ = PART.INLET, F_ = PART.FACET, R_ = PART.RECESS;
+const OCT_CUT = 0.6;                // octo family: corner cut = 0.6 x the half width (5 -> 3, 10 -> 6), as exported
+const octPoly = w => { const c = OCT_CUT * w; return [[w, -w + c], [w, w - c], [w - c, w], [-w + c, w], [-w, w - c], [-w, -w + c], [-w + c, -w], [w - c, -w]]; };
+const star = (n, ro, ri, rot = 0) => Array.from({ length: 2 * n }, (_, i) => { const a = rot + Math.PI * i / n, r = i & 1 ? ri : ro; return [r * Math.cos(a), r * Math.sin(a)]; });
+const arcPts = (R, cx, cy, n, a0, a1) => Array.from({ length: n + 1 }, (_, i) => { const a = a0 + (a1 - a0) * i / n; return [cx + R * Math.cos(a), cy + R * Math.sin(a)]; });
+const octo = (w, h, top = S_) => [['oct', w, OCT_CUT * w, -h, h, top, I_]];
+// T: a full vertical octo prism plus a horizontal one out to +Y; 90Deg: an elbow from -Z to +Y (two prisms meeting)
+function octoBranch(w, h, kind, endPart) {
+  const c = OCT_CUT * w;
+  if (kind === 'T') return [['oct', w, c, -h, h, S_, I_], ['oct', w, c, 0, w, endPart, null, 'y']];   // null = leave out (inside)
+  return [['oct', w, c, -h, 0.4 * w, null, I_], ['oct', w, c, -0.4 * w, w, endPart, F_, 'y']];
+}
+// a frog in the normalised box (-1..1): body, head, two eyes, two hind legs. Shared by B_Frog, B_Frog_Small, PB_Frog.
+const FROG = [[[0, 0.15, -0.35], [0.95, 0.8, 0.62]], [[0, -0.45, 0.1], [0.72, 0.5, 0.55]],
+  [[-0.45, -0.55, 0.62], [0.2, 0.2, 0.24]], [[0.45, -0.55, 0.62], [0.2, 0.2, 0.24]],
+  [[-0.78, 0.45, -0.7], [0.22, 0.5, 0.28]], [[0.78, 0.45, -0.7], [0.22, 0.5, 0.28]]];
+const frogIn = (lo, hi) => FROG.map(([c, r]) => ['ell', c.map((v, i) => (lo[i] + hi[i]) / 2 + v * (hi[i] - lo[i]) / 2), r.map((v, i) => v * (hi[i] - lo[i]) / 2), F_]);
+const gate = (hx, hy, top = 2) => [['box', [-hx, -hy, -2], [hx, hy, top], { top: R_, bottom: I_ }]];
+// a box whose top is a ring of `ring` part around a centre square of half width c with part `mid`
+const ringTop = (hx, hy, z0, z1, c, cy, ring, mid) => [['box', [-hx, -hy, z0], [hx, hy, z1], { bottom: I_ }, 'top'],
+  ['poly', [[-c, -cy, z1], [c, -cy, z1], [c, cy, z1], [-c, cy, z1]], [0, 0, 1], mid],
+  ['poly', [[-hx, -hy, z1], [hx, -hy, z1], [c, -cy, z1], [-c, -cy, z1]], [0, 0, 1], ring], ['poly', [[hx, -hy, z1], [hx, hy, z1], [c, cy, z1], [c, -cy, z1]], [0, 0, 1], ring],
+  ['poly', [[hx, hy, z1], [-hx, hy, z1], [-c, cy, z1], [c, cy, z1]], [0, 0, 1], ring], ['poly', [[-hx, hy, z1], [-hx, -hy, z1], [-c, -cy, z1], [-c, cy, z1]], [0, 0, 1], ring]];
+const pad = w => ringTop(w, w, -2, 2, 0.6 * w, 0.6 * w, S_, R_);
+const jointDisc = (rx, ry, top) => [['lathe', [[0, -1], [1, -1], [1, 0], [0.75, 0], [0.75, top], [0, top]], 16, R_, rx, ry]];
+const microJoint = r => [['lathe', [[0, -1], [r, -1], [r, -0.6], [0, -0.6]], 12, R_]];
+const slipper = hy => [['prism', [[-10, -6], [10, -6], [10, -4], [0, 6], [0, -2], [-10, -2]], -hy, hy, F_, F_, F_, 'y', [0, -4]]];
+const overhang = hz => [['prism', [[4, -hz], [6, -hz], [6, hz], [-6, hz], [-6, hz - 4], [4, hz - 4]], -10, 10, F_, F_, F_, 'y', [5, hz - 2]]];
+const brickSide = hx => [['box', [-hx, -5, -6], [hx, 5, 6], { top: S_, py: S_, bottom: I_ }]];
+const coffin = (x0, x1) => [['prism', [[-10, -30], [10, -30], [20, 6], [10, 30], [-10, 30], [-20, 6]], x0, x1, F_, F_, F_, 'x']];
+const knob = (x, y, r = 2.3, z0 = -2, z1 = 1.66) => ['lathe', [[0, z0], [r, z0], [r, z1], [0, z1]], 8, F_, 1, 1, [x, y]];
+const FIXED_SHAPES = {
+  // half = the brick's box: measured bounds, or the export mesh's extent where the generator's guess was wrong
+  // plants and decor
+  B_Small_Flower: { half: [5, 5, 2], shape: [['lathe', [[0, -2], [4, -2], [4, 0.2], [3.6, 0.2], [4.8, 0.6], [4.4, 2], [0, 2]], 10, F_]] },
+  B_Flower: { half: [10, 10, 2], shape: [['prism', star(5, 9.8, 5.5, Math.PI / 2), -2, 2, F_, I_, F_]] },
+  B_Fern: { half: [10, 10, 2], shape: [['prism', star(8, 10, 3.5, Math.PI / 4), -2, 2, F_, I_, F_]] },
+  B_Branch: { half: [20, 11, 2], shape: [['box', [-20, -1.5, -2], [16.4, 1.5, 2]], ['prism', [[-2, 0], [2, 0], [8, 10.4], [5, 10.4]], -2, 2, F_, F_, F_], ['prism', [[4, 0], [8, 0], [-2, -10.4], [-5, -10.4]], -2, 2, F_, F_, F_]] },
+  B_Bush: { half: [15, 15, 16], shape: [['lathe', [[0, -16], [10, -16], [12, -8], [14.4, -4.8], [13.3, 4.7], [10, 11], [6, 14.5], [0, 15.9]], 12, F_]] },
+  B_Leaf_Bush: { half: [30, 30, 20], shape: [['lathe', [[0, -20], [10, -20], [10, -11], [20, -3], [25.4, 1], [21, 9], [14, 15.5], [0, 17.4]], 12, F_, 1, 0.92]] },
+  B_Pine_Tree: { half: [20, 20, 38], shape: [['box', [-10, -10, -38], [10, 10, -30], { bottom: I_ }], ['lathe', [[0, -30], [20, -29], [17, -12], [16, -4], [13, 11], [9, 27], [5.4, 34], [0, 37.9]], 12, F_]] },
+  B_Hedge_1x1: { half: [5, 5, 6], shape: [['box', [-5, -5, -6], [5, 5, 6], { top: S_, bottom: I_ }]] },
+  B_Hedge_1x1_Corner: { half: [5, 5, 6], shape: [['box', [-5, -5, -6], [5, 5, 6], { top: S_, bottom: I_ }]] },
+  B_Hedge_1x2: { half: [5, 10, 6], shape: [['box', [-5, -10, -6], [5, 10, 6], { top: S_, bottom: I_ }]] },
+  B_Hedge_1x4: { half: [5, 20, 6], shape: [['box', [-5, -20, -6], [5, 20, 6], { top: S_, bottom: I_ }]] },
+  B_Pumpkin: { half: [10, 10, 7], shape: [['lathe', [[0, -7], [8, -7], [9.5, -3.5], [9.9, 0], [9.4, 2.1], [8, 4.9], [5.8, 6.3], [2, 7], [0, 7]], 16, F_]] },
+  B_Pumpkin_Carved: { half: [10, 10, 7], shape: [['lathe', [[0, -7], [8, -7], [9.5, -3.5], [9.9, 0], [9.4, 2.1], [8, 4.9], [5.8, 6.3], [2, 7], [0, 7]], 16, F_]] },
+  B_Flame: { half: [5, 5, 10], shape: [['lathe', [[0, -10], [4.5, -10], [4.5, -6], [0, -6]], 12, F_], ['prism', [[-4.4, -6], [4.4, -6], [4.6, 0], [3.5, 5], [2.8, 9], [0, 10], [-2.8, 9], [-3.5, 5], [-4.6, 0]], -1.06, 1.06, F_, F_, F_, 'x']] },
+  B_Swirl_Plate: { half: [5, 5, 4], shape: [['lathe', [[0, -4], [5, -4], [5, -2], [2.5, 2], [0, 3.9]], 12, F_]] },
+  // props, food, cutlery
+  B_Turkey_Leg: { half: [10, 5, 3], shape: [['ell', [3, 0, -0.2], [7, 4.9, 2.8], F_], ['box', [-8, -1.2, -1.4], [-3, 1.2, 1]], ['ell', [-8.6, 0, -0.2], [1.4, 2.4, 1.6], F_]] },
+  B_Turkey_Body: { half: [15, 10, 7], shape: [['ell', [-0.4, 0, -0.2], [14.2, 10, 6.8], F_]] },
+  B_Sausage: { half: [10, 5, 2], shape: [['ell', [0, 0, 0], [10, 3.45, 1.96], F_]] },
+  B_Chalice: { half: [5, 5, 10], shape: [['lathe', [[0, -10], [4.8, -10], [4.8, -6], [1.9, -4], [1.9, -1], [3.5, 1], [3.9, 3], [3.9, 5], [4.6, 7], [4.6, 10], [0, 10]], 16, F_]] },
+  B_Cauldron: { half: [10, 10, 10], shape: [['box', [-10, -10, -10], [10, 10, 9], { bottom: I_ }], ['lathe', [[0, 9], [9.6, 9], [9.6, 10], [0, 10]], 16, S_]] },
+  B_Jar: { half: [10, 10, 12], shape: [['lathe', [[0, -12], [4.5, -12], [4.8, -8.6], [7.2, -6.4], [8, -1.8], [8.25, 2.7], [5.9, 4.9], [7.9, 7.2], [8.8, 9.5], [8.8, 10.6], [0, 10.6]], 16, F_]] },
+  B_Bone: { half: [10, 10, 2], shape: [['prism', [[-7.5, 5.5], [-5.5, 7.5], [7.5, -5.5], [5.5, -7.5]], -2, 1.66, F_, F_, F_], knob(-6.7, 6.7), knob(6.7, -6.7)] },   // runs (-X,+Y) to (+X,-Y)
+  B_BoneStraight: { half: [10, 5, 2], shape: [['box', [-7.5, -1.4, -2], [7.5, 1.4, 1.66]], knob(-7.6, 0), knob(7.6, 0)] },
+  B_Gravestone: { half: [10, 20, 20], shape: [['box', [-10, -20, -20], [10, 20, -16], { bottom: I_ }], ['prism', [[-17, -16], [17, -16], [17, 4], [12, 13], [0, 17], [-12, 13], [-17, 4]], -5, 5, F_, F_, F_, 'x']] },
+  B_1x2_MetalIngot: { half: [10, 5, 2], shape: [['prism', [[-10, -2], [10, -2], [8, 2], [-8, 2]], -5, 5, F_, F_, F_, 'y']] },
+  B_Handle: { half: [5, 10, 6], shape: [['box', [-4.5, -9.5, -6], [4.5, 9.5, -4.5], { bottom: I_ }], ['box', [-1.5, -9.5, -4.5], [1.5, -6.5, 3.25]], ['box', [-1.5, 6.5, -4.5], [1.5, 9.5, 3.25]], ['box', [-1.5, -6.5, 0.25], [1.5, 6.5, 3.25]]] },
+  B_Rat: { half: [5, 15, 4], shape: [['ell', [0, -4, -0.6], [4.9, 9, 3.4], F_], ['ell', [0, -12, 0.2], [2.4, 3, 2.2], F_], ['box', [-0.5, 5, -4], [0.5, 15, -3]]] },
+  B_Frog: { half: [10, 10, 7], shape: frogIn([-9.6, -9.95, -7], [9.4, 9.95, 6.3]) },
+  B_Frog_Small: { half: [5, 5, 4], shape: frogIn([-4.96, -4.97, -4], [4.86, 4.97, 2.95]) },
+  B_Coffin: { half: [5, 20, 30], shape: coffin(-5, 5) },
+  B_Coffin_Lid: { half: [10, 20, 30], shape: coffin(-1.5, 1.5) },
+  B_Fork: { half: [5, 10, 2], shape: [['box', [-1, -10, -0.6], [1, 2, 0.6]], ['box', [-3.8, 2, -0.6], [3.8, 4, 0.6]], ...[-3.3, -1.1, 1.1, 3.3].map(x => ['box', [x - 0.5, 4, -0.6], [x + 0.5, 10, 0.6]])] },
+  B_Spoon: { half: [5, 10, 2], shape: [['box', [-1, -10, -0.6], [1, 1, 0.6]], ['lathe', [[0, -2], [1, -2], [1, 0.6], [0, 0.6]], 12, F_, 3.87, 4.5, [0, 5.5]]] },
+  // a leaning ladder: two rails slanting from (-X, top) to (+X, bottom), three rungs along Y
+  B_Ladder: { half: [12, 15, 12], shape: [['prism', [[-12, 12], [-2, 12], [8, -12], [-2, -12]], -15, -11, F_, F_, F_, 'y'], ['prism', [[-12, 12], [-2, 12], [8, -12], [-2, -12]], 11, 15, F_, F_, F_, 'y'],
+    ...[-6, 0, 6].map(z => { const x = -2 - 10 * z / 24; return ['box', [x - 1.5, -11, z - 1], [x + 1.5, 11, z + 1]]; })] },
+  // chess: lathes through the measured radius-vs-height envelope
+  B_Pawn: { half: [5, 5, 6], shape: [['lathe', [[0, -6], [4, -6], [4, -4], [2.4, -3], [1.2, -0.6], [2.2, 0.6], [2.3, 3], [2.36, 4.2], [1.9, 5.4], [0, 6]], 16, F_]] },
+  B_Knight: { half: [5, 5, 8], shape: [['lathe', [[0, -8], [4.6, -8], [4.1, -5.7], [3.2, -4.1], [0, -4.1]], 16, F_], ['prism', [[-4, -4.1], [4, -4.1], [3.6, 0.6], [4, 7.6], [0, 7.6], [-3.9, 3.7], [-2, 1]], -1.8, 1.8, F_, F_, F_, 'x', [0, 0]]] },
+  B_Bishop: { half: [5, 5, 10], shape: [['lathe', [[0, -10], [4.24, -10], [4.24, -6.5], [2.6, -5.5], [1.8, -3.8], [2.7, -2], [3.4, -0.2], [2.5, 1.6], [2.6, 3.4], [2.46, 5.1], [1.55, 6.9], [0, 7.8]], 16, F_]] },
+  B_Rook: { half: [5, 5, 6], shape: [['lathe', [[0, -6], [4, -6], [4.2, -4.2], [3.3, -3], [3.3, -1.8], [2.5, 0.6], [2.36, 3], [3.1, 4.2], [3.1, 5.95], [0, 5.95]], 16, F_]] },
+  B_Queen: { half: [5, 5, 12], shape: [['lathe', [[0, -12], [5, -12], [4.25, -8.4], [2.45, -6], [2, -3.6], [1.95, -1.2], [3.6, 1.2], [2.75, 3.6], [2.76, 6], [3.3, 8.4], [2.3, 10.8], [0, 12]], 16, F_]] },
+  B_King: { half: [5, 5, 12], shape: [['lathe', [[0, -12], [5, -12], [4.24, -8.4], [2.45, -6], [2.07, -3.6], [3.6, -1.2], [3.25, 1.2], [2.7, 3.6], [3.2, 6], [0, 7]], 16, F_], ['box', [-0.62, -2, 6.5], [0.62, 2, 9]], ['box', [-0.62, -0.7, 6.5], [0.62, 0.7, 12]]] },
+  // octo family
+  B_1x1F_Octo: { half: [5, 5, 2], shape: octo(5, 2) },
+  B_1x_Octo: { half: [5, 5, 5], shape: octo(5, 5) },
+  B_1x_Octo_90Deg: { half: [5, 5, 5], shape: octoBranch(5, 5, '90', S_) },
+  B_1x_Octo_90Deg_Inv: { half: [5, 5, 5], shape: octoBranch(5, 5, '90', I_) },
+  B_1x_Octo_T: { half: [5, 5, 5], shape: octoBranch(5, 5, 'T', S_) },
+  B_1x_Octo_T_Inv: { half: [5, 5, 5], shape: octoBranch(5, 5, 'T', I_) },
+  B_2x2F_Octo: { half: [10, 10, 2], shape: octo(10, 2) },
+  B_2x2F_Octo_Converter: { half: [10, 10, 2], shape: octo(10, 2) },   // the export's top is an octagon around a 1x1 studded square
+  B_2x2F_Octo_Converter_Inv: { half: [10, 10, 2], shape: octo(10, 2) },
+  B_2x_Octo: { half: [10, 10, 10], shape: octo(10, 10) },
+  B_2x_Octo_90Deg: { half: [10, 10, 10], shape: octoBranch(10, 10, '90', S_) },
+  B_2x_Octo_90Deg_Inv: { half: [10, 10, 10], shape: octoBranch(10, 10, '90', I_) },
+  B_2x_Octo_Cone: { half: [10, 10, 10], shape: [['oct', 10, 6, -10, -6, null, I_], ['octFrustum', 10, 5, -6, 10]] },
+  B_2x_Octo_T: { half: [10, 10, 10], shape: octoBranch(10, 10, 'T', S_) },
+  B_2x_Octo_T_Inv: { half: [10, 10, 10], shape: octoBranch(10, 10, 'T', I_) },
+  // plates, corners, sides, other fixed meshes (planes as in the export)
+  B_2x2f_Plate_Center: { half: [10, 10, 2], shape: ringTop(10, 10, -2, 2, 5, 5, F_, S_) },
+  B_2x2f_Plate_Center_Inv: { half: [10, 10, 2], shape: [['box', [-10, -10, -2], [10, 10, 2], { top: S_, bottom: I_ }]] },
+  B_1x2f_Plate_Center: { half: [10, 5, 2], shape: ringTop(10, 5, -2, 2, 5, 5, F_, S_) },
+  B_1x2f_Plate_Center_Inv: { half: [10, 5, 2], shape: [['box', [-10, -5, -2], [10, 5, 2], { top: S_, bottom: I_ }]] },
+  B_1x1f_Tile_Corner: { half: [5, 5, 2], shape: [['prism', [[-5, -5], ...arcPts(10, -5, -5, 12, 0, Math.PI / 2)], -2, 2, F_, I_, F_, 'z', [-3, -3]]] },
+  B_1x1f_Inverse_Tile_Corner: { half: [5, 5, 2], shape: [['prism', [[5, 5], ...arcPts(10, -5, -5, 12, Math.PI / 2, 0)], -2, 2, F_, I_, F_, 'z', [4.2, 4.2]]] },
+  B_2x2_Corner: { half: [10, 10, 6], shape: [['prism', [[-10, -10], [10, -10], [10, 0], [0, 0], [0, 10], [-10, 10]], -6, 6, S_, I_, F_, 'z', [-5, -5]]] },
+  B_1x1_Brick_Side: { half: [5, 5, 6], shape: brickSide(5) },
+  B_1x1_Brick_Side_Lip: { half: [5, 5, 6], shape: [['box', [-5, -5, -6], [5, 5, -4], { bottom: I_ }, 'top'], ['poly', [[-5, -5, -4], [-3, -5, -4], [-3, 5, -4], [-5, 5, -4]], [0, 0, 1], F_],
+    ['box', [-3, -5, -4], [5, 5, 6], { top: S_, nx: S_ }, 'bottom']] },
+  B_1x4_Brick_Side: { half: [20, 5, 6], shape: brickSide(20) },
+  B_2x1_Slipper: { half: [10, 5, 6], shape: slipper(5) },
+  B_2x2_Slipper: { half: [10, 10, 6], shape: slipper(10) },
+  B_2x4_Door_Frame: { half: [10, 20, 36], shape: [['box', [-10, -20, -36], [10, 20, -32], { bottom: I_ }, 'top'], ['poly', [[-10, -18, -32], [10, -18, -32], [10, 18, -32], [-10, 18, -32]], [0, 0, 1], F_],
+    ['box', [-10, -20, 34], [10, 20, 36], { top: S_ }, 'bottom'], ['poly', [[-10, -18, 34], [10, -18, 34], [10, 18, 34], [-10, 18, 34]], [0, 0, -1], F_],
+    ['box', [-10, -20, -32], [10, -18, 34], {}, 'top bottom'], ['box', [-10, 18, -32], [10, 20, 34], {}, 'top bottom']] },
+  B_8x8_Lattice_Plate: { half: [40, 40, 2], shape: [['lattice', 40, 40, 2]] },
+  B_Inverted_Cone: { half: [5, 5, 8], shape: [['lathe', [[0, -8], [4.8, -8], [4.8, -4], [2.9, -1], [4.58, 4], [4.58, 8], [0, 8]], 16, F_]] },
+  B_2x2_Overhang: { half: [6, 10, 10], shape: overhang(10) },
+  B_1x2_Overhang: { half: [6, 10, 5], shape: overhang(5) },
+  // gadgets
+  B_SpawnPoint: { half: [20, 20, 2], shape: pad(20) },
+  B_Bot_Spawn_Point: { half: [20, 20, 2], shape: pad(20) },
+  B_CheckPoint: { half: [20, 20, 2], shape: pad(20) },
+  B_DestinationPoint: { half: [20, 20, 2], shape: pad(20) },
+  B_GoalPoint: { half: [20, 20, 2], shape: pad(20) },
+  B_Spawn_Point_Prefab: { half: [40, 40, 2], shape: pad(40) },
+  B_Seat: { half: [10, 10, 11], shape: [['box', [-10, -9.4, -11], [10, 10, -6], { bottom: I_ }, 'top'], ['poly', [[-10, -4.5, -6], [10, -4.5, -6], [10, 10, -6], [-10, 10, -6]], [0, 0, 1], R_],
+    ['box', [-10, -9.4, -6], [10, -4.5, 9.3], {}, 'bottom']] },   // seat block with the backrest at -Y
+  B_Vehicle_Engine: { half: [10, 10, 10], shape: [['box', [-10, -10, -10], [10, 10, 10], { top: R_, bottom: I_ }]] },
+  B_Button: { half: [5, 5, 2], shape: [['box', [-5, -5, -2], [5, 5, -0.5], { bottom: I_ }], ['lathe', [[0, -0.5], [3.82, -0.5], [3.82, 0.6], [3.7, 1], [0, 1]], 16, R_]] },
+  B_Button_Square: { half: [5, 5, 2], shape: [['box', [-5, -5, -2], [5, 5, -0.5], { bottom: I_ }], ['box', [-3.8, -3.8, -0.5], [3.8, 3.8, 1], { top: R_, side: R_ }]] },
+  B_Button_Pressed: { half: [5, 5, 2], shape: [['box', [-5, -5, -2], [5, 5, -0.5], { bottom: I_ }], ['lathe', [[0, -0.5], [3.82, -0.5], [3.82, -0.2], [0, -0.2]], 16, R_]] },
+  B_Button_Square_Pressed: { half: [5, 5, 2], shape: [['box', [-5, -5, -2], [5, 5, -0.5], { bottom: I_ }], ['box', [-3.8, -3.8, -0.5], [3.8, 3.8, -0.2], { top: R_, side: R_ }]] },
+  B_Switch_Test: { half: [5, 5, 3], shape: [['box', [-3, -4, -3], [3, 4, -1], { top: R_, bottom: I_ }], ['box', [-0.6, -0.6, -1], [0.6, 0.6, 2]]] },
+  B_Switch_Flipped: { half: [5, 5, 3], shape: [['box', [-3, -4, -3], [3, 4, -1], { top: R_, bottom: I_ }], ['box', [-0.6, -0.6, -1], [0.6, 0.6, 2]]] },
+  B_1x1_SoundEmitter: { half: [5, 5, 2], shape: gate(5, 5) },
+  B_1x1F_Speaker: { half: [5, 5, 2], shape: gate(5, 5) },
+  B_2x2F_Speaker: { half: [10, 10, 2], shape: gate(10, 10) },
+  B_2x2F_Target: { half: [10, 10, 2], shape: [['box', [-10, -10, -2], [10, 10, 1], { bottom: I_ }], ['lathe', [[0, 1], [9, 1], [9, 2], [0, 2]], 24, R_]] },
+  B_2x2_Thruster: { half: [10, 10, 8], shape: [['lathe', [[0, -8], [6, -8], [10, -3], [10, 8], [0, 8]], 16, F_]] },
+  B_Gyroscope: { half: [5, 5, 2], shape: [['lathe', [[0, -2], [5, -2], [5, 2], [0, 2]], 16, R_]] },   // the export mesh pokes 0.15 above its box
+  B_1x1_Coin: { half: [5, 5, 1], shape: [['lathe', [[0, -1], [5, -1], [5, 1], [0, 1]], 24, F_]] },
+  B_1x1_Coin_Diagonal: { half: [5, 5, 1], shape: [['lathe', [[0, -1], [5, -1], [5, 1], [0, 1]], 24, F_]] },
+  // joints and physics (dark mechanical detail = RECESS). B_Joint_Coupler exported NO geometry (invisible in play).
+  B_Joint_Bearing: { half: [5, 5, 1], shape: jointDisc(4.63, 4.34, 1) },
+  B_Joint_RigidBearing: { half: [5, 5, 1], shape: jointDisc(4.63, 4.34, 0.92) },
+  B_Joint_Motor: { half: [5, 5, 1], shape: jointDisc(4.63, 4.34, 1) },
+  B_Joint_Servo: { half: [5, 5, 1], shape: jointDisc(4.34, 4.63, 1) },
+  B_Joint_Wheel: { half: [5, 5, 1], shape: jointDisc(4.98, 4.51, 1) },
+  B_Joint_Wheel_Suspension: { half: [5, 5, 1], shape: jointDisc(4.98, 4.51, 1) },
+  B_Joint_Socket: { half: [5, 5, 2], shape: [['lathe', [[0, -2], [4, -2], [4, -1], [3, -0.2], [0, -0.2]], 16, R_]] },
+  B_Joint_Bearing_Micro: { half: [1, 1, 1], shape: microJoint(0.9) },
+  B_Joint_RigidBearing_Micro: { half: [1, 1, 1], shape: microJoint(0.9) },
+  B_Joint_Motor_Micro: { half: [1, 1, 1], shape: microJoint(0.9) },
+  B_Joint_Servo_Micro: { half: [1, 1, 1], shape: microJoint(0.9) },
+  B_Joint_Socket_Micro: { half: [1, 1, 1], shape: microJoint(0.8) },
+  B_Joint_Wheel_Micro: { half: [1, 1, 1], shape: microJoint(1) },
+  B_Joint_Wheel_Micro_Suspension: { half: [1, 1, 1], shape: microJoint(1) },
+  B_Joint_Coupler: { half: [5, 5, 1], shape: [] },
+  // logic: a plate with a dark top (the gate icon is a decal on it)
+  B_1x1_Reroute_Node: { half: [1, 1, 1], shape: [['box', [-1, -1, -1], [1, 1, 0.8], { top: R_ }]] },
+  B_1x1_Microchip: { half: [5, 5, 2], shape: gate(5, 5, 1.35) },
+};
+for (const [k, hx] of Object.entries({ Exec_Var_Set: 5, Expr_CompareEqual: 5, Expr_LogicalAND: 5, Exec_Union: 5, Exec_Branch: 5,
+  Expr_MathAdd: 5, MicrochipInput: 5, MicrochipOutput: 5, Variable: 5, Expr_Select: 5, Pseudo_BufferSeconds: 5, Pseudo_BufferTicks: 5,
+  Expr_EdgeDetector: 5, Expr_LogicalNOT: 5, Expr_MathMultiply: 5, Expr_CompareLess: 5, Exec_Entity_Teleport: 5, Variable_Array: 5,
+  Exec_Controller_DisplayText: 8, Expr_String_FormatText: 9, Pseudo_SendCustomEvent: 10 }))
+  FIXED_SHAPES['B_1x1_Gate_' + k] = { half: [hx, 5, 2], shape: gate(hx === 8 ? 7 : hx, 5) };   // DisplayText's mesh is 7 wide in an 8 box
+// Procedural types that are a fixed design stretched to the saved size:
+//   PB_Frog: the B_Frog mesh scaled per axis (same 1320 triangles in the export);
+//   BP_ZoneProjector: a dark base (z -hz..0), a raised border ring 2 units wide and a 1x1 centre post;
+//   slider joints: a rail 0.79 short of each end (z -1..0.49, y +-4.19), dark end blocks, and a dark carriage on the
+//   rigid / motor / servo ones. Measured at the 15 slider and projector sizes in the export.
+const STRETCHED = {
+  PB_Frog: h => frogIn([-0.971 * h[0], -0.995 * h[1], -h[2]], [0.972 * h[0], 0.995 * h[1], 0.738 * h[2]]),
+  BP_ZoneProjector: h => { const [hx, hy, hz] = h, rx = hx - 2, ry = hy - 2;
+    return [['box', [-hx, -hy, -hz], [hx, hy, 0], { top: R_, side: R_, bottom: I_ }], ['box', [-hx, -hy, 0], [hx, -ry, hz]], ['box', [-hx, ry, 0], [hx, hy, hz]],
+      ['box', [-hx, -ry, 0], [-rx, ry, hz]], ['box', [rx, -ry, 0], [hx, ry, hz]], ['box', [-5, -5, 0], [5, 5, hz]]]; },
+  PB_SliderJoint: h => sliderShape(h, false),
+  PB_RigidSliderJoint: h => sliderShape(h, true),
+  PB_MotorSliderJoint: h => sliderShape(h, true),
+  PB_ServoSliderJoint: h => sliderShape(h, true),
+};
+function sliderShape(h, carriage) {
+  const hx = h[0], r = Math.max(0.5, hx - 0.79), e = Math.min(2.6, hx / 2);
+  const dark = { top: R_, side: R_, bottom: R_ };
+  const out = [['box', [-r, -4.19, -1], [r, 4.19, 0.49], { bottom: I_ }],
+    ['box', [-hx, -2.4, -0.8], [-hx + e, 2.4, 0.81], dark], ['box', [hx - e, -2.4, -0.8], [hx, 2.4, 0.81], dark]];
+  if (carriage) out.push(['box', [-1.2, -4.51, -0.84], [1.2, 4.51, 0.82], dark]);
+  return out;
+}
+function primFaces(L, P) {
+  const kind = P[0];
+  if (kind === 'box') { L.box(P[1], P[2], Object.assign({ side: F_, top: F_, bottom: F_ }, P[3] || {}), P[4] || ''); return; }
+  if (kind === 'poly') { L.poly(P[1], P[2], P[3]); return; }
+  if (kind === 'prism' || kind === 'oct') {
+    let poly, z0, z1, top, bottom, side = F_, axis, c;
+    if (kind === 'prism') [, poly, z0, z1, top, bottom, side, axis, c] = P;
+    else [, poly, , z0, z1, top, bottom, axis] = [0, octPoly(P[1]), 0, P[3], P[4], P[5], P[6], P[7]];
+    axis = axis || 'z';
+    const M = axis === 'z' ? (u, v, w) => [u, v, w] : axis === 'x' ? (u, v, w) => [w, u, v] : (u, v, w) => [u, w, v];
+    const n = poly.length;
+    c = c || poly.reduce((s, p) => [s[0] + p[0] / n, s[1] + p[1] / n], [0, 0]);
+    const area = poly.reduce((s, p, i) => { const q = poly[(i + 1) % n]; return s + p[0] * q[1] - q[0] * p[1]; }, 0);
+    for (let i = 0; i < n; i++) {
+      const a = poly[i], b = poly[(i + 1) % n];
+      if (top != null) L.poly([M(c[0], c[1], z1), M(a[0], a[1], z1), M(b[0], b[1], z1)], M(0, 0, 1), top);
+      if (bottom != null) L.poly([M(c[0], c[1], z0), M(a[0], a[1], z0), M(b[0], b[1], z0)], M(0, 0, -1), bottom);
+      const s = area > 0 ? 1 : -1;                            // outward edge normal from the winding
+      L.poly([M(a[0], a[1], z0), M(b[0], b[1], z0), M(b[0], b[1], z1), M(a[0], a[1], z1)], M(s * (b[1] - a[1]), s * (a[0] - b[0]), 0), side);
+    }
+    return;
+  }
+  if (kind === 'octFrustum') {
+    const [, w0, w1, z0, z1] = P, A = octPoly(w0), B = octPoly(w1);
+    for (let i = 0; i < 8; i++) {
+      const j = (i + 1) % 8, mx = (A[i][0] + A[j][0]) / 2, my = (A[i][1] + A[j][1]) / 2;
+      L.poly([[A[i][0], A[i][1], z0], [A[j][0], A[j][1], z0], [B[j][0], B[j][1], z1], [B[i][0], B[i][1], z1]], [mx, my, 0.1], F_);
+      L.poly([[0, 0, z1], [B[i][0], B[i][1], z1], [B[j][0], B[j][1], z1]], [0, 0, 1], S_);
+    }
+    return;
+  }
+  if (kind === 'lattice') { L.f.push(...latticeFaces([P[1], P[2], P[3]]).f); return; }
+  if (kind === 'lathe') {
+    const [, prof, n, part, sx = 1, sy = 1, off = [0, 0]] = P, last = prof.length - 2;
+    const ring = (r, z) => Array.from({ length: n }, (_, i) => { const a = 2 * Math.PI * i / n; return [off[0] + sx * r * Math.cos(a), off[1] + sy * r * Math.sin(a), z]; });
+    for (let k = 0; k + 1 < prof.length; k++) {
+      const [ra, za] = prof[k], [rb, zb] = prof[k + 1], A = ring(ra, za), Bv = ring(rb, zb);
+      if (Math.abs(za - zb) < 1e-9) {           // flat ring: the bottom cap faces down, the top cap up, ledges by direction
+        const up = k === 0 ? -1 : k === last ? 1 : (ra > rb ? 1 : -1);
+        const pt = k === 0 ? (part === R_ ? R_ : I_) : part;
+        for (let i = 0; i < n; i++) { const j = (i + 1) % n; L.poly([A[i], A[j], Bv[j], Bv[i]], [0, 0, up], pt); }
+        continue;
+      }
+      const dz = zb - za, dr = rb - ra, sg = Math.sign(dz);
+      const nr = a => norm([Math.cos(a) * dz * sg / sx, Math.sin(a) * dz * sg / sy, -dr * sg]);
+      for (let i = 0; i < n; i++) {
+        const j = (i + 1) % n, ai = 2 * Math.PI * i / n, aj = 2 * Math.PI * j / n;
+        L.smooth([A[i], A[j], Bv[j], Bv[i]], [nr(ai), nr(aj), nr(aj), nr(ai)], part);
+      }
+    }
+    return;
+  }
+  if (kind === 'ell') {
+    const [, c, r, part = F_] = P, nu = 12, nv = 8;
+    const pt = (i, j) => { const u = 2 * Math.PI * i / nu, v = Math.PI * (j / nv - 0.5); return [c[0] + r[0] * Math.cos(v) * Math.cos(u), c[1] + r[1] * Math.cos(v) * Math.sin(u), c[2] + r[2] * Math.sin(v)]; };
+    const nm = p => norm([(p[0] - c[0]) / (r[0] * r[0]), (p[1] - c[1]) / (r[1] * r[1]), (p[2] - c[2]) / (r[2] * r[2])]);
+    for (let i = 0; i < nu; i++) for (let j = 0; j < nv; j++) {
+      const q = [pt(i, j), pt(i + 1, j), pt(i + 1, j + 1), pt(i, j + 1)];
+      L.smooth(q, q.map(nm), part);
+    }
+    return;
+  }
+  throw new Error('unknown primitive ' + kind);
+}
+function isFixed(name) { return Object.prototype.hasOwnProperty.call(FIXED_SHAPES, name) || Object.prototype.hasOwnProperty.call(STRETCHED, name); }
+function fixedHalf(name) { return FIXED_SHAPES[name] ? FIXED_SHAPES[name].half.slice() : null; }
+// asset: a FIXED_SHAPES name (its own box; half is ignored) or a STRETCHED name (half = the saved size).
+// Returns the mesh in the unit box of its world bounds, like specialMesh, plus `approximate: true`.
+function fixedMesh(asset, half, o = 16) {
+  const F = FIXED_SHAPES[asset], h = F ? F.half.slice() : half.slice();
+  const prims = F ? F.shape : STRETCHED[asset] && STRETCHED[asset](h);
+  if (!prims) throw new Error('unknown fixed shape ' + asset);
+  const L = new LocalBuilder();
+  for (const P of prims) primFaces(L, P);
+  return localMesh(L, h, o, { asset, approximate: true });
 }
 
 // asset -> local-frame generator
@@ -1038,6 +1331,7 @@ const api = {
   microMesh, isMicro, brickOrient, microRoundSegments,
   SPECIAL_TYPES, RAMP_CREST, RAMP_LIP, ARCH_LEG, ARCH_CROWN, CAP_SEGMENTS, PLATE_SEGMENTS,
   specialMesh, isSpecial, localMesh, LocalBuilder,
+  FIXED_SHAPES, STRETCHED, OCT_CUT, fixedMesh, isFixed, fixedHalf,
 };
 return api;
 })();

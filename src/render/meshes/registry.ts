@@ -74,7 +74,10 @@ export function meshOf(kind: Kind, asset: string, hx: number, hy: number, hz: nu
     case Kind.CrestEnd: return cachedShape('end|' + k, () => BrickShapes.crestEndMesh(size, 0, -1, 1), false);
     case Kind.Round: return cachedShape('round|' + asset, () => BrickShapes.roundMesh(asset, 1), true);
     case Kind.Micro: return cachedShape(`micro|${asset}|${k}`, () => faceRects(BrickShapes.microMesh(asset, [hx, hy, hz], 16)), true);
-    default: return cachedShape(`special|${asset}|${k}`, () => faceRects(BrickShapes.specialMesh(asset, [hx, hy, hz], 16)), true);
+    default:
+      // fixed B_* meshes ignore the size (one mesh each); the stretched designs are one per size, like the specials
+      if (BrickShapes.isFixed(asset)) return cachedShape(BrickShapes.fixedHalf(asset) ? `fixed|${asset}` : `fixed|${asset}|${k}`, () => faceRects(BrickShapes.fixedMesh(asset, [hx, hy, hz], 16)), true);
+      return cachedShape(`special|${asset}|${k}`, () => faceRects(BrickShapes.specialMesh(asset, [hx, hy, hz], 16)), true);
   }
 }
 

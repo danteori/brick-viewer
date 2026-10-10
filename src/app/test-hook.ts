@@ -20,6 +20,7 @@ import { componentsOf } from '../scene/compmodel.ts';
 import { brickKey } from '../scene/components.ts';
 import type { WireEnd } from '../scene/wires.ts';
 import { wireView } from '../ui/overlay/wires.ts';
+import { figureBoxes } from '../render/figure.ts';
 
 export interface BrickTest {
   ready: true;
@@ -56,6 +57,8 @@ export interface BrickTest {
   components(): { instances: [string, string, string][]; wires: string[]; dirty: boolean; refused: number; drawn: { wires: number; ports: number } } | null;
   /** list index of the scene row showing save brick `key` ("grid/x_y_z/index"), or -1 */
   rowOfBrick(key: string): number;
+  /** the player reference figure's part boxes (absolute viewer units), empty while it's off */
+  figureBoxes(): [number[], number[]][];
 }
 
 /**
@@ -149,6 +152,7 @@ export function installTestHook(canvas: HTMLCanvasElement): void {
       const row = m.rowOfRef({ grid: +g!, chunk: { X: X!, Y: Y!, Z: Z! }, brick: +b! });
       return row < 0 ? -1 : S.scene.ordered().indexOf(row);
     },
+    figureBoxes: () => figureBoxes().map(([l, h]) => [l.slice(), h.slice()]),
     byId: () => S.scene.ordered().map((id) => { const b = brickView(S.scene, id); return [id, b.lo, b.hi, b.color]; }),
     /** the scene as brick records (absolute) in list order, plus the focus and the editor state */
     snapshot() {
