@@ -33,6 +33,7 @@ const MARKUP = `
   <div id="xraybox" hidden>
     <label title="Hole radius around the focused brick">Hole <input id="xraysize" type="range" min="0" max="100" step="1" aria-label="X-ray hole size"></label>
     <label title="How fast the hole widens toward the camera (cone half-angle)">Spread <input id="xrayspread" type="range" min="0" max="60" step="1" aria-label="X-ray cone spread, degrees"></label>
+    <label title="Dead zone: how far above the focused brick's top nothing is cut, so furniture in the room stays (bricks)">Keep <input id="xraykeep" type="range" min="0" max="20" step="1" aria-label="X-ray dead zone above the focus, bricks"></label>
   </div>
   <div id="file">
     <button type="button" id="open">Open save (.brz)</button>

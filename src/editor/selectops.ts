@@ -10,14 +10,15 @@
 // Components and wires (C-02 / C-03) name bricks by their index in a 2048-unit save chunk; saving
 // re-indexes them (scene/remap.ts) as long as each such brick is still in its chunk. So a brick
 // that carries components may be moved inside its chunk, but deleting it, cutting it or moving it
-// into another chunk is refused with a message. Copies never take components along.
+// into another chunk is refused with a message. Copies take each brick's components along (C-04:
+// the data, not the wires); the paste gives the new bricks a place in the save for them.
 
 import { S } from '../app/state.ts';
 import { r3 } from '../core/units.ts';
 import type { Brick, V3 } from '../scene/brick.ts';
 import { histEnd, txBegin, txEnd } from '../scene/history.ts';
 import { brickView, centreOf } from '../scene/view.ts';
-import { componentsOf } from '../scene/compmodel.ts';
+import { carryComponents, componentsOf } from '../scene/compmodel.ts';
 import { clearSelection, effectiveIds } from './select.ts';
 import { focusKeepZoom, listTx, nearestBrick } from './ops.ts';
 import { itemName } from './ghost.ts';
@@ -42,14 +43,20 @@ export function componentBricks(ids: readonly number[]): number[] {
 
 // --- copy / cut / delete ---------------------------------------------------------------------------
 
-/** Brick records of `ids` relative to their group's low corner, without load data (a paste makes new bricks). */
+/**
+ * Brick records of `ids` relative to their group's low corner, without load data (a paste makes
+ * new bricks) but with their components (a handle in `comps`, C-04). `keepSave`: the same bricks
+ * (mirror in place): load data kept, no components carried.
+ */
 export function groupItems(ids: readonly number[], keepSave = false): Brick[] {
-  const items = ids.map((id) => brickView(S.scene, id));
+  const items = ids.map((id) => brickView(S.scene, id)), m = keepSave ? null : componentsOf(S.scene);
   const o = [0, 1, 2].map((i) => { let v = Infinity; for (const b of items) v = Math.min(v, b.lo[i]!); return v; });
-  for (const b of items) {
+  items.forEach((b, j) => {
     b.lo = b.lo.map((v, i) => r3(v - o[i]!)) as V3; b.hi = b.hi.map((v, i) => r3(v - o[i]!)) as V3;
     if (!keepSave && b.save) { delete b.save.seq; if (!Object.keys(b.save).length) delete b.save; }
-  }
+    const carried = m?.carriedOf(ids[j]!) ?? [];
+    if (carried.length) b.comps = carryComponents(carried);
+  });
   return items;
 }
 
@@ -58,8 +65,8 @@ export function copySelection(): boolean {
   const ids = effectiveIds();
   if (!ids.length) { setStatus('Nothing to copy'); return false; }
   clip.items = groupItems(ids);
-  const comps = componentBricks(ids).length;
-  setStatus(`Copied ${ids.length === 1 ? itemName(clip.items[0]!) : plural(ids.length)}` + (comps ? ' (bricks only: components and wires are not copied)' : '') +
+  const comps = clip.items.filter((b) => b.comps !== undefined).length;
+  setStatus(`Copied ${ids.length === 1 ? itemName(clip.items[0]!) : plural(ids.length)}` + (comps ? ` (with the components of ${plural(comps)}; wires are not copied)` : '') +
     (clip.mode === 'brick' ? ' · Ctrl+V to paste' : ' · Ctrl+V uploads: switch it to Paste brick under Open save'));
   return true;
 }

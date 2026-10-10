@@ -6,7 +6,8 @@ import { bytesEqual, type FileMap } from '../../src/format/brz.ts';
 import { decodeMps } from '../../src/format/schema.ts';
 import { storeFromFiles } from '../../src/scene/load.ts';
 import { attachComponents, componentsOf, type SceneComponents } from '../../src/scene/compmodel.ts';
-import { scenePlain, writeScene } from '../../src/scene/save.ts';
+import { scenePlain, writeModel, writeScene } from '../../src/scene/save.ts';
+import { putPlain, plainOf } from '../../src/scene/view.ts';
 import { loadComponents, saveContext } from '../../src/scene/components.ts';
 import { loadWires } from '../../src/scene/wires.ts';
 import { hist } from '../../src/scene/history.ts';
@@ -154,6 +155,26 @@ describe.skipIf(!hasRefs)('reference component saves', () => {
   const withComps = referenceSaves().filter((rel) => {
     try { return [...readBrz(readRef(rel)).keys()].some((p) => /\/Components\//.test(p)); } catch { return false; }
   }).slice(0, 40);
+  it.each(withComps.slice(0, 12))('%s: a pasted copy of a component brick saves with its components (C-04)', (rel) => {
+    const f = readBrz(readRef(rel)), { store, order, unsupported } = storeFromFiles(f);
+    if (attachComponents(store, f, order)) return;
+    const m = componentsOf(store)!, src = m.store.instances.find((c) => c.brickRef.grid === 1 && m.rowOfRef(c.brickRef) >= 0);
+    if (!src) return;
+    const row = m.rowOfRef(src.brickRef), { seq: _s, linear, ...pb } = plainOf(store, row), id = store.alloc();
+    putPlain(store, id, { ...pb, pos: [pb.pos[0] + 40, pb.pos[1], pb.pos[2]] }, linear);
+    const types = m.carriedOf(row).map((c) => c.type).sort();
+    expect(m.attachCarried(id, m.carriedOf(row))).toEqual([]);
+    const lin = extractBricks(f).linear[0] ?? false, saved = writeModel(f, scenePlain(store, lin).concat(unsupported), m);
+    expect(saved.warnings.filter((w) => /components \/ wires/.test(w))).toEqual([]);
+    const { store: s2, order: o2 } = storeFromFiles(saved.files);
+    expect(attachComponents(s2, saved.files, o2)).toBeNull();
+    const m2 = componentsOf(s2)!, n = (mm: typeof m): number => mm.store.instances.filter((c) => c.brickRef.grid === 1).length;
+    expect(n(m2)).toBe(n(m) );
+    const twin = [...s2.ids()].find((r) => s2.px[r] === pb.pos[0] + 40 && s2.py[r] === pb.pos[1] && s2.pz[r] === pb.pos[2] && m2.componentsOf(r).length);
+    expect(twin, 'the copy is in the reopened save with components').toBeDefined();
+    expect(m2.componentsOf(twin!).map((c) => c.type).sort()).toEqual(types);
+  });
+
   it.each(withComps)('%s: unedited save keeps component / wire files byte-identical and the model reads them', (rel) => {
     const f = readBrz(readRef(rel)), { store, order, unsupported } = storeFromFiles(f);
     const err = attachComponents(store, f, order);

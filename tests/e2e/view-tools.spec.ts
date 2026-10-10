@@ -155,6 +155,31 @@ test('X-ray: a click through the hole focuses an interior brick; the hole slider
   await slide(page, 'xraysize', 100);
   await settle(page);
   expect(await pick()).toBe(k);
+  // the dead zone: the block nearest the camera stands beside the focus at its height, inside the
+  // hole's circle; it isn't between the focus and the camera, so it stays whole and clickable
+  const near = await page.evaluate(() => {
+    const t = (window as unknown as W).__brickTest;
+    let best = { k: -1, y: -1e9 };
+    for (let k = 0; k < t.snapshot().bricks.length; k++) {
+      const { lo, hi } = t.brickBox(k);
+      if (k === t.snapshot().sel || Math.abs(hi[0] - lo[0] - 0.2) > 1e-6) continue;
+      const y = t.project((lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, hi[2])[1];
+      if (y > best.y) best = { k, y };
+    }
+    return best.k;
+  });
+  const pickTop = async (j: number): Promise<number> => {
+    const p = await page.evaluate((j) => {
+      const t = (window as unknown as W).__brickTest, { lo, hi } = t.brickBox(j);
+      return t.project((lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, hi[2]);
+    }, j);
+    await click(page, p); await settle(page); const s = (await snap(page)).sel; await focus0(); return s;
+  };
+  expect(await pickTop(near)).toBe(near);
+  await slide(page, 'xraykeep', 0);                  // even with no dead zone, bricks at the focus's height stay
+  await settle(page);
+  expect(await pickTop(near)).toBe(near);
+  expect(await pick()).toBe(k);
   await page.locator('#xray').click();                        // the button toggles it off again
   await expect(page.locator('#xray')).toHaveAttribute('aria-pressed', 'false');
   await expect(page.locator('#xraybox')).toBeHidden();

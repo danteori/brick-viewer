@@ -172,3 +172,45 @@ test('A brick carrying components still refuses Delete; a plain move inside its 
   expect(await status(page)).toMatch(/Can't delete: .*components or wires/);
   expect((await comps(page)).instances).toHaveLength(7);
 });
+
+test('C-04: a pasted switch carries its component; the inspector edits it; saved and reopened it is intact', async ({ page }) => {
+  await open(page);
+  await focusBrick(page, '1/0_0_0/0');
+  await page.mouse.move(640, 790);
+  await page.keyboard.press('Control+c');
+  expect(await status(page)).toMatch(/with the components of 1 brick/);
+  await page.locator('#pastemode button[data-paste="brick"]').click();
+  await page.keyboard.press('Control+v');
+  // on the ground beside the switch (toward -Y first: a chunk the save has no bricks in), on the canvas
+  const at = await page.evaluate(() => {
+    const t = (window as unknown as { __brickTest: { focusBox(): { lo: number[]; hi: number[] }; project(x: number, y: number, z: number): [number, number] } }).__brickTest;
+    const { lo, hi } = t.focusBox(), cx = (lo[0]! + hi[0]!) / 2, cy = (lo[1]! + hi[1]!) / 2;
+    for (const d of [0.6, 1, 1.5, 2.5]) for (const [x, y] of [[cx, lo[1]! - d], [cx, hi[1]! + d], [lo[0]! - d, cy]] as const) {
+      const p = t.project(x, y, lo[2]!);
+      if (document.elementFromPoint(p[0], p[1])?.id === 'c') return p;
+    }
+    throw new Error('no free ground on screen beside the switch');
+  });
+  await page.mouse.move(at[0], at[1]);
+  await frames(page);
+  await page.mouse.down(); await page.mouse.up();
+  await expect.poll(() => status(page)).toMatch(/^Pasted/);
+  let c = await comps(page);
+  expect(c.instances).toHaveLength(8);
+  const added = c.instances.find((i) => i[1] === 'Test_Switch' && i[0] !== '1/0_0_0/0')!;
+  expect(added).toBeDefined();
+  // the pasted brick has the focus: the inspector shows its switch and edits it
+  await page.locator('#comptoggle').click();
+  await expect(page.locator('#compbody .ctitle')).toHaveText(['Test_Switch']);
+  await page.locator('#compbody input[aria-label="Enabled"]').click();
+  await expect.poll(async () => data(await comps(page), added[0], 'Test_Switch').bEnabled).toBe(false);
+  await saveAndReload(page);
+  c = await comps(page);
+  expect(c.dirty).toBe(false);
+  expect(c.instances).toHaveLength(8);
+  const back = c.instances.filter((i) => i[1] === 'Test_Switch' && i[0] !== '1/0_0_0/0');
+  expect(back).toHaveLength(1);
+  expect(JSON.parse(back[0]![2])).toMatchObject({ bEnabled: false });
+  expect(data(c, '1/0_0_0/0', 'Test_Switch').bEnabled).toBe(true);           // the original is untouched
+  expect(c.wires).toHaveLength(5);
+});

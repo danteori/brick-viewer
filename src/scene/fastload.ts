@@ -7,7 +7,7 @@ import type { FileMap } from '../format/brz.ts';
 import { forEachRawBrickChunk, type PlainBrick, type RawBrickChunk, type WorldContext } from '../format/world.ts';
 import { packedField, type PackedStructs } from '../format/schema.ts';
 import { ASSETS, F_ALIVE, F_HAS_FLAGS, F_LINEAR, FLAG_NAMES, GRIDS, Kind, MATERIALS, SAME_OWNER, SceneStore } from './store.ts';
-import { kindOf, roundHalfOf, supportedAsset } from './view.ts';
+import { fixedHalfOf, isFixedAsset, kindOf, roundHalfOf, supportedAsset } from './view.ts';
 import type { LoadOrder } from './compmodel.ts';
 
 type Col = (i: number) => number;
@@ -98,7 +98,7 @@ export function fastStore(files: FileMap, progress?: (done: number, total: numbe
       let a = assetIds.get(t);
       if (a === undefined) { a = ASSETS.id(asset); assetIds.set(t, a); }
       const id = store.alloc(), o = orients[i]!, kind = kindOf(a, o);
-      const h = proc ? procSize[t - start]! : kind === Kind.Round ? roundHalfOf(asset) : null;
+      const h = proc ? procSize[t - start]! : kind === Kind.Round ? roundHalfOf(asset) : isFixedAsset(asset) ? fixedHalfOf(asset) : null;
       store.px[id] = rx(i) + cx; store.py[id] = ry(i) + cy; store.pz[id] = rz(i) + cz;
       store.hx[id] = h ? h[0] : 0; store.hy[id] = h ? h[1] : 0; store.hz[id] = h ? h[2] : 0;
       store.orient[id] = o; store.asset[id] = a; store.shape[id] = kind;

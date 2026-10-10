@@ -38,6 +38,13 @@ export interface BrickShapesApi {
   isRound(name: string): boolean;
   isMicro(name: string): boolean;
   isSpecial(name: string): boolean;
+  /** fixed B_* meshes and the stretched procedural designs (PB_Frog, BP_ZoneProjector, sliders) */
+  fixedMesh(asset: string, half: V3, o?: number): ShapeMesh & { size: V3; worldHalf: V3 };
+  isFixed(name: string): boolean;
+  /** a fixed B_* brick's half-extents in units, null for the stretched (sized) designs */
+  fixedHalf(name: string): V3 | null;
+  FIXED_SHAPES: Record<string, { half: V3; shape: unknown[] }>;
+  STRETCHED: Record<string, unknown>;
   brickOrient(o: number): Mat3;
   interleave(mesh: ShapeMesh, extras?: boolean): Float32Array;
 }

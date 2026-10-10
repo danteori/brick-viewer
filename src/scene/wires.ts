@@ -473,8 +473,9 @@ export class WireGraph {
       if (!nw) continue;
       for (const [k, n] of m) {
         const j = keys.indexOf(k);
-        if (j < 0) throw new Error(`grid ${grid} ChunkIndex has no chunk ${k}`);
-        nw[j] = n;
+        // a chunk the save doesn't have yet (wires on a new brick, C-04): the brick writer adds the
+        // chunk, and scene/save.ts reconcileCounts sets its count
+        if (j >= 0) nw[j] = n;
       }
       out.set(p, encodeMps(ci, schema));
     }
