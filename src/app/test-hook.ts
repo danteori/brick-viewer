@@ -21,6 +21,7 @@ import { brickKey } from '../scene/components.ts';
 import type { WireEnd } from '../scene/wires.ts';
 import { wireView } from '../ui/overlay/wires.ts';
 import { figureBoxes } from '../render/figure.ts';
+import { gridSetOf, rowsOfGrid } from '../scene/dyngrids.ts';
 
 export interface BrickTest {
   ready: true;
@@ -61,6 +62,8 @@ export interface BrickTest {
   rowOfBrick(key: string): number;
   /** the player reference figure's part boxes (absolute viewer units), empty while it's off */
   figureBoxes(): [number[], number[]][];
+  /** the scene's dynamic grids (W-03): persistent index, transform and their rows' ids; null without a GridSet */
+  grids(): { id: number; origin: number[]; frac: number[]; quat: number[]; ids: number[] }[] | null;
 }
 
 /**
@@ -164,6 +167,10 @@ export function installTestHook(canvas: HTMLCanvasElement): void {
       return row < 0 ? -1 : S.scene.ordered().indexOf(row);
     },
     figureBoxes: () => figureBoxes().map(([l, h]) => [l.slice(), h.slice()]),
+    grids() {
+      const set = gridSetOf(S.scene);
+      return set && [...set.grids].sort((a, b) => a[0] - b[0]).map(([id, x]) => ({ id, origin: x.origin.slice(), frac: x.frac.slice(), quat: x.quat.slice(), ids: rowsOfGrid(S.scene, id) }));
+    },
     byId: () => S.scene.ordered().map((id) => { const b = brickView(S.scene, id); return [id, b.lo, b.hi, b.color]; }),
     /** the scene as brick records (absolute) in list order, plus the focus and the editor state */
     snapshot() {

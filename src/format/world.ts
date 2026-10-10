@@ -67,7 +67,12 @@ export interface WorldOptions {
   /** Brick grid folder name; default "1". */
   grid?: string;
   chunkSize?: number;
+  /** rebuildFromLoaded: whether new chunks store linear colour bytes, for a grid that has no chunk yet (default: as its first chunk, else false) */
+  linear?: boolean;
 }
+
+/** The chunk offset (all three axes) of a grid: 0 for the global grid, 1024 for dynamic grids (FORMAT.md 1.4). */
+export const gridChunkOffset = (grid: string): number => (grid === '1' ? 0 : 1024);
 
 const W = 'World/0/';
 const AX = ['X', 'Y', 'Z'] as const;
@@ -223,6 +228,8 @@ export interface BuildOptions {
   chunkSize?: number;
   flagFields?: string[];
   linear?: boolean;
+  /** chunk offset on every axis (dynamic grids: 1024, so chunk -1_-1_-1 is centred on the grid origin) */
+  offset?: number;
 }
 
 /**
@@ -230,7 +237,7 @@ export interface BuildOptions {
  * and materials). Chunks are 2048 units by default, positions relative to the chunk centre.
  */
 export function buildChunks(bricks: readonly PlainBrick[], global: GlobalData, opts: BuildOptions = {}): BuiltChunk[] {
-  const size = opts.chunkSize ?? 2048, flagFields = opts.flagFields ?? [];
+  const size = opts.chunkSize ?? 2048, flagFields = opts.flagFields ?? [], off = opts.offset ?? 0;
   const chunks = new Map<string, { k: XYZ; list: [PlainBrick, number[]][] }>();
   const idxOf = (list: string[], name: string): number => {
     let i = list.indexOf(name);
@@ -239,7 +246,7 @@ export function buildChunks(bricks: readonly PlainBrick[], global: GlobalData, o
   };
   const isBasic = (a: string): boolean => global.BasicBrickAssetNames.includes(a) || (!global.ProceduralBrickAssetNames.includes(a) && /^B_/.test(a));
   for (const b of bricks) {
-    const p = b.pos.map(Math.round), k = { X: Math.floor(p[0]! / size), Y: Math.floor(p[1]! / size), Z: Math.floor(p[2]! / size) };
+    const p = b.pos.map(Math.round), k = { X: Math.floor((p[0]! - off) / size), Y: Math.floor((p[1]! - off) / size), Z: Math.floor((p[2]! - off) / size) };
     const key = `${k.X}_${k.Y}_${k.Z}`;
     if (!chunks.has(key)) chunks.set(key, { k, list: [] });
     chunks.get(key)!.list.push([b, p]);
@@ -268,7 +275,7 @@ export function buildChunks(bricks: readonly PlainBrick[], global: GlobalData, o
         sizes.push({ X: s[0], Y: s[1], Z: s[2] });
       }
     }
-    const centre = AX.map((a) => k[a] * size + size / 2), n = list.length;
+    const centre = AX.map((a) => k[a] * size + size / 2 + off), n = list.length;
     const ch: BrickChunk = {
       ProceduralBrickStartingIndex: start,
       BrickSizeCounters: counters,
@@ -304,12 +311,13 @@ export function rebuildFromLoaded(files: FileMap, bricks: readonly PlainBrick[],
   const old = extractBricks(files, opts).bricks, delta = new Map<number, number>();
   for (const b of old) delta.set(b.owner ?? 0, (delta.get(b.owner ?? 0) ?? 0) - 1);
   for (const b of bricks) delta.set(b.owner ?? 0, (delta.get(b.owner ?? 0) ?? 0) + 1);
-  let lin = false;
+  let lin: boolean | null = null;
   for (const k of c.ci?.Chunk3DIndices ?? []) {
     const f = files.get(chunkPath(c.GP, k));
     if (f) { lin = !!decodeMps<BrickChunk>(f, c.chunkSchema).bColorsAreLinear; break; }
   }
-  const chunks = buildChunks(bricks, g, { flagFields: c.flagFields, linear: lin, ...(opts.chunkSize !== undefined && { chunkSize: opts.chunkSize }) });
+  const off = gridChunkOffset(opts.grid ?? '1');
+  const chunks = buildChunks(bricks, g, { flagFields: c.flagFields, linear: lin ?? opts.linear ?? false, offset: off, ...(opts.chunkSize !== undefined && { chunkSize: opts.chunkSize }) });
   // chunk index: keep per-chunk component / wire counts of chunks that already existed
   const oldIdx = new Map((c.ci?.Chunk3DIndices ?? []).map((k, j) => [`${k.X}_${k.Y}_${k.Z}`, j]));
   const idx: ChunkIndex = { Chunk3DIndices: [], ChunkOffsets: [], ChunkSizes: [], NumBricks: [], NumComponents: [], NumWires: [] };
@@ -318,14 +326,14 @@ export function rebuildFromLoaded(files: FileMap, bricks: readonly PlainBrick[],
   for (const ch of chunks) {
     const j = oldIdx.get(ch.key);
     idx.Chunk3DIndices.push(ch.k);
-    idx.ChunkOffsets.push({ X: 0, Y: 0, Z: 0 });
+    idx.ChunkOffsets.push({ X: off, Y: off, Z: off });
     idx.ChunkSizes.push(opts.chunkSize ?? 2048);
     idx.NumBricks.push(ch.n);
     idx.NumComponents.push(j !== undefined ? c.ci!.NumComponents?.[j] ?? 0 : 0);
     idx.NumWires.push(j !== undefined ? c.ci!.NumWires?.[j] ?? 0 : 0);
     if (j !== undefined) {
-      const o = c.ci!.ChunkOffsets?.[j] ?? { X: 0, Y: 0, Z: 0 };
-      if (o.X | o.Y | o.Z) warnings.push(`chunk ${ch.key} had a non-zero offset (dropped)`);
+      const o = c.ci!.ChunkOffsets?.[j] ?? { X: off, Y: off, Z: off };
+      if (o.X !== off || o.Y !== off || o.Z !== off) warnings.push(`chunk ${ch.key} had an unusual offset (replaced)`);
     }
   }
   const compNow = idx.NumComponents.concat(idx.NumWires).some((x) => x);

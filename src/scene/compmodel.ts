@@ -29,6 +29,8 @@ import { WireError, WireGraph, type Wire, type WireEnd, type WireIssue } from '.
 import { histEnd, histPush } from './history.ts';
 import { GRIDS, type SceneStore } from './store.ts';
 
+const GRID1 = GRIDS.id('1');
+
 const SAVE_CHUNK = 2048;
 const chunkOfPos = (x: number, y: number, z: number): string => [x, y, z].map((v) => Math.floor(Math.round(v) / SAVE_CHUNK)).join('_');
 
@@ -180,7 +182,7 @@ export class SceneComponents {
    */
   refOfRow(id: number): BrickRef | null {
     const s = this.scene;
-    if (!s.alive(id)) return null;
+    if (!s.alive(id) || s.grid[id] !== GRID1) return null;       // dynamic grids' rows count their load order per grid
     const seq = s.srcOrder[id]!;
     if (seq < this.base) return seq >= 0 ? this.refOfSeq(seq) : null;
     const p = this.placed.get(seq);
@@ -273,6 +275,7 @@ export class SceneComponents {
       this.newRow.clear();
       this.seqRowRev = s.rev;
       for (const id of s.ids()) {
+        if (s.grid[id] !== GRID1) continue;
         const q = s.srcOrder[id]!;
         if (q >= 0 && q < this.seqRow.length) this.seqRow[q] = id;
         else if (q >= this.base) this.newRow.set(q, id);

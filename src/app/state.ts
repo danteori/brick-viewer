@@ -12,6 +12,7 @@ import { sizeRule, type Brick, type SizeRule, type V3 } from '../scene/brick.ts'
 import { ASSETS, F_ALIVE, GRIDS, MATERIALS, SceneStore } from '../scene/store.ts';
 import type { GroundPlateLook } from '../env/ground-plate.ts';
 import type { MoveState } from '../editor/move.ts';
+import type { GridXf } from '../scene/dyngrids.ts';
 
 export const ELEV = Math.atan(1 / Math.SQRT2);             // 35.2644 degrees
 export const YAW0 = -Math.PI / 4;
@@ -37,6 +38,9 @@ export interface EditTx {
   focusAfter: number;
   selBefore?: number[];
   selAfter?: number[];
+  /** the dynamic grids' transforms on each side (scene/dyngrids.ts), when the edit changed them */
+  gridsBefore?: ReadonlyMap<number, GridXf> | null;
+  gridsAfter?: ReadonlyMap<number, GridXf> | null;
 }
 /** A scene as a load's undo keeps it: the store, the focus, the zoom and the render origin (the camera's frame). */
 export interface SceneSnap { scene: SceneStore; sel: number; zoom: number; origin: V3 }

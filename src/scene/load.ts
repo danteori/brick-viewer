@@ -21,6 +21,15 @@ import { fitHalf, ZOOM_MAX } from '../render/camera.ts';
 import { setProgress, setStatus } from '../ui/status.ts';
 import { attachComponents, loadOrderOf, type LoadOrder } from './compmodel.ts';
 import type { Parsed, Progress } from './parsecore.ts';
+import { loadDynamicGrids, type DynLoad } from './dyngrids.ts';
+
+/** The status line's note on a save's other grids. */
+function gridLine(extra: number, d: DynLoad): string {
+  const shown = d.grids ? `${d.grids} moving grid${d.grids === 1 ? '' : 's'} (click one to select it)` : '';
+  const rest = [d.snapped && `${d.snapped} turned to the nearest quarter turn`, d.skipped && `${d.skipped} of their bricks unsupported`,
+    d.failed && `${d.failed} unreadable`, d.others && `${d.others} other grid${d.others === 1 ? '' : 's'} (microchips...) not shown`].filter(Boolean);
+  return [shown || (!d.others && !d.failed ? `${extra} grid(s) not shown` : ''), ...rest].filter(Boolean).join(', ');
+}
 
 export interface LoadReport { name: string; drawn: number; skipped: number; skippedTypes: Record<string, number>; sideways: number; extraGrids: number }
 
@@ -177,8 +186,7 @@ export function loadSave(buf: ArrayBuffer | Uint8Array, name: string): LoadRepor
 
 /**
  * A save's file tree (a .brz, or a world at some revision) -> the scene. `brz`: the bytes of a
- * .brz holding the same tree, for the map. `gridNote` replaces the "moving grids not shown" note
- * when the caller draws them. `complete`: files is part of the save (it holds grid 1); this loads all of it.
+ * .brz holding the same tree, for the map. `gridNote`: one more note for the status line. `complete`: files is part of the save (it holds grid 1); this loads all of it.
  */
 export function loadFiles(files: FileMap, name: string, brz: Uint8Array | null = null, gridNote: string | null = null, complete: (() => Promise<FileMap>) | null = null): LoadReport {
   for (const f of S.hooks.beforeLoad) f();
@@ -237,6 +245,8 @@ export async function loadFilesAsync(files: FileMap, name: string, brz: Uint8Arr
 /** The rest of a load, after its store is built (loadFiles / the async loads): the store becomes the scene. */
 function finishLoad(parsed: Parsed, name: string, brz: Uint8Array | null = null, gridNote: string | null = null, complete: (() => Promise<FileMap>) | null = null): LoadReport {
   const { files, store, report, unsupported, order } = parsed;
+  const dyn = loadDynamicGrids(store, files);   // the moving grids, as rows of their own grids (W-03)
+  store.drain();
   if (!store.count) throw new Error('no supported bricks in this save');
   histEnd();
   const prevScene = sceneSnap();
@@ -261,7 +271,8 @@ function finishLoad(parsed: Parsed, name: string, brz: Uint8Array | null = null,
   const { skipped, skippedTypes, sideways, extraGrids } = report;
   const notes = [skipped && `${skipped} unsupported skipped (${Object.entries(skippedTypes).map(([k, n]) => `${k.replace(/^(PB|BP|B)_(Default)?/, '')} ${n}`).join(', ')})`,
     sideways && `${sideways} sideways`,
-    extraGrids && (gridNote ?? `${extraGrids} moving grid(s) not shown yet`),
+    extraGrids && gridLine(extraGrids, dyn),
+    gridNote,
     compErr && `components / wires unreadable (${compErr})`].filter(Boolean);
   setStatus(`${name}: ${store.count} brick${store.count === 1 ? '' : 's'}${notes.length ? ' · ' + notes.join(' · ') : ''}`);
   for (const f of S.hooks.loaded) f();

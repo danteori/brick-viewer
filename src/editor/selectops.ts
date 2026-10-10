@@ -14,6 +14,8 @@
 // the data, not the wires); the paste gives the new bricks a place in the save for them.
 
 import { S } from '../app/state.ts';
+import { GRIDS } from '../scene/store.ts';
+import { lockedGridRows } from '../scene/dyngrids.ts';
 import { r3 } from '../core/units.ts';
 import type { Brick, V3 } from '../scene/brick.ts';
 import { histEnd, txBegin, txEnd } from '../scene/history.ts';
@@ -38,8 +40,10 @@ export function componentBricks(ids: readonly number[]): number[] {
   if (!m) return [];
   const seqs = m.componentSeqs(), s = S.scene;
   if (!seqs.size) return [];
-  return ids.filter((id) => s.srcOrder[id]! >= 0 && seqs.has(s.srcOrder[id]!));
+  const g1 = GRIDS.id('1');
+  return ids.filter((id) => s.grid[id] === g1 && s.srcOrder[id]! >= 0 && seqs.has(s.srcOrder[id]!));
 }
+
 
 // --- copy / cut / delete ---------------------------------------------------------------------------
 
@@ -90,6 +94,7 @@ export function deleteSelection(): void {
   if (S.held) return;
   const ids = effectiveIds();
   if (!ids.length) return;
+  if (lockedGridRows(S.scene, ids).length) { refuse("Can't delete: these bricks are in a moving grid that has components or wires (removing its bricks isn't supported yet)"); return; }
   const comps = componentBricks(ids);
   if (comps.length) { refuse(`Can't delete: ${comps.length === 1 ? itemName(brickView(S.scene, comps[0]!)) + ' carries' : plural(comps.length) + ' carry'} components or wires (deleting those isn't supported yet)`); return; }
   const name = ids.length === 1 ? itemName(brickView(S.scene, ids[0]!)) : plural(ids.length);
@@ -103,6 +108,7 @@ export function cutSelection(): void {
   if (S.held) return;
   const ids = effectiveIds();
   if (!ids.length) { setStatus('Nothing to cut'); return; }
+  if (lockedGridRows(S.scene, ids).length) { refuse("Can't cut: these bricks are in a moving grid that has components or wires (removing its bricks isn't supported yet); Ctrl+C copies"); return; }
   const comps = componentBricks(ids);
   if (comps.length) { refuse(`Can't cut: ${plural(comps.length)} ${comps.length === 1 ? 'carries' : 'carry'} components or wires (deleting those isn't supported yet); Ctrl+C copies`); return; }
   clip.items = groupItems(ids);
