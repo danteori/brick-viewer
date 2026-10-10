@@ -29,6 +29,7 @@ const MARKUP = `
   <div id="viewbox" role="group" aria-label="View">View
     <button type="button" id="underside" aria-pressed="false" title="Flip to the iso corner below the brick, or back above (U)">Underside (U)</button>
     <button type="button" id="xray" aria-pressed="false" title="X-ray: cut a round hole from the focused brick toward the camera (X)">X-ray (X)</button>
+    <button type="button" id="figure" aria-pressed="false" title="Player figure: a player-sized mannequin (4 bricks tall) beside the focused brick, for scale. Not a brick: never saved, picked or collided with (P)">Figure (P)</button>
   </div>
   <div id="xraybox" hidden>
     <label title="Hole radius around the focused brick">Hole <input id="xraysize" type="range" min="0" max="100" step="1" aria-label="X-ray hole size"></label>
