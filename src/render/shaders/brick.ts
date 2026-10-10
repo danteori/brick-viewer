@@ -80,14 +80,10 @@ ${ORIENT_GLSL}
 // Bevel band width for a face L viewer units long along an axis:
 // W(L) = 0.43 / (0.957 + 0.86 / L) Brickadia units, which is uBevelMax at L = 20 units.
 float bevelW(float L){ return uBevelMax / (0.957 + 0.86 / max(L / 0.02, 0.5)); }
-void main(){
-  vec3 mPos = aPos, mNrm = aNrm; float mSlope = aSlope, mPart = aPart; vec4 mCap = aCap;
-  if (uPull > 0.5) {
-    int v = ((iPos.w & 32767) | (int(iMisc.z) << 15)) * 8 + gl_VertexID;
-    ivec2 t = ivec2((v & 1023) * 3, v >> 10);
-    vec4 a = texelFetch(uVtx, t, 0), b = texelFetch(uVtx, t + ivec2(1, 0), 0);
-    mPos = a.xyz; mNrm = vec3(a.w, b.xy); mSlope = b.z; mPart = b.w; mCap = texelFetch(uVtx, t + ivec2(2, 0), 0);
-  }
+// The vertex maths, from one mesh vertex. main() calls it with the mesh attributes, exactly as it
+// always ran, or (uPull) with the vertex fetched from the template table: two copies of the same
+// code, so the plain path compiles as before.
+void vertex(vec3 mPos, vec3 mNrm, float mSlope, float mPart, vec4 mCap){
   vN = mNrm; vSlope = mSlope;
   vPart = mPart; vCap = mCap;
   bool single = uBox.w > 0.5;
@@ -129,6 +125,14 @@ void main(){
     uint bit = abs(nw.x) > 0.5 ? (nw.x > 0.0 ? 1u : 2u) : abs(nw.z) > 0.5 ? (nw.z > 0.0 ? 4u : 8u) : (nw.y > 0.0 ? 16u : 32u);
     if ((hid & bit) != 0u) gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
   }
+}
+void main(){
+  if (uPull > 0.5) {
+    int v = ((iPos.w & 32767) | (int(iMisc.z) << 15)) * 8 + gl_VertexID;
+    ivec2 t = ivec2((v & 1023) * 3, v >> 10);
+    vec4 a = texelFetch(uVtx, t, 0), b = texelFetch(uVtx, t + ivec2(1, 0), 0);
+    vertex(a.xyz, vec3(a.w, b.xy), b.z, b.w, texelFetch(uVtx, t + ivec2(2, 0), 0));
+  } else vertex(aPos, aNrm, aSlope, aPart, aCap);
 }`;
 
 export const BRICK_FS = `#version 300 es

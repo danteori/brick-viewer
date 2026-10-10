@@ -83,6 +83,18 @@ export function familyOf(m: Mesh): Mesh | null {
   return f;
 }
 
+const runs = new Map<Mesh, Mesh[]>();
+/**
+ * Group key n of family f: f itself for n = 0, else a stand-in with f's draw (instances.ts keeps
+ * several runs of one family apart in a chunk, to keep the draw order).
+ */
+export function familyRun(f: Mesh, n: number): Mesh {
+  if (!n) return f;
+  let l = runs.get(f);
+  if (!l) runs.set(f, (l = []));
+  return (l[n - 1] ??= { ...f, key: `${f.key}#${n}` });
+}
+
 /** Copies mesh m's vertices into the table (12 floats each), padded with zeros to fc vertices. */
 function placeInTable(m: Mesh, fc: number): void {
   const at = Math.ceil(tabUsed / SLOT) * SLOT, end = at + fc, rows = Math.ceil(end / ROW);
@@ -125,7 +137,7 @@ export const tableStats = (): { meshes: number; vertices: number; rows: number; 
 export function initMeshes(g: WebGL2RenderingContext): void {
   gl = g;
   meshes.clear();
-  families.clear(); tab = new Float32Array(0); tabRows = tabUsed = tabTexRows = 0; tabDirtyLo = Infinity; tabDirtyHi = -1; tabTex = null;
+  families.clear(); runs.clear(); tab = new Float32Array(0); tabRows = tabUsed = tabTexRows = 0; tabDirtyLo = Infinity; tabDirtyHi = -1; tabTex = null;
   maxRows = Math.min(4096, gl.getParameter(gl.MAX_TEXTURE_SIZE) as number);
   if ((gl.getParameter(gl.MAX_TEXTURE_SIZE) as number) < ROW * 3) maxRows = 0;    // no table: every mesh draws on its own
   pullVB = gl.createBuffer()!; pullVBCount = 0;

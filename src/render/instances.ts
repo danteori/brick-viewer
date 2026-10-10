@@ -20,7 +20,7 @@
 import { S } from '../app/state.ts';
 import { LOC } from './gl.ts';
 import { G, bindMesh } from './draw.ts';
-import { BOX_MESH, boxIB, familyOf, flushTable, meshOf, type Mesh } from './meshes/registry.ts';
+import { BOX_MESH, boxIB, familyOf, familyRun, flushTable, meshOf, type Mesh } from './meshes/registry.ts';
 import { BRZ_UNIT } from '../core/units.ts';
 import { viewDir } from './camera.ts';
 import { addMirror } from '../scene/sync.ts';
@@ -28,7 +28,7 @@ import { ASSETS, F_LINEAR, MATERIALS, worldHalfOf, type SceneStore } from '../sc
 import { topOf } from '../scene/view.ts';
 import { MAT_GLASS, MAT_GLOW, MAT_TRANSLUCENT, matCode } from './matcode.ts';
 import { FULLY_HIDDEN } from '../scene/cull.ts';
-import { BLOCK, buildLod, CELL, hidesCovered, LOD_LEVELS, LOD_MERGED, LOD_MERGED_BOX } from './lod.ts';
+import { BLOCK, buildLod, CELL, hidesCovered, LOD_LEVELS, LOD_MERGED, LOD_MERGED_BOX, MERGE_MIN_CHUNKS } from './lod.ts';
 
 /** Render chunk size, units (about 50 studs). */
 export const CHUNK = 1024;
@@ -420,16 +420,26 @@ export class ChunkSet {
     const gl = G.gl;
     let slots: Map<Mesh, number[]> | null = null;
     if (templates) {
-      const fl = new Map<Mesh, number[]>();
+      // whole families in scenes of MERGE_MIN_CHUNKS+ chunks; below that only runs of consecutive
+      // meshes of one family, which keeps the draw sequence exactly as it was (the order decides
+      // which of two exactly coplanar faces wins the depth test)
+      const whole = this.chunks.size >= MERGE_MIN_CHUNKS, fl = new Map<Mesh, number[]>(), runNo = new Map<Mesh, number>();
       slots = new Map();
+      let lastFam: Mesh | null = null, runKey: Mesh | null = null;
       for (const [mesh, ids] of lists) {
-        const f = familyOf(mesh), key = f ?? mesh;
+        const f = familyOf(mesh);
+        let key: Mesh;
+        if (!f) key = mesh;
+        else if (whole) key = f;
+        else if (f === lastFam) key = runKey!;
+        else { const n = runNo.get(f) ?? 0; runNo.set(f, n + 1); key = runKey = familyRun(f, n); }
+        lastFam = f;
         let l = fl.get(key);
         if (!l) fl.set(key, (l = []));
         for (const id of ids) l.push(id);
         if (f) {
-          let sl = slots.get(f);
-          if (!sl) slots.set(f, (sl = []));
+          let sl = slots.get(key);
+          if (!sl) slots.set(key, (sl = []));
           for (let i = 0; i < ids.length; i++) sl.push(mesh.slot!);
         }
       }
