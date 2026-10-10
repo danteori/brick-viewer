@@ -12,6 +12,7 @@ import { createGfx } from '../render/gl.ts';
 import { initDraw } from '../render/draw.ts';
 import { initMeshes } from '../render/meshes/registry.ts';
 import { initInstances } from '../render/instances.ts';
+import { initFaceCull } from '../render/facecull.ts';
 import { initGrid } from '../render/grid.ts';
 import { initCamera, updateCamera } from '../render/camera.ts';
 import { renderFrame } from '../render/pipeline.ts';
@@ -53,6 +54,7 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
   initDraw(gfx);
   initMeshes(gl);
   initInstances();
+  initFaceCull();
   initSpatial();
   initGrid();
   gl.enable(gl.DEPTH_TEST);

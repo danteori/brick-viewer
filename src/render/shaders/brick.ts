@@ -101,6 +101,14 @@ void main(){
   vOrient = float(w & 31u);
   vIntensity = iColor.a * 255.0;
   gl_Position = uMVP * vec4(p, 1.0);
+  // hidden faces (render/facecull.ts; cube meshes only): bits +X -X +Y -Y +Z -Z in save axes.
+  // Every vertex of a hidden face lands on one point outside the clip volume, so it draws nothing.
+  uint hid = single ? 0u : iMisc.x;
+  if (hid != 0u) {
+    vec3 nw = R * aNrm;
+    uint bit = abs(nw.x) > 0.5 ? (nw.x > 0.0 ? 1u : 2u) : abs(nw.z) > 0.5 ? (nw.z > 0.0 ? 4u : 8u) : (nw.y > 0.0 ? 16u : 32u);
+    if ((hid & bit) != 0u) gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+  }
 }`;
 
 export const BRICK_FS = `#version 300 es

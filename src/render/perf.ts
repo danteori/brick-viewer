@@ -41,6 +41,11 @@ export function perfMark(name: string): void {
 export function perfBegin(): void {
   if (!perf.on) return;
   perf.cpu = {};
+  perfCollect();
+}
+
+/** Collects the GPU results that have come back; true when none are still outstanding. */
+export function perfCollect(): boolean {
   const gl = G.gl;
   while (waiting.length && ext) {
     const f = waiting[0]!;
@@ -54,6 +59,7 @@ export function perfBegin(): void {
     }
     if (!disjoint) perf.gpu = out;
   }
+  return !waiting.length;
 }
 
 /** Ends the frame's last section. */

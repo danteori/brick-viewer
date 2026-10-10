@@ -7,10 +7,11 @@ import { mul } from '../core/math.ts';
 import { BEVEL, BEVEL_FIT, SHADE, STEP } from '../core/units.ts';
 import type { V3 } from '../scene/brick.ts';
 import { G, bodyShape, drawBody, setBox } from './draw.ts';
-import { drawInstances, syncInstances, type ViewCull } from './instances.ts';
+import { drawInstances, inst, syncInstances, type ViewCull } from './instances.ts';
 import { syncScene } from '../scene/sync.ts';
+import { syncFaceCull } from './facecull.ts';
 import { drawGrid } from './grid.ts';
-import { drawExtras } from './extras.ts';
+import { drawExtras, extrasDepth } from './extras.ts';
 import { drawGround, drawGroundBackdrop } from './ground.ts';
 import { bloomPass, drawGlow, drawMaterials, focusIsSpecial, hasGlow } from './matpass.ts';
 import { LIGHTING, lightDir } from './lighting.ts';
@@ -46,7 +47,12 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
   // bodies: all but the focused one come from the instance buffers; the focused one is drawn live
   perfMark('sync');
   syncScene();
+  syncFaceCull();
   syncInstances();
+  // depth range: +-60 view units as before, or enough to hold the whole scene (big builds zoomed out)
+  const reach = Math.max(inst.set!.depthReach(), extrasDepth(), Math.abs(view[2]! * (dlo[0]! - S.origin[0]) + view[6]! * (dlo[2]! - S.origin[2]) + view[10]! * (dlo[1]! - S.origin[1])));
+  const zr = reach * 1.05 + 1 > 60 ? reach * 1.05 + 1 : 60;
+  if (zr !== 60) { ortho[10] = -1 / zr; cull.depth = zr; gl.uniformMatrix4fv(u.uMVP, false, mul(ortho, view)); }
   perfMark('opaque');
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxIB);
   gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(1, 1);
@@ -70,7 +76,8 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
   drawMaterials(dlo, dhi);                   // glow, then glass / translucent back to front (if any)
   perfMark('bloom');
   if (bloomPass && hasGlow()) {              // full build: the glow halo
-    bloomPass(w, h, () => { drawInstances(drawFocus, cull); drawExtras(cull); drawGround(); }, () => drawGlow(dlo, dhi, 2));
+    // the depth-only pass takes the shader's early exit (uEdge): its colour is masked off anyway
+    bloomPass(w, h, () => { gl.uniform1f(u.uEdge, 1); drawInstances(drawFocus, cull); drawExtras(cull); drawGround(); gl.uniform1f(u.uEdge, 0); }, () => drawGlow(dlo, dhi, 2));
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxIB);
   }
   perfMark('overlays');

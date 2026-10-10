@@ -15,7 +15,7 @@
 // viewer drew brick 0 first) and hidden rows (a selection being moved: the ghost shows them).
 // Glass / translucent / glow bricks go in groups of their own per (material, mesh), which
 // render/matpass.ts draws with drawSpecial (translucent ones sorted back to front per chunk).
-// Phase 3 adds hidden-face culling (the face mask is 0 for now) and parametric ramp meshes.
+// iMisc.x is the hidden-face mask (render/facecull.ts) for cube meshes; fully hidden rows are left out.
 
 import { S } from '../app/state.ts';
 import { LOC } from './gl.ts';
@@ -27,6 +27,7 @@ import { addMirror } from '../scene/sync.ts';
 import { ASSETS, F_LINEAR, MATERIALS, worldHalfOf, type SceneStore } from '../scene/store.ts';
 import { topOf } from '../scene/view.ts';
 import { MAT_GLOW, MAT_TRANSLUCENT, matCode } from './matcode.ts';
+import { FULLY_HIDDEN } from '../scene/cull.ts';
 
 /** Render chunk size, units (about 50 studs). */
 export const CHUNK = 1024;
@@ -79,6 +80,8 @@ export class ChunkSet {
   private specialDirty = true;
   /** lowest brick bottom except the focused one (units), Infinity when none */
   minZ = Infinity;
+  /** box around every chunk (units, without the offset); lo > hi when empty */
+  bounds = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
   private focus = -1;
 
   constructor(public store: SceneStore, readonly opts: { scene: boolean; offset?: [number, number, number] } = { scene: true }) {
@@ -130,7 +133,12 @@ export class ChunkSet {
     if (any) {
       this.rev++; this.specialDirty = true;
       let m = Infinity;
-      for (const ch of this.chunks.values()) m = Math.min(m, ch.minZ);
+      const B = this.bounds;
+      B[0] = B[1] = B[2] = Infinity; B[3] = B[4] = B[5] = -Infinity;
+      for (const ch of this.chunks.values()) {
+        m = Math.min(m, ch.minZ);
+        for (let i = 0; i < 3; i++) { B[i] = Math.min(B[i]!, ch.box[i]!); B[i + 3] = Math.max(B[i + 3]!, ch.box[i + 3]!); }
+      }
       this.minZ = m;
     }
     if (this.specialDirty) {
@@ -164,6 +172,7 @@ export class ChunkSet {
       if (id === sel) continue;
       ch.minZ = Math.min(ch.minZ, z - h[2]);
       if (hidden && hidden.size && hidden.has(id)) continue;
+      if (s.faceMask[id]! & FULLY_HIDDEN) continue;           // covered on all six sides (render/facecull.ts)
       const mesh = meshOf(s.shape[id]!, ASSETS.name(s.asset[id]!), s.hx[id]!, s.hy[id]!, s.hz[id]!);
       const m = scene ? materialCode(s.material[id]!) : 0;   // extras draw every brick as plastic, as before
       let into = lists;
@@ -212,7 +221,7 @@ export class ChunkSet {
 
   /** Writes rows `ids` (all in chunk ch) into group g's buffer, in that order. */
   private upload(ch: RChunk, g: Group, ids: readonly number[]): void {
-    const gl = G.gl, s = this.store, selection = this.opts.scene ? S.selection : null;
+    const gl = G.gl, s = this.store, selection = this.opts.scene ? S.selection : null, box = g.mesh === BOX_MESH;
     const data = new ArrayBuffer(ids.length * REC), i16 = new Int16Array(data), u16 = new Uint16Array(data), u32 = new Uint32Array(data), u8 = new Uint8Array(data);
     for (let j = 0; j < ids.length; j++) {
       const id = ids[j]!, b = j * REC, w = j * 12;
@@ -220,7 +229,7 @@ export class ChunkSet {
       u16[w + 4] = s.hx[id]!; u16[w + 5] = s.hy[id]!; u16[w + 6] = s.hz[id]!;
       u16[w + 7] = s.orient[id]! | wordOf(s.asset[id]!) | (s.flags[id]! & F_LINEAR ? 256 : 0);
       u32[(b + 16) >> 2] = s.color[id]!;
-      u8[b + 20] = s.faceMask[id]!; u8[b + 21] = s.material[id]!; u8[b + 22] = 0; u8[b + 23] = selection && selection.has(id) ? 1 : 0;
+      u8[b + 20] = box ? s.faceMask[id]! & 63 : 0; u8[b + 21] = s.material[id]!; u8[b + 22] = 0; u8[b + 23] = selection && selection.has(id) ? 1 : 0;
     }
     gl.bindBuffer(gl.ARRAY_BUFFER, g.buf);
     if (ids.length > g.cap) { g.cap = Math.max(ids.length, g.cap * 2); gl.bufferData(gl.ARRAY_BUFFER, g.cap * REC, gl.DYNAMIC_DRAW); }
@@ -296,6 +305,19 @@ export class ChunkSet {
       }
     }
     gl.bindVertexArray(null);
+  }
+
+  /** The farthest any chunk reaches along the view axis from the render origin (viewer units), 0 when empty. */
+  depthReach(): number {
+    const b = this.bounds, off = this.opts.offset, m = S.view;
+    if (!(b[0]! <= b[3]!)) return 0;
+    let r = 0;
+    for (let c = 0; c < 8; c++) {
+      const X = ((c & 1 ? b[3]! : b[0]!) + (off ? off[0] : 0)) * BRZ_UNIT - S.origin[0], Y = ((c & 2 ? b[4]! : b[1]!) + (off ? off[1] : 0)) * BRZ_UNIT - S.origin[1];
+      const Z = ((c & 4 ? b[5]! : b[2]!) + (off ? off[2] : 0)) * BRZ_UNIT - S.origin[2];
+      r = Math.max(r, Math.abs(m[2]! * X + m[6]! * Z + m[10]! * Y));
+    }
+    return r;
   }
 
   /** Frees every buffer. */

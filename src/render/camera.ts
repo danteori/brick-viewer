@@ -10,7 +10,7 @@ import type { V3 } from '../scene/brick.ts';
 import { pinned, proposedBox } from '../editor/resize.ts';
 
 export const PITCH_MIN = -80 * Math.PI / 180, PITCH_MAX = 80 * Math.PI / 180;   // below 0 = looking up at the underside
-export const ZOOM_MIN = 0.3, ZOOM_MAX = 60;           // wide: a big save framed around one small brick needs room
+export const ZOOM_MIN = 0.3, ZOOM_MAX = 4000;         // wide: a whole big build framed around one small brick
 
 let canvas: HTMLCanvasElement;
 export function initCamera(c: HTMLCanvasElement): void {
