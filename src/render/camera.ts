@@ -1,6 +1,7 @@
 // Orbit camera (orthographic): view = Rx(pitch) * Ry(yaw). The default is the isometric view
 // (pitch 35.264 deg elevation, yaw -45 deg). Middle-drag orbits freely; starting a resize eases back
-// to the nearest of the four isometric corners. Ported from the legacy viewer: the easing and the
+// to the nearest of the four isometric corners: above the brick, or below it (pitch -35.264 deg) when
+// the view is looking up from underneath, so the bottom face can be grabbed (U-03). Ported from the legacy viewer: the easing and the
 // framing maths are part of the pixel reference.
 
 import { viewOf, type Mat4 } from '../core/math.ts';
@@ -37,8 +38,16 @@ export function updateNear(m: Mat4): void { S.ns = [m[2] >= 0 ? 1 : -1, m[10] >=
 
 /** nearest isometric corner to a yaw */
 export const snapYaw = (y: number): number => YAW0 + Math.round((y - YAW0) / (Math.PI / 2)) * (Math.PI / 2);
+/** the view looks up from below the horizon (where the target pitch is heading) */
+export const fromBelow = (): boolean => S.orbit.pitchT < 0;
 export function snapToIso(): void {
-  S.orbit.yawT = snapYaw(S.orbit.yawT); S.orbit.pitchT = ELEV;
+  S.orbit.yawT = snapYaw(S.orbit.yawT); S.orbit.pitchT = fromBelow() ? -ELEV : ELEV;
+  S.viewT = viewOf(S.orbit.yawT, S.orbit.pitchT); updateDirs();
+}
+/** U: glide to the nearest iso corner on the other side (above <-> below). Not mid-drag. */
+export function flipUnderside(): void {
+  if (S.held || S.orbit.dragging) return;
+  S.orbit.yawT = snapYaw(S.orbit.yawT); S.orbit.pitchT = fromBelow() ? ELEV : -ELEV;
   S.viewT = viewOf(S.orbit.yawT, S.orbit.pitchT); updateDirs();
 }
 export const isoSettling = (): boolean => Math.abs(S.orbit.yaw - S.orbit.yawT) + Math.abs(S.orbit.pitch - S.orbit.pitchT) > 1e-4;

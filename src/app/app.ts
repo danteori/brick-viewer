@@ -7,6 +7,7 @@ import { initWorlds } from './worlds.ts';
 import { initWorldEnvironment } from './environment.ts';
 import { initPaintPanel } from '../ui/panels/paint.ts';
 import { initSoundPanel } from '../ui/panels/sound.ts';
+import { initViewPanel } from '../ui/panels/view.ts';
 import { installTestHook } from './test-hook.ts';
 import { createGfx } from '../render/gl.ts';
 import { initDraw } from '../render/draw.ts';
@@ -96,6 +97,7 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
 
   initFilePanel();
   initSoundPanel();
+  initViewPanel();
   if (opts.features.brdbRead) initWorlds();
   initProps();
   initSelectionPanel();

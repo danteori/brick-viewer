@@ -11,6 +11,7 @@
 import { SHADE } from '../../core/units.ts';
 import { TONEMAP_GLSL } from './tonemap.ts';
 import { MATERIALS_GLSL } from '../materials.ts';
+import { CUT_GLSL } from '../cutaway.ts';
 
 /** a GLSL float literal */
 export const glf = (v: number): string => { const s = String(+v); return /[.e]/.test(s) ? s : s + '.0'; };
@@ -66,6 +67,8 @@ out float vOrient; out vec2 vMisc;
 out float vIntensity;
 // units per viewer unit (50), a uniform so the scale is a true, correctly rounded division
 uniform float uUnitDiv;
+// 1: draw hidden faces too (render/facecull.ts; the cutaway)
+uniform float uShowHidden;
 ${ORIENT_GLSL}
 // Bevel band width for a face L viewer units long along an axis:
 // W(L) = 0.43 / (0.957 + 0.86 / L) Brickadia units, which is uBevelMax at L = 20 units.
@@ -103,7 +106,8 @@ void main(){
   gl_Position = uMVP * vec4(p, 1.0);
   // hidden faces (render/facecull.ts; cube meshes only): bits +X -X +Y -Y +Z -Z in save axes.
   // Every vertex of a hidden face lands on one point outside the clip volume, so it draws nothing.
-  uint hid = single ? 0u : iMisc.x;
+  // The X-ray cutaway (uShowHidden = 1) draws them: its hole exposes covered faces.
+  uint hid = single || uShowHidden > 0.5 ? 0u : iMisc.x;
   if (hid != 0u) {
     vec3 nw = R * aNrm;
     uint bit = abs(nw.x) > 0.5 ? (nw.x > 0.0 ? 1u : 2u) : abs(nw.z) > 0.5 ? (nw.z > 0.0 ? 4u : 8u) : (nw.y > 0.0 ? 16u : 32u);
@@ -149,7 +153,10 @@ uniform float uExposure;
 // pass, 1 = the reflection add pass; 2 = linear emission for the bloom buffer.
 uniform float uMat, uIntensity, uMatPass;
 in float vIntensity;
-${TONEMAP_GLSL}
+// specular anti-aliasing (U-10): strength by stud size on screen, variance threshold, fade, cap
+uniform float uSpecAA;
+const float SPEC_AA_T = ${glf(SHADE.SPEC_AA_T)}, SPEC_AA_K = ${glf(SHADE.SPEC_AA_K)}, SPEC_AA_CAP = ${glf(SHADE.SPEC_AA_CAP)};
+${CUT_GLSL}${TONEMAP_GLSL}
 ${MATERIALS_GLSL}
 float smin(float a, float b, float k){ float h = clamp(0.5 + 0.5*(b-a)/k, 0.0, 1.0); return mix(b, a, h) - k*h*(1.0-h); }
 // Stud surface height (in stud widths) at cell coord c (-0.5..0.5): flat top, sloped sides, a
@@ -248,10 +255,16 @@ float roundUnderside(vec2 q, vec2 sz, float eCirc, vec2 inward, out vec2 tilt){
 }
 void main(){
   if (uEdge > 0.5) {
+#ifdef CUT
+    if (uCutEdge > 0.5 && cutAway(vW)) discard;   // the hover wash on a brick the cutaway cuts into
+#endif
     float a = uLine.a;
     if (uFadeR > 0.0) a *= 1.0 - smoothstep(uFadeR*0.35, uFadeR, length(vW.xz - uFadeC.xz));
     fragColor = vec4(uLine.rgb, a); return;
   }
+#ifdef CUT
+  if (cutAway(vW)) discard;          // X-ray cutaway (render/cutaway.ts): only in the CUT variant
+#endif
   vec3 nG = normalize(vN);
   vec3 n = nG;
   bool slope = vSlope > 0.5;
@@ -324,6 +337,9 @@ void main(){
     } else {
       vec3 dist = vHalf - abs(vL);
       vec3 own = step(0.5, abs(nG));
+      // a curved face (cap w = -(axis + 1)): bevel only at the ends of the axis it runs straight
+      // along, never across the curve (U-09; the game's UV strip runs around the curve)
+      if (vCap.w < -0.5) { float ax = -vCap.w - 1.0; own = vec3(1.0) - vec3(step(abs(ax), 0.5), step(abs(ax - 1.0), 0.5), step(abs(ax - 2.0), 0.5)); }
       vec3 k = (1.0 - smoothstep(vBevel*BEVEL_EDGE, vBevel, dist)) * (1.0 - own);
       n = normalize(n + k * sign(vL));
     }
@@ -333,7 +349,15 @@ void main(){
   vec3 L = normalize(vLightL);
   float d = max(dot(n, L), 0.0);
   float bent = smoothstep(0.0, 0.02, 1.0 - dot(n, nG));
-  float spec = pow(max(dot(n, normalize(L + vEyeL)), 0.0), 28.0) * 0.32 * bent;
+  // Specular anti-aliasing (U-10): where the stud creases or the hard bevel chamfers bend the normal
+  // faster than a pixel, one pixel can land on a normal that glints white. Fade the glint by the excess
+  // screen-space normal variance |fwidth(n)|^2 over SPEC_AA_T (it only ever dims, never widens, so
+  // nothing new lights up), scaled by uSpecAA (1 when studs are small on screen, 0 from
+  // SHADE.SPEC_AA_PX_HI px a stud up: close-ups keep the exact original shading).
+  vec3 dn = fwidth(n);
+  float nv = max(dot(dn, dn) - SPEC_AA_T, 0.0) * uSpecAA, sk = 1.0 / (1.0 + SPEC_AA_K * nv);
+  float spec = pow(max(dot(n, normalize(L + vEyeL)), 0.0), 28.0) * 0.32 * bent * sk;
+  if (nv > 0.0) spec = min(spec, SPEC_AA_CAP);     // an aliased pixel's glint can't approach white on dark plastic
   vec3 albedo = vMisc.x > 0.5 ? vBase : toLinear(vBase);
   vec3 lit = (albedo * (uSky + uSun*d) + uFloor + spec) * shade;
   if (uMat > 0.5) {

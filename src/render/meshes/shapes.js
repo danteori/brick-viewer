@@ -522,7 +522,9 @@ const BAGUETTE_DIP = 0.76, BAGUETTE_SEG = 12;
 
 function LocalBuilder() { this.f = []; }
 // flat polygon (convex, or a fan valid from pts[0]); out = any vector on the outer side
-LocalBuilder.prototype.poly = function (pts, out, part, flag = 0) { if (pts.length >= 3) this.f.push({ pts, out, part, flag }); return this; };
+// rect (optional): [lo, hi] local corners of the face's bevel rectangle when it isn't the face's own
+// bounds (a face that continues another surface's UV strip, e.g. an arch's inner wall)
+LocalBuilder.prototype.poly = function (pts, out, part, flag = 0, rect) { if (pts.length >= 3) this.f.push({ pts, out, part, flag, rect }); return this; };
 // polygon with per-vertex normals (smooth surfaces), normals in local real units
 LocalBuilder.prototype.smooth = function (pts, nrms, part, flag = 0) { this.f.push({ pts, nrms, part, flag }); return this; };
 // axis-aligned box [lo, hi]; parts: top / bottom (local +Z / -Z) / side, or px nx py ny; skip = names to leave out
@@ -545,6 +547,7 @@ LocalBuilder.prototype.invert = function () {
     F.pts = F.pts.map(p => [p[0], p[1], -p[2]]);
     if (F.out) F.out = [F.out[0], F.out[1], -F.out[2]];
     if (F.nrms) F.nrms = F.nrms.map(n => [n[0], n[1], -n[2]]);
+    if (F.rect) F.rect = F.rect.map(p => [p[0], p[1], -p[2]]);
     if (F.part === PART.INLET) F.part = PART.STUDS; else if (F.part === PART.STUDS) F.part = PART.INLET;
   }
   return this;
@@ -556,6 +559,14 @@ function localMesh(L, half, o, extra) {
   const dW = d => [0, 1, 2].map(i => M[i][0]*d[0] + M[i][1]*d[1] + M[i][2]*d[2]);
   const gl = w => [w[0], w[2], w[1]];
   const B = new Builder(1);
+  const wh = [0, 1, 2].map(i => Math.abs(M[i][0])*half[0] + Math.abs(M[i][1])*half[1] + Math.abs(M[i][2])*half[2]);
+  const size = wh.map(v => 2 * v * UNIT), gs = gl(size);
+  // a preset bevel rectangle in unit-box coords (u, v = the face's other GL axes in x, y, z order)
+  const rectCap = (F, n) => {
+    const a = Math.abs(n[0]) >= Math.abs(n[1]) && Math.abs(n[0]) >= Math.abs(n[2]) ? 0 : Math.abs(n[1]) >= Math.abs(n[2]) ? 1 : 2;
+    const [u, v] = [[1, 2], [0, 2], [0, 1]][a], c = F.rect.map(p => gl(toW(p)).map((x, i) => x / gs[i]));
+    return [Math.min(c[0][u], c[1][u]), Math.min(c[0][v], c[1][v]), Math.max(c[0][u], c[1][u]), Math.max(c[0][v], c[1][v])];
+  };
   for (const F of L.f) {
     const w = F.pts.map(p => gl(toW(p)));
     if (F.nrms) {
@@ -571,10 +582,9 @@ function localMesh(L, half, o, extra) {
     if (Math.hypot(n[0], n[1], n[2]) < 1e-14) continue;
     n = norm(n);
     if (dot(n, gl(dW(F.out))) < 0) n = [-n[0], -n[1], -n[2]];
-    for (let i = 1; i + 1 < w.length; i++) B.tri(w[0], w[i], w[i+1], n, F.flag, F.part);
+    const cap = F.rect ? rectCap(F, n) : undefined;
+    for (let i = 1; i + 1 < w.length; i++) B.tri(w[0], w[i], w[i+1], n, F.flag, F.part, cap);
   }
-  const wh = [0, 1, 2].map(i => Math.abs(M[i][0])*half[0] + Math.abs(M[i][1])*half[1] + Math.abs(M[i][2])*half[2]);
-  const size = wh.map(v => 2 * v * UNIT);
   return B.finish(size, Object.assign({ size, worldHalf: wh }, extra || {}));
 }
 // a side profile (X-Z, counter-clockwise seen from +Y... any winding) extruded over Y: both end caps and
@@ -710,7 +720,8 @@ function archFaces(h, inverted) {
     const y0 = s * hy, y1 = s * r, ylo = Math.min(y0, y1), yhi = Math.max(y0, y1);
     L.poly([[-hx,ylo,-hz], [hx,ylo,-hz], [hx,yhi,-hz], [-hx,yhi,-hz]], [0,0,-1], PART.INLET);   // leg bottom
     L.poly([[-hx,y0,-hz], [hx,y0,-hz], [hx,y0,hz], [-hx,y0,hz]], [0,s,0], PART.FACET);           // end face
-    if (zc > -hz) L.poly([[-hx,y1,-hz], [hx,y1,-hz], [hx,y1,zc], [-hx,y1,zc]], [0,-s,0], PART.FACET);   // inner wall
+    // inner wall: the arc's strip continues down it, so its top edge (where the arc starts) has no bevel
+    if (zc > -hz) L.poly([[-hx,y1,-hz], [hx,y1,-hz], [hx,y1,zc], [-hx,y1,zc]], [0,-s,0], PART.FACET, 0, [[-hx,y1,-hz], [hx,y1,zc + 4 * hz]]);
     for (const x of [-hx, hx]) L.poly([[x,ylo,-hz], [x,yhi,-hz], [x,yhi,hz], [x,ylo,hz]], [Math.sign(x),0,0], PART.FACET);   // leg sides
   }
   for (let i = 0; i < n; i++) {

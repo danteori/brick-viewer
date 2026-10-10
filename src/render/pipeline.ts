@@ -7,7 +7,7 @@ import { mul } from '../core/math.ts';
 import { BEVEL, BEVEL_FIT, SHADE, STEP } from '../core/units.ts';
 import type { V3 } from '../scene/brick.ts';
 import { G, bodyShape, drawBody, setBox } from './draw.ts';
-import { drawInstances, inst, setFarLod, syncInstances, type ViewCull } from './instances.ts';
+import { drawInstances, inst, setFarLod, setShowHidden, syncInstances, type ViewCull } from './instances.ts';
 import { lodLevel, lodSettings } from './lod.ts';
 import { syncScene } from '../scene/sync.ts';
 import { syncFaceCull } from './facecull.ts';
@@ -20,6 +20,8 @@ import { nearOf, studPx } from './camera.ts';
 import { BOX_EDGE_COUNT, boxEB, boxIB } from './meshes/registry.ts';
 import { proposedBox } from '../editor/resize.ts';
 import { perfBegin, perfEnd, perfMark } from './perf.ts';
+import { useBrickVariant } from './gl.ts';
+import { cutActive, setCutUniforms } from './cutaway.ts';
 import { movedBox } from '../editor/move.ts';
 
 /** index in the cube's faces of the near face for X (+-x), Y (+-GL z), Z (top +y, bottom -y) */
@@ -27,6 +29,8 @@ export const faceOf = (i: number): number => (i === 0 ? (S.ns[0] > 0 ? 0 : 1) : 
 
 /** Draws one frame into a w x h drawing buffer; returns the ortho scale (sx, sy) for the DOM overlays. */
 export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { sx: number; sy: number } {
+  const cutOn = cutActive();
+  useBrickVariant(G, cutOn);                 // the X-ray cutaway's program only while it's on
   const { gl, u } = G, { cam, dlo, dhi } = S;
   perfBegin(); perfMark('setup');
   gl.viewport(0, 0, w, h);
@@ -41,6 +45,9 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
   const cull: ViewCull = { x0: cx - half * fx, x1: cx + half * fx, y0: cy - half * fy, y1: cy + half * fy, depth: 60 };
   gl.uniformMatrix4fv(u.uMVP, false, mul(ortho, view));
   gl.uniform3f(u.uEye, view[2], view[6], view[10]);   // view-space +z (toward the camera) in world/GL space
+  if (cutOn) setCutUniforms(G);
+  gl.uniform1f(u.uShowHidden, cutOn ? 1 : 0);   // the cutaway's hole exposes culled faces and fully hidden bricks
+  setShowHidden(cutOn);
   { const P = LIGHTING[S.lighting]; gl.uniform3fv(u.uSun, P.sun); gl.uniform3fv(u.uSky, P.sky); gl.uniform3fv(u.uFloor, P.floor); gl.uniform1f(u.uExposure, P.exposure); }
   { const L = lightDir(); gl.uniform3f(u.uLight, L[0], L[1], L[2]); }
   gl.clearColor(0.169, 0.173, 0.188, 1);          // #2b2c30, matches --bg
@@ -63,6 +70,9 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
   gl.uniform1f(u.uEdge, 0); gl.uniform1f(u.uBevelMax, BEVEL); gl.uniform1f(u.uBevelFit, BEVEL_FIT ? 1 : 0);
   // studs / underside fade out when a stud is only a few px
   gl.uniform1f(u.uStudFade, Math.max(0, Math.min(1, (studPx(0) - 6) / 8)));
+  // stud-crease specular AA (U-10): full strength below SPEC_AA_PX_LO px a stud, off from SPEC_AA_PX_HI
+  const realStudPx = studPx(0) * STEP / S.STEPS[0];   // a real stud, whatever grid the focused brick uses
+  gl.uniform1f(u.uSpecAA, Math.max(0, Math.min(1, (SHADE.SPEC_AA_PX_HI - realStudPx) / (SHADE.SPEC_AA_PX_HI - SHADE.SPEC_AA_PX_LO))));
   // slope texture: one bump is 1/SHADE.BUMPS stud; fade it out between ~1.5 and 4 px
   const bumpFade = Math.max(0, Math.min(1, (studPx(0) * STEP / S.STEPS[0] / SHADE.BUMPS - 1.5) / 2.5));
   gl.uniform1f(u.uBump, SHADE.BUMP_STRENGTH * bumpFade);
@@ -93,7 +103,9 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
     gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.depthFunc(gl.LEQUAL); gl.depthMask(false);
     gl.uniform4f(u.uLine, 1, 1, 1, 0.07);
+    gl.uniform1f(u.uCutEdge, 1);             // the X-ray cutaway cuts the wash like the face under it
     gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, faceOf(S.hoverFace) * 6 * 2);
+    gl.uniform1f(u.uCutEdge, 0);
     gl.depthFunc(gl.LESS); gl.depthMask(true); gl.disable(gl.BLEND);
   }
   setBox(dlo, dhi);                          // back to the focused brick for the glow / ghost
