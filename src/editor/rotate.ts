@@ -70,7 +70,7 @@ function turnFocused(f: (o: number) => number, label: string, tx: { open: boolea
   const o = f(S.scene.orient[S.sel]!), nb = orientBrick(b, o);
   if (!nb) { refuse(`Can't ${label} ${itemName(b)} that way`); return false; }
   if (sameBrick(nb, b)) return true;     // looks the same (a square box, an upright round): nothing to record
-  if (focusChangeHits(b.lo, b.hi, nb.lo, nb.hi)) { refuse(`Can't ${label} ${itemName(b)}: overlaps a brick`); return false; }
+  if (focusChangeHits(b.lo, b.hi, nb.lo, nb.hi, b, nb)) { refuse(`Can't ${label} ${itemName(b)}: overlaps a brick`); return false; }
   if (!tx.open || !hist.open) { histBegin(label); tx.open = true; }
   const lo = b.lo, hi = b.hi, keep = S.cam.half;
   for (const k of ORIENT_KEYS) delete (b as unknown as Record<string, unknown>)[k];

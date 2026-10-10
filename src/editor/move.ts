@@ -11,7 +11,7 @@
 
 import { S, type EditTx } from '../app/state.ts';
 import { BRZ_UNIT } from '../core/units.ts';
-import { boxesOverlap } from '../scene/collision.ts';
+import { rowSolid, shapesOverlap } from '../scene/collision.ts';
 import { pickReady } from '../scene/spatial.ts';
 import { histEnd, txBegin, txEnd } from '../scene/history.ts';
 import { brickView } from '../scene/view.ts';
@@ -75,7 +75,8 @@ function blockedAt(m: MoveState, i: number, n: number): string {
         if (m.set.has(k) || !s.alive(k) || s.grid[k] !== grid) continue;
         for (let j = 0; j < 6; j++) q[j] = Math.round(G.box[k * 6 + j]! * U);
         // only new overlaps count: a pair that already overlapped where it was never locks the move
-        if (boxesOverlap(b, q) && !boxesOverlap(ob, q)) return 'collision';
+        const ks = rowSolid(s, k), d = [0, 0, 0]; d[i] = du;
+        if (shapesOverlap(b, rowSolid(s, id, d), q, ks) && !shapesOverlap(ob, rowSolid(s, id), q, ks)) return 'collision';
       }
     }
   }
