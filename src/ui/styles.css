@@ -160,6 +160,13 @@ body.placing canvas { cursor:copy !important; }
 #revbox { display:flex; align-items:center; gap:6px; font:12px system-ui, sans-serif; color:#9a9ca3; }
 #revbox[hidden] { display:none; }
 #revbox select { min-width:0; flex:1; max-width:15em; padding:4px 6px; border-radius:7px; border:1px solid rgba(255,255,255,.18); background:#2b2c30; color:#eee; }
+#revdiffbox { display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; max-width:15em; font:12px system-ui, sans-serif; color:#9a9ca3; }
+#revdiffbox[hidden] { display:none; }
+#revdiffbox select { min-width:0; max-width:8em; padding:3px 5px; border-radius:7px; border:1px solid rgba(255,255,255,.18); background:#2b2c30; color:#eee; }
+#revdiffbox label { display:flex; align-items:center; gap:4px; }
+#revdiff { flex-basis:100%; color:#c8cad0; line-height:1.35; overflow-wrap:anywhere; }
+#revdiff:empty { display:none; }
+#revmatch { flex-basis:100%; font-size:11px; }
 /* Paint: the palette docked under Brick Properties */
 #props #painttoggle { display:flex; align-items:center; justify-content:space-between; gap:10px; width:100%; padding:6px 0 4px;
   border-top:1px solid rgba(255,255,255,.07); font-weight:600; color:#c9ccd3; }

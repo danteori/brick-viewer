@@ -30,6 +30,8 @@ On top of that:
   with `.bp` load and save.
 - **Worlds (full build):** open `.brdb` worlds, view any earlier revision, see moving grids
   (vehicles, doors) where they are parked (read-only), and save as a new world (experimental).
+  **Compare** counts what the shown revision changed since the previous one (or any other): bricks
+  added, removed and changed, component and wire totals, files; **Highlight** outlines those bricks.
 - **Map (full build):** a top-down map of the opened save; click it to jump to that spot.
 - **Components and wires:** Brick Properties > Components lists the focused brick's components
   with an editor per setting (numbers, toggles, choices, text, colours, vectors, map entries,
