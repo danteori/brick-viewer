@@ -12,6 +12,7 @@ interface Api {
   brickBox(k: number): Box;
   selection(): number[];
   snapshot(): { bricks: (Box & { color: number[] })[]; sel: number; status: string; ghost: boolean };
+  blocks(): { n: number; reason: string; age: number };
 }
 type W = { __brickTest: Api };
 
@@ -21,6 +22,18 @@ const frames = (page: Page, n = 3): Promise<void> => page.evaluate(async (n) => 
   for (let i = 0; i < n; i++) await new Promise((r) => requestAnimationFrame(r));
 }, n);
 async function settle(page: Page): Promise<void> { await page.evaluate(() => (window as unknown as W).__brickTest.settle()); await frames(page); }
+const blockCount = (page: Page): Promise<number> => page.evaluate(() => (window as unknown as W).__brickTest.blocks().n);
+/** a refused edit was noted since n0. The HUD shows the note for only 1.5 s (slow software GL can
+ *  outlast that), so the HUD text is checked only while the note is still fresh. */
+async function expectBlocked(page: Page, n0: number): Promise<void> {
+  const b = await page.evaluate(async () => {
+    await new Promise((r) => requestAnimationFrame(r));
+    return { ...(window as unknown as W).__brickTest.blocks(), hud: document.getElementById('hud')!.innerHTML };
+  });
+  expect(b.n).toBeGreaterThan(n0);
+  expect(b.reason).toBe('overlaps a brick');
+  if (b.age < 1000) expect(b.hud).toMatch(/blocked: overlaps a brick/);
+}
 const snap = (page: Page): Promise<ReturnType<Api['snapshot']>> => page.evaluate(() => (window as unknown as W).__brickTest.snapshot());
 const selection = (page: Page): Promise<number[]> => page.evaluate(() => (window as unknown as W).__brickTest.selection());
 const r3 = (v: number): number => +v.toFixed(3);
@@ -198,8 +211,9 @@ test('Move tool: the Resize drag moves the brick; it stops at a brick; one undo 
   await page.keyboard.press('2');
   await expect(page.locator('#tool button[data-tool="move"]')).toHaveAttribute('aria-pressed', 'true');
   // grab A's +X face and pull far along +X: A slides 2 studs and stops against B
+  const n0 = await blockCount(page);
   await drag(page, await at(page, -1, [1, 0.5, 0.5]), await at(page, -1, [5, 0.5, 0.5]));
-  expect(await page.locator('#hud').innerHTML()).toMatch(/blocked: overlaps a brick/);
+  await expectBlocked(page, n0);
   await page.mouse.up(); await settle(page);
   let s = await snap(page);
   expect(r3(s.bricks[0].lo[0] - start[0][0][0])).toBe(0.4);
