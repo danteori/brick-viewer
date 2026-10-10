@@ -22,6 +22,7 @@ import { loadedFiles, loadedUnsupported, type SeqBrick } from './load.ts';
 import { plainOf } from './view.ts';
 import { remapBrickRefs } from './remap.ts';
 import type { SceneStore } from './store.ts';
+import { componentsOf } from './compmodel.ts';
 
 /** The save asset of a viewer brick. */
 export function assetOf(b: Brick): string {
@@ -139,7 +140,9 @@ export function sceneFiles(template: FileMap | null = loadedFiles): SavedScene |
   const { linear } = extractBricks(template);
   const lin = linear.length ? linear[0]! : false;
   const scene = scenePlain(S.scene, lin).concat(loadedUnsupported);
-  return writeScene(template, scene);
+  // edited components and wires go into the template first; the writer then re-indexes them
+  const m = componentsOf(S.scene);
+  return writeScene(m ? m.applyTo(template) : template, scene);
 }
 
 /**

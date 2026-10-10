@@ -18,6 +18,7 @@ import { FLAG_NAMES, SceneStore } from './store.ts';
 import { putPlain, supportedAsset } from './view.ts';
 import { fitHalf, ZOOM_MAX } from '../render/camera.ts';
 import { setStatus } from '../ui/status.ts';
+import { attachComponents, loadOrderOf, type LoadOrder } from './compmodel.ts';
 
 export interface LoadReport { name: string; drawn: number; skipped: number; skippedTypes: Record<string, number>; sideways: number; extraGrids: number }
 
@@ -97,14 +98,15 @@ export function bricksFromFiles(files: FileMap): { bricks: Brick[]; report: Omit
 }
 
 /** Save files -> a SceneStore of grid 1's drawable bricks, plus the bricks it can't draw (with their load order). */
-export function storeFromFiles(files: FileMap): { store: SceneStore; report: Omit<LoadReport, 'name' | 'drawn'>; unsupported: SeqBrick[] } {
+export function storeFromFiles(files: FileMap): { store: SceneStore; report: Omit<LoadReport, 'name' | 'drawn'>; unsupported: SeqBrick[]; order: LoadOrder } {
   const skippedTypes: Record<string, number> = {}, unsupported: SeqBrick[] = [];
   let skipped = 0, sideways = 0, extraGrids = 0;
   const grids = [...new Set([...files.keys()].map((k) => k.match(/^World\/0\/Bricks\/Grids\/([^/]+)\//)?.[1]).filter(Boolean))];
   for (const g of grids) if (g !== '1') extraGrids++;
-  let store = new SceneStore();
+  let store = new SceneStore(), order = loadOrderOf([]);
   if (grids.includes('1')) {
     const { bricks, linear, ctx } = extractBricks(files);
+    order = loadOrderOf(bricks.map((b) => b.pos));
     store = new SceneStore(bricks.length);
     store.flagFields = ctx.flagFields.map((f) => FLAG_NAMES.id(f));
     bricks.forEach((pb, i) => {
@@ -120,7 +122,7 @@ export function storeFromFiles(files: FileMap): { store: SceneStore; report: Omi
     });
     store.drain();
   }
-  return { store, report: { skipped, skippedTypes, sideways, extraGrids }, unsupported };
+  return { store, report: { skipped, skippedTypes, sideways, extraGrids }, unsupported, order };
 }
 
 /**
@@ -165,7 +167,7 @@ export function loadSave(buf: ArrayBuffer | Uint8Array, name: string): LoadRepor
  */
 export function loadFiles(files: FileMap, name: string, brz: Uint8Array | null = null, gridNote: string | null = null, complete: (() => Promise<FileMap>) | null = null): LoadReport {
   for (const f of S.hooks.beforeLoad) f();
-  const { store, report, unsupported } = storeFromFiles(files);
+  const { store, report, unsupported, order } = storeFromFiles(files);
   if (!store.count) throw new Error('no supported bricks in this save');
   histEnd();
   const prevScene = sceneSnap();
@@ -186,10 +188,12 @@ export function loadFiles(files: FileMap, name: string, brz: Uint8Array | null =
   lastLoad = { name, drawn: store.count, ...report };
   loadedFiles = files; completeFiles = complete; loadedName = name; loadedBrz = brz; loadedUnsupported = unsupported;
   storeFiles.set(store, files);
+  const compErr = attachComponents(store, files, order);
   const { skipped, skippedTypes, sideways, extraGrids } = report;
   const notes = [skipped && `${skipped} unsupported skipped (${Object.entries(skippedTypes).map(([k, n]) => `${k.replace(/^(PB|BP|B)_(Default)?/, '')} ${n}`).join(', ')})`,
     sideways && `${sideways} sideways`,
-    extraGrids && (gridNote ?? `${extraGrids} moving grid(s) not shown yet`)].filter(Boolean);
+    extraGrids && (gridNote ?? `${extraGrids} moving grid(s) not shown yet`),
+    compErr && `components / wires unreadable (${compErr})`].filter(Boolean);
   setStatus(`${name}: ${store.count} brick${store.count === 1 ? '' : 's'}${notes.length ? ' · ' + notes.join(' · ') : ''}`);
   for (const f of S.hooks.loaded) f();
   return lastLoad;

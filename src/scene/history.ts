@@ -44,7 +44,7 @@ export function txEnd(t: EditTx, opts: { selAfter?: number[]; force?: boolean } 
   return true;
 }
 
-const txBytes = (t: Tx): number => (t.kind === 'scene' ? t.before.scene.bytes + t.after.scene.bytes : t.before.length + (t.after?.length ?? 0) + 2 * t.ids.length * 5);
+const txBytes = (t: Tx): number => (t.kind === 'scene' ? t.before.scene.bytes + t.after.scene.bytes : t.kind === 'data' ? t.bytes : t.before.length + (t.after?.length ?? 0) + 2 * t.ids.length * 5);
 
 function trim(): void {
   let bytes = 0;
@@ -93,6 +93,9 @@ function histApply(t: Tx, side: 'before' | 'after'): void {
     const s = t[side];
     S.scene = s.scene; S.zoomMul = s.zoom; S.origin = s.origin.slice() as V3;
     selectBrick(s.sel);
+  } else if (t.kind === 'data') {
+    if (side === 'before') t.undo(); else t.redo();
+    if (S.scene.alive(t.focus) && t.focus !== S.sel) selectBrick(t.focus);
   } else {
     putSide(t, side);
     const f = side === 'before' ? t.focusBefore : t.focusAfter;

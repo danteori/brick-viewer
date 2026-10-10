@@ -73,6 +73,9 @@ const MARKUP = `
       <label class="crow"><span>Hex</span><input id="chex" type="text" maxlength="7" autocomplete="off" spellcheck="false" aria-label="Hex colour, #rgb or #rrggbb"></label>
     </div>
   </div>
+  <button type="button" id="comptoggle" aria-expanded="false" aria-controls="compbody" title="The focused brick's components: edit their settings, add or remove one">Components
+    <span id="compcount"></span>${CHEV}</button>
+  <div id="compbody" hidden></div>
   <button type="button" id="seltoggle" aria-expanded="true" aria-controls="selbody" title="Select several bricks (Shift+click, Shift+drag, Ctrl+A) and move, copy, cut or delete them together">Selection
     <span id="selcount"></span>${CHEV}</button>
   <div id="selbody">
