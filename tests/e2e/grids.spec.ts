@@ -31,7 +31,8 @@ interface Api {
 }
 type W = { __brickTest: Api };
 
-test.describe.configure({ timeout: 150_000 });
+// the move / turn test takes ~2.5 min on the CI runner (SwiftShader); 150 s left no headroom
+test.describe.configure({ timeout: 300_000 });
 
 const world = Buffer.from(writeNewWorldFile(gridWorld()));
 const frames = (page: Page, n = 3): Promise<void> => page.evaluate(async (n) => { for (let i = 0; i < n; i++) await new Promise((r) => requestAnimationFrame(r)); }, n);
