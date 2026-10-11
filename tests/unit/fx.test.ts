@@ -89,6 +89,6 @@ describe('helpers and governor', () => {
     expect(fxEffective().ssao).toBeLessThan(3);
     for (let i = 0; i < 2000 && fx.drop > 0; i++) adaptTick((t += 10), false);
     expect(fx.drop).toBe(0);
-    fx.want = { ...fx.want, on: false }; adaptTick((t += 10), false);
+    fx.want = { ...fx.want, on: false }; adaptTick(t + 10, false);
   });
 });
