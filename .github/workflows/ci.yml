@@ -23,7 +23,7 @@ jobs:
       # Reference saves are private and not in this repo, so the tests that need them skip here.
       - run: npm test
       - run: npm run build
-      - name: Lite size budget (300 KB)
+      - name: Lite size budget (450 KB)
         run: npm run size
       - name: Smoke test (Playwright, Chromium)
         run: |

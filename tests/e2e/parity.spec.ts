@@ -29,24 +29,44 @@ interface Api {
 }
 declare global { interface Window { __brickTest: Api } }
 
-/** window.__brickTest for the legacy page, from its globals (as scripts/golden-capture.mjs does) */
+/**
+ * window.__brickTest for the legacy page, from its globals (as scripts/golden-capture.mjs does).
+ * Its settle waits out the camera glide frame by frame (legacy has no way to step the camera
+ * without a frame), a couple of hundred frames per step; draw calls are skipped meanwhile (the
+ * camera maths doesn't depend on them), or under SwiftShader the script takes most of the
+ * 10-minute limit on a CI runner and on a slow one runs out.
+ */
 async function legacyAdapter(page: Page): Promise<void> {
   await page.waitForFunction(() => typeof (window as unknown as { loadSave?: unknown }).loadSave === 'function');
   await page.evaluate(() => {
     const g = window as unknown as Record<string, never>;
+    const w = window as unknown as { __skipDraws?: boolean };
     const ev = (s: string): unknown => (0, eval)(s);
     const raf = (): Promise<number> => new Promise((r) => requestAnimationFrame(r));
+    const patch = (proto: Record<string, unknown>, names: string[]): void => {
+      for (const n of names) {
+        const orig = proto[n];
+        if (typeof orig !== 'function') continue;
+        proto[n] = function (this: unknown, ...a: unknown[]) { if (!w.__skipDraws) return (orig as (...x: unknown[]) => unknown).apply(this, a); };
+      }
+    };
+    patch(WebGLRenderingContext.prototype as unknown as Record<string, unknown>, ['drawArrays', 'drawElements', 'clear']);
+    const ext = document.createElement('canvas').getContext('webgl')?.getExtension('ANGLE_instanced_arrays');
+    if (ext) patch(Object.getPrototypeOf(ext) as Record<string, unknown>, ['drawArraysInstancedANGLE', 'drawElementsInstancedANGLE']);
     window.__brickTest = {
       async settle() {
-        let prev = '', prev2 = '', same = 0;
-        for (let i = 0; i < 4000; i++) {
-          await raf();
-          const s = ev('[cam.x, cam.y, cam.half, orbit.yaw, orbit.pitch]') as number[];
-          const k = s.map((v) => Math.round(v * 1e12)).join();
-          if (!(ev('isoSettling()') as boolean) && (k === prev || k === prev2)) { if (++same >= 6) return i; } else same = 0;
-          prev2 = prev; prev = k;
-        }
-        return -1;
+        w.__skipDraws = true;
+        try {
+          let prev = '', prev2 = '', same = 0;
+          for (let i = 0; i < 4000; i++) {
+            await raf();
+            const s = ev('[cam.x, cam.y, cam.half, orbit.yaw, orbit.pitch]') as number[];
+            const k = s.map((v) => Math.round(v * 1e12)).join();
+            if (!(ev('isoSettling()') as boolean) && (k === prev || k === prev2)) { if (++same >= 6) return i; } else same = 0;
+            prev2 = prev; prev = k;
+          }
+          return -1;
+        } finally { w.__skipDraws = false; }
       },
       project(x, y, z) {
         const c = ev('canvas') as HTMLCanvasElement, cam = ev('cam') as { x: number; y: number; half: number };
