@@ -25,7 +25,10 @@ export function initDims(c: HTMLCanvasElement): void {
 
 type P2 = [number, number];
 
+const finite = (...v: number[]): boolean => v.every(Number.isFinite);
+
 function dimLine(a: P2, b: P2, n: string, axis: string, on: boolean, lock: boolean): string {
+  if (!finite(a[0], a[1], b[0], b[1], boxCenterPx[0], boxCenterPx[1])) return '';   // camera / layout not ready
   const c = lock ? '#ffffff' : on ? ACCENT : '#c9ccd3', o = DIM_OFF;
   on = on || lock;
   // unit outward offset = perpendicular to the edge, pointing away from the box's screen centre
@@ -56,7 +59,9 @@ function lockArrow(P: (X: number, Y: number, Z: number) => P2, i: number): strin
   const c = [0, 1, 2].map((k) => (k === i ? nearOf(k, pl, ph) : (pl[k] + ph[k]) / 2));
   const a = P(c[0], c[1], c[2]);
   const e = c.slice(); e[i] += S.ns[i];
-  const b = P(e[0], e[1], e[2]), L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+  const b = P(e[0], e[1], e[2]);
+  if (!finite(a[0], a[1], b[0], b[1])) return '';
+  const L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
   const ux = (b[0] - a[0]) / L, uy = (b[1] - a[1]) / L, px = -uy, py = ux;
   const s = [a[0] + ux * 8, a[1] + uy * 8], t = [a[0] + ux * 62, a[1] + uy * 62];          // shaft
   const tip = [a[0] + ux * 80, a[1] + uy * 80];
@@ -78,6 +83,7 @@ export function drawDims(sx: number, sy: number): void {
   const P = (X: number, Y: number, Z: number): P2 => { const v = toView(X, Y, Z); return [((v[0] - cam.x) * sx + 1) * cw / 2, (1 - (v[1] - cam.y) * sy) * ch / 2]; };
   const [l, u] = proposedBox();                         // dimensions show the size with the ghost applied
   boxCenterPx = P((l[0] + u[0]) / 2, (l[1] + u[1]) / 2, (l[2] + u[2]) / 2);
+  if (!finite(boxCenterPx[0], boxCenterPx[1])) { updateHover(canvas, sx, sy); if (shownDims) dimsEl.innerHTML = shownDims = ''; return; }
   const nX = nearOf(0, l, u), nY = nearOf(1, l, u), fY = farOf(1, l, u), fZ = farOf(2, l, u);   // X/Y dims run along the far-Z edges
   updateHover(canvas, sx, sy);
   // Z goes on the vertical edge at the right-most bottom corner on screen
@@ -111,6 +117,7 @@ export function drawDims(sx: number, sy: number): void {
 export function drawGuide(): void {
   if (!S.anchor) return;
   const [ax, ay] = S.anchor; let h = '';
+  if (!finite(ax, ay)) return;
   h += `<circle cx="${ax}" cy="${ay}" r="${(SNAP * studPx(0)).toFixed(1)}" fill="none" stroke="currentColor" stroke-opacity=".15" stroke-dasharray="3 4"/>`;
   for (const q of S.dirs) {
     // locked: only the locked axis is shown; unlocked: the banned axis is faded out
@@ -121,7 +128,7 @@ export function drawGuide(): void {
     h += `<text x="${ax + q.v[0] * (THRESH + 12)}" y="${ay + q.v[1] * (THRESH + 12) + 4}" text-anchor="middle" font-size="10" fill="${c}" fill-opacity="${(on ? 1 : .4) * k}">${lbl}</text>`;
   }
   h += `<circle cx="${ax}" cy="${ay}" r="3" fill="currentColor"/>`;
-  if (S.cursor) h += `<line x1="${ax}" y1="${ay}" x2="${S.cursor[0]}" y2="${S.cursor[1]}" stroke="${S.active ? ACCENT : 'currentColor'}" stroke-opacity=".5"/>`;
+  if (S.cursor && finite(S.cursor[0], S.cursor[1])) h += `<line x1="${ax}" y1="${ay}" x2="${S.cursor[0]}" y2="${S.cursor[1]}" stroke="${S.active ? ACCENT : 'currentColor'}" stroke-opacity=".5"/>`;
   ov.innerHTML = h;
 }
 

@@ -41,26 +41,62 @@ function pickCells(k: number, fn: (c: number) => void): void {
   for (let z = r[2]!; z <= r[5]!; z++) for (let y = r[1]!; y <= r[4]!; y++) for (let x = r[0]!; x <= r[3]!; x++) fn((z * dy! + y) * dx! + x);
 }
 
-export function pickBuild(): void {
+/**
+ * Builds the grid for the current scene in steps: each `next()` does a slice of work (the boxes,
+ * then the cells). The grid is only published (dirty = false) when the last step finishes.
+ */
+function* pickSteps(slice: number): Generator<void, void, void> {
   const G = pickGrid, s = S.scene, N = s.n;
-  G.store = s;
-  G.box = new Float64Array(Math.max(N, 1) * 6); G.stamp = new Uint32Array(Math.max(N, 1)); G.q = 0;
+  const box = new Float64Array(Math.max(N, 1) * 6);
+  G.box = box;                                          // storeBox / pickCells write to G.box
   const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
   let live = 0;
   for (let k = 0; k < N; k++) {
+    if (k % slice === slice - 1) yield;
     storeBox(s, k);
-    if (Number.isNaN(G.box[k * 6])) continue;
+    if (Number.isNaN(box[k * 6])) continue;
     live++;
-    for (let i = 0; i < 3; i++) { lo[i] = Math.min(lo[i]!, G.box[k * 6 + i]!); hi[i] = Math.max(hi[i]!, G.box[k * 6 + 3 + i]!); }
+    for (let i = 0; i < 3; i++) { lo[i] = Math.min(lo[i]!, box[k * 6 + i]!); hi[i] = Math.max(hi[i]!, box[k * 6 + 3 + i]!); }
   }
   if (!live) { lo.fill(0); hi.fill(0); }
   // roughly one brick per cell, capped at ~1M cells; a margin so small edits stay inside
   const ext = [0, 1, 2].map((i) => hi[i]! - lo[i]! + 2), vol = ext[0]! * ext[1]! * ext[2]!;
-  G.cs = Math.max(0.2, Math.cbrt(vol / Math.max(1, live)), Math.cbrt(vol / 1e6));
-  G.org = lo.map((v) => v - 1); G.dim = ext.map((e) => Math.max(1, Math.ceil(e / G.cs)));
-  G.cells = new Array(G.dim[0]! * G.dim[1]! * G.dim[2]!);
-  for (let k = 0; k < N; k++) pickCells(k, (c) => { (G.cells[c] || (G.cells[c] = [])).push(k); });
+  const cs = Math.max(0.2, Math.cbrt(vol / Math.max(1, live)), Math.cbrt(vol / 1e6));
+  const org = lo.map((v) => v - 1), dim = ext.map((e) => Math.max(1, Math.ceil(e / cs)));
+  const cells = new Array<number[] | undefined>(dim[0]! * dim[1]! * dim[2]!);
+  Object.assign(G, { cs, org, dim, cells, store: s, stamp: new Uint32Array(Math.max(N, 1)), q: 0 });
+  for (let k = 0; k < N; k++) {
+    if (k % slice === slice - 1) yield;
+    pickCells(k, (c) => { (cells[c] || (cells[c] = [])).push(k); });
+  }
   G.dirty = false;
+}
+
+export function pickBuild(): void {
+  warm = null;
+  const it = pickSteps(1 << 30);
+  while (!it.next().done) { /* one slice: everything */ }
+}
+
+// --- warming: build the grid right after a load, in idle slices, so the first hover is instant ---
+let warm: Generator<void, void, void> | null = null;
+let warmEpoch = 0;
+const idle = (fn: (d?: { timeRemaining(): number }) => void): void => {
+  const w = globalThis as { requestIdleCallback?: (f: (d: { timeRemaining(): number }) => void, o?: { timeout: number }) => void };
+  if (w.requestIdleCallback) w.requestIdleCallback(fn, { timeout: 500 }); else setTimeout(fn, 16);
+};
+
+/** Builds the pick grid in the background (idle slices); a query or a scene change meanwhile cancels it. */
+export function pickWarm(sliceSize = 20000, budgetMs = 8): void {
+  const epoch = ++warmEpoch;
+  const mine = warm = pickSteps(sliceSize);
+  const step = (d?: { timeRemaining(): number }): void => {
+    if (warm !== mine || epoch !== warmEpoch) return;
+    const t0 = performance.now();
+    do { if (mine.next().done) { warm = null; return; } } while (performance.now() - t0 < Math.min(budgetMs, d ? Math.max(2, d.timeRemaining()) : budgetMs));
+    idle(step);
+  };
+  idle(step);
 }
 
 /** row k's box may have changed */
@@ -82,8 +118,8 @@ export function pickUpdate(k: number): void {
 
 export function initSpatial(): void {
   addMirror({
-    reset: () => { pickGrid.dirty = true; },
-    changed: (_s, ids) => { if (!pickGrid.dirty) for (const k of ids) pickUpdate(k); },
+    reset: () => { pickGrid.dirty = true; warm = null; warmEpoch++; if (S.scene.n > 2000) pickWarm(); },
+    changed: (_s, ids) => { if (warm) { warm = null; warmEpoch++; } if (!pickGrid.dirty) for (const k of ids) pickUpdate(k); },
   });
 }
 

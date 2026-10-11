@@ -23,6 +23,7 @@ import { isFixedAsset, plainOf } from './view.ts';
 import { remapBrickRefs } from './remap.ts';
 import { GRIDS, type SceneStore } from './store.ts';
 import { writeDynamicGrids } from './gridsave.ts';
+import { editEntities } from '../format/entitywrite.ts';
 import { componentsOf, type NewPlace, type SceneComponents } from './compmodel.ts';
 import { chunkName, saveContext, type ChunkKey } from './components.ts';
 
@@ -291,8 +292,24 @@ export function partFiles(ids: readonly number[], template: FileMap | null = loa
   return rebuildPart(template, bricks);
 }
 
+/**
+ * `files` without the moving grids (every grid but 1): a selection prefab holds each selected brick
+ * once, in grid 1 at its world position, so the grids' own bricks (and their entities) stay behind.
+ */
+export function dropOtherGrids(files: FileMap): FileMap {
+  const names = new Set<string>();
+  for (const p of files.keys()) { const m = /^World\/0\/Bricks\/Grids\/(\d+)\//.exec(p); if (m && m[1] !== '1') names.add(m[1]!); }
+  if (!names.size) return files;
+  let out = files;
+  for (const g of names) {
+    out = rebuildFromLoaded(out, [], { grid: g }).files;            // its owners' brick counts go down
+    for (const p of [...out.keys()]) if (p.startsWith(`World/0/Bricks/Grids/${g}/`)) out.delete(p);
+  }
+  return editEntities(out, { moved: new Map(), removed: new Set([...names].map(Number)), added: [] }).files;
+}
+
 function rebuildPart(template: FileMap, bricks: SeqBrick[]): SavedScene {
-  const out = rebuildFromLoaded(partTemplate(template), bricks.map(({ seq: _s, ...pb }) => pb));
+  const out = rebuildFromLoaded(dropOtherGrids(partTemplate(template)), bricks.map(({ seq: _s, ...pb }) => pb));
   out.warnings = out.warnings.filter((w) => !/components \/ wires: they index bricks/.test(w));
   return out;
 }

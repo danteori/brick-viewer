@@ -13,7 +13,8 @@ import { flattenTree } from '../../src/format/stale.ts';
 import { readEntities } from '../../src/format/entities.ts';
 import { fileMapView } from '../../src/format/saveview.ts';
 import { storeFromFilesPlain } from '../../src/scene/load.ts';
-import { scenePlain, writeScene } from '../../src/scene/save.ts';
+import { S } from '../../src/app/state.ts';
+import { partFiles, scenePlain, writeScene } from '../../src/scene/save.ts';
 import { writeDynamicGrids } from '../../src/scene/gridsave.ts';
 import {
   eulerOfQuat, gridSetOf, loadDynamicGrids, placeGrid, quatOfEuler, rowsOfGrid, shiftedXf, toLocal, toWorld, turnedXf, xfOf, IDENT, type GridXf,
@@ -191,5 +192,22 @@ describe('entity writer', () => {
     expect(c.data).toHaveLength(3);
     const back = editEntities(out, { removed: new Set([3]) }).files, t = readEntities(fileMapView(back));
     expect(t.entities.map((e) => [e.persistentIndex, e.physicsLocked])).toEqual([[2, true], [4, false]]);
+  });
+});
+
+describe('selection prefab of a world with a moving grid', () => {
+  it('holds each selected brick once, in grid 1, and no other grid', () => {
+    const files = gridWorld(), s = open(files);
+    S.scene = s;
+    const r = partFiles([...s.ids()], files)!;
+    expect([...r.files.keys()].some((p) => p.includes('/Grids/2/'))).toBe(false);
+    expect(entity(r.files, 2)).toBeUndefined();
+    const back = open(r.files);
+    expect(back.n).toBe(MAIN.length + DYN.length);
+    expect(rowsOfGrid(back, 1)).toHaveLength(MAIN.length + DYN.length);
+    expect(gridSetOf(back)?.grids.size ?? 0).toBe(0);
+    // the moving grid's bricks sit at their world positions
+    const at = rowsOfGrid(back, 1).map((id) => [back.px[id], back.py[id]]);
+    expect(at).toContainEqual([500, -300]);
   });
 });
