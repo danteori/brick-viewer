@@ -13,6 +13,7 @@ import { BRZ_UNIT } from '../core/units.ts';
 import { keepZoom, selectBrick } from '../editor/resize.ts';
 import { initAudio, playSelect } from '../ui/audio.ts';
 import { $ } from '../ui/dom.ts';
+import { createGraphicsPanel, type GraphicsPanel } from '../ui/panels/graphics.ts';
 
 const h = <K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string, string> = {}, text = ''): HTMLElementTagNameMap[K] => {
   const e = document.createElement(tag);
@@ -25,7 +26,28 @@ const stopDrag = (e: HTMLElement): void => { for (const t of ['pointerdown', 'db
 export function mountFullUi(): void {
   installParse();                  // big saves load (and get culled) in a worker (S-01)
   initEnvironmentUi();
+  initGraphicsUi();
   initMap();
+}
+
+// ---------------------------------------------------------------------------------- graphics
+function initGraphicsUi(): void {
+  const btn = h('button', { type: 'button', id: 'gfxbtn', 'aria-expanded': 'false', 'aria-controls': 'gfxpanel', title: 'Graphics settings: shadows, SSAO, water, quality presets (the graphics .bp of the game)' }, 'Graphics');
+  (document.getElementById('envbtn') ?? $('lightbox')).after(btn);
+  const box = h('div', { id: 'gfxpanel', hidden: '' });
+  document.body.append(box);
+  stopDrag(btn); stopDrag(box);
+  let panel: GraphicsPanel | null = null;
+  const place = (): void => { box.style.left = `${Math.round($('side').getBoundingClientRect().right + 12)}px`; };
+  const show = (open: boolean): void => {
+    box.hidden = !open;
+    btn.setAttribute('aria-expanded', String(open));
+    if (open && !panel) { panel = createGraphicsPanel({ onClose: () => { show(false); btn.focus(); } }); box.append(panel.el); }
+    if (open) { place(); const env = document.getElementById('envpanel'); if (env && !env.hidden) document.getElementById('envbtn')?.click(); }
+  };
+  btn.addEventListener('click', () => show(box.hidden !== false));
+  document.getElementById('envbtn')?.addEventListener('click', () => { if (!box.hidden) show(false); });
+  addEventListener('resize', () => { if (!box.hidden) place(); });
 }
 
 // ------------------------------------------------------------------------------- environment

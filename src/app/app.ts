@@ -40,6 +40,8 @@ import { drawWires, initWires } from '../ui/overlay/wires.ts';
 import { initCataloguePanel } from '../ui/panels/catalogue.ts';
 import { drawDims, initDims } from '../ui/overlay/dims.ts';
 import { drawHud, initHud } from '../ui/overlay/hud.ts';
+import { initGraphics } from './graphics.ts';
+import { adaptTick, fx } from '../render/fx/state.ts';
 
 export interface AppOptions {
   features: Readonly<FeatureFlags>;
@@ -50,6 +52,7 @@ export interface AppOptions {
 export function createApp(root: HTMLElement | null, opts: AppOptions): void {
   mountDom(root);
   S.testMode = new URLSearchParams(location.search).has('test');
+  initGraphics();                             // graphics settings (stored; ?test: effects off)
   const canvas = $<HTMLCanvasElement>('c');
   const gfx = createGfx(canvas);
   if (!gfx) {
@@ -125,9 +128,16 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
 
   if (S.testMode) installTestHook(canvas);
 
+  let lastDraw = 0;
   const frame = (t: number = performance.now()): void => {
     edgeTick(t);
-    const dpr = devicePixelRatio || 1, w = canvas.clientWidth * dpr | 0, h = canvas.clientHeight * dpr | 0;
+    // the graphics settings' frame-rate cap (L-06; FrameRateLimit, FrameRateLimitUnfocused) and render scale
+    const lim = document.hasFocus() ? fx.want.fpsLimit : fx.want.fpsLimitUnfocused || fx.want.fpsLimit;
+    if (lim > 0 && !S.testMode && t - lastDraw < 1000 / lim - 2) { requestAnimationFrame(frame); return; }
+    lastDraw = t;
+    adaptTick(t, S.testMode, lim > 0 ? 1000 / lim : 0);
+    const scale = S.testMode ? 1 : fx.want.renderScale;
+    const dpr = (devicePixelRatio || 1) * scale, w = canvas.clientWidth * dpr | 0, h = canvas.clientHeight * dpr | 0;
     if (w && h) {
       if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
       updateCamera(w, h);

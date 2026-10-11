@@ -156,6 +156,23 @@ export const SECTIONS: readonly Section[] = [
   ] },
 ];
 
+/**
+ * Settings the viewer reads and saves but doesn't show yet (rows get a "Not Implemented" tag).
+ * Everything else changes the picture: the lighting model, the sun / sky / fog / water effects
+ * (render/fx, full build with graphics effects on) and the ground plate.
+ */
+export const NOT_IMPLEMENTED: ReadonlySet<string> = new Set([
+  'sky.animateTimeOfDay', 'sky.dayLength', 'sky.nightLength', 'sky.moonPhase', 'sky.auroraIntensity',
+  'sky.rain', 'sky.snow', 'sky.dust', 'sky.thunder', 'sky.bCloseLightning',
+  'sky.rainVolume', 'sky.closeThunderVolume', 'sky.distantThunderVolume', 'sky.windVolume', 'sky.cloudSpeedMultiplier',
+  'groundPlate.variance', 'groundPlate.varianceBrickSize',
+  'universe.universeGravityScale', 'universe.bUniverseFloorEnabled', 'universe.nebulaTexture', 'universe.nebulaColor',
+  'universe.nebulaRedBlueSwap', 'universe.nebulaSaturation', 'universe.nebulaPower', 'universe.nebulaBrightness',
+  'universe.nearStarsTexture', 'universe.nearStarsPower', 'universe.nearStarsBrightness',
+  'universe.farStarsTexture', 'universe.farStarsPower', 'universe.farStarsBrightness',
+  'ambience.selectedAmbienceType', 'ambience.ambienceVolume', 'ambience.reverbEffect',
+]);
+
 /** Rows shown disabled (greyed, hatched), as the game does: Ambience Volume while Ambience is None. */
 const DISABLED: Record<string, (get: (g: GroupName, key: string) => unknown) => boolean> = {
   'ambience.ambienceVolume': (get) => get('ambience', 'selectedAmbienceType') === 'None',
@@ -226,8 +243,12 @@ const CSS = `
 .envp-foot { display: flex; justify-content: flex-end; padding: 8px 10px 10px; border-top: 1px solid var(--envp-line); }
 .envp .envp-done { background: var(--envp-on); border-color: var(--envp-on); color: #fff; letter-spacing: .04em; }
 .envp.drop { border-color: var(--envp-accent); }
+.envp-row > label .envp-ni { display: block; width: max-content; margin-top: 1px; padding: 0 4px; border-radius: 4px; border: 1px solid var(--envp-line);
+  color: var(--envp-muted); font-size: 9px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; vertical-align: 1px; }
+.envp-row.envp-nirow > label { white-space: normal; color: color-mix(in srgb, var(--envp-muted) 75%, transparent); }
 `;
-function injectStyle(doc: Document): void {
+/** The panel styles (also used by the Graphics panel, ui/panels/graphics.ts). */
+export function injectStyle(doc: Document): void {
   if (doc.getElementById(STYLE_ID)) return;
   const s = doc.createElement('style');
   s.id = STYLE_ID;
@@ -449,7 +470,9 @@ export function createEnvironmentPanel(opts: EnvironmentPanelOptions = {}): Envi
     const path = `${row.g}.${row.key}`;
     const def = (GROUP_DEFAULTS[row.g] as unknown as Record<string, unknown>)[row.key];
     const range = row.range ?? RANGES[path];
-    const label = el('label', { for: id, title: `${row.hint ? row.hint + '. ' : ''}${row.key} (double-click to reset)` }, row.label);
+    const ni = NOT_IMPLEMENTED.has(path);
+    const label = el('label', { for: id, title: `${row.hint ? row.hint + '. ' : ''}${row.key} (double-click to reset)${ni ? '. Not Implemented: read and saved, not shown in the viewer yet' : ''}` }, row.label);
+    if (ni) label.append(el('span', { class: 'envp-ni' }, 'Not Implemented'));
     const reset = el('button', { type: 'button', class: 'envp-reset', title: 'Reset to default', 'aria-label': `Reset ${row.label}`, hidden: true }, '↶');
     let ctl: HTMLElement = el('div', { class: 'envp-ctl' });
     let show: () => void = () => {};
@@ -520,7 +543,7 @@ export function createEnvironmentPanel(opts: EnvironmentPanelOptions = {}): Envi
       default:
         ctl.append(String(def));
     }
-    const line = el('div', { class: 'envp-row', 'data-key': row.key }, label, reset, ctl);
+    const line = el('div', { class: ni ? 'envp-row envp-nirow' : 'envp-row', 'data-key': row.key }, label, reset, ctl);
     const resetIt = (): void => { setValue(row.g, row.key, defaultOf(row.g, row.key)); say(`${row.label} reset`); };
     label.addEventListener('dblclick', resetIt);
     reset.addEventListener('click', resetIt);

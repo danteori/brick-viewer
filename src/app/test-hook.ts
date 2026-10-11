@@ -22,6 +22,11 @@ import type { WireEnd } from '../scene/wires.ts';
 import { wireView } from '../ui/overlay/wires.ts';
 import { figureBoxes } from '../render/figure.ts';
 import { gridSetOf, rowsOfGrid } from '../scene/dyngrids.ts';
+import { setGraphicsPreset, setViewerGraphics } from './graphics.ts';
+import { applyEnvironment, clearEnvironment } from './environment.ts';
+import { defaultEnvironment, setEnvValue } from '../format/environment.ts';
+import { defaultGraphicsPreset, withQualityLevel } from '../format/graphics.ts';
+import { fxDebug } from '../render/fx/frame.ts';
 
 export interface BrickTest {
   ready: true;
@@ -64,6 +69,15 @@ export interface BrickTest {
   figureBoxes(): [number[], number[]][];
   /** the scene's dynamic grids (W-03): persistent index, transform and their rows' ids; null without a GridSet */
   grids(): { id: number; origin: number[]; frac: number[]; quat: number[]; ids: number[] }[] | null;
+  /**
+   * Graphics effects (L-03 / L-06; off in ?test until this is called): on / off, the game quality
+   * level 0..3 for every group (default: our defaults), and an environment to apply ('none' keeps
+   * the lighting preset; 'default' the game's default with its ground plate; 'water' that plus
+   * water 40 units deep). Adaptive quality stays off so captures are deterministic.
+   */
+  setGraphics(a: { on: boolean; level?: number; env?: 'none' | 'default' | 'water' }): void;
+  /** what the effects did last frame */
+  graphicsState(): { shadow: boolean; shadowTexel: number; ao: number; water: boolean; on: boolean };
 }
 
 /**
@@ -170,6 +184,19 @@ export function installTestHook(canvas: HTMLCanvasElement): void {
     grids() {
       const set = gridSetOf(S.scene);
       return set && [...set.grids].sort((a, b) => a[0] - b[0]).map(([id, x]) => ({ id, origin: x.origin.slice(), frac: x.frac.slice(), quat: x.quat.slice(), ids: rowsOfGrid(S.scene, id) }));
+    },
+    setGraphics({ on, level, env }) {
+      setGraphicsPreset(level === undefined ? defaultGraphicsPreset() : withQualityLevel(defaultGraphicsPreset(), level));
+      setViewerGraphics({ effects: on, adaptive: false });
+      if (env === 'default' || env === 'water') {
+        let e = defaultEnvironment('Plate');
+        if (env === 'water') e = setEnvValue(e, 'water', 'waterHeight', 40);
+        applyEnvironment(e, 'user');
+      } else if (env === 'none') clearEnvironment();
+    },
+    graphicsState() {
+      const d = fxDebug();
+      return { shadow: !!d.shadow, shadowTexel: d.shadow?.texel ?? 0, ao: d.ao, water: d.water, on: d.eff.on };
     },
     byId: () => S.scene.ordered().map((id) => { const b = brickView(S.scene, id); return [id, b.lo, b.hi, b.color]; }),
     /** the scene as brick records (absolute) in list order, plus the focus and the editor state */

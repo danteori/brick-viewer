@@ -9,12 +9,16 @@ import { BRICK_FS, BRICK_VS } from './shaders/brick.ts';
  */
 /** Texture unit the shape-template table (render/meshes/registry.ts) stays bound to. */
 export const PULL_UNIT = 7;
+/** Texture units of the graphics effects' shadow map and AO texture (render/fx), bound while drawing. */
+export const SHADOW_UNIT = 5, AO_UNIT = 6;
 
 export const LOC = { aPos: 0, aNrm: 1, aSlope: 2, iPos: 3, iHalf: 4, iColor: 5, iMisc: 6, aPart: 7, aCap: 8 } as const;
 
 const UNIFORMS = ['uMVP', 'uChunkOffset', 'uBox', 'uUnitDiv', 'uEdge', 'uLine', 'uFadeC', 'uFadeR', 'uStudFade', 'uBevelMax', 'uBevelFit',
   'uEye', 'uLight', 'uSun', 'uSky', 'uFloor', 'uExposure', 'uBump', 'uMat', 'uIntensity', 'uMatPass',
-  'uTime', 'uSpecAA', 'uCutA', 'uCutK', 'uCutLo', 'uCutHi', 'uCutOff', 'uCutEdge', 'uShowHidden', 'uPull'] as const;
+  'uTime', 'uSpecAA', 'uCutA', 'uCutK', 'uCutLo', 'uCutHi', 'uCutOff', 'uCutEdge', 'uShowHidden', 'uPull',
+  // graphics effects (FX variant only; render/fx/glsl.ts)
+  'uShadowMat', 'uShadowP', 'uShadowL', 'uAOP', 'uFogEye', 'uFogP', 'uFogColor', 'uWaterP', 'uWaterExt', 'uWaterIn', 'uWaterFogColor', 'uViewDir'] as const;
 export type UniformName = (typeof UNIFORMS)[number];
 export type Uniforms = Record<UniformName, WebGLUniformLocation | null>;
 
@@ -42,7 +46,9 @@ function link(gl: WebGL2RenderingContext, fs: string, vs = BRICK_VS): { prog: We
   for (const n of UNIFORMS) u[n] = gl.getUniformLocation(prog, n);
   // the template table's sampler (render/meshes/registry.ts) reads its own unit, set once here
   const cur = gl.getParameter(gl.CURRENT_PROGRAM) as WebGLProgram | null;
-  gl.useProgram(prog); gl.uniform1i(gl.getUniformLocation(prog, 'uVtx'), PULL_UNIT); gl.useProgram(cur);
+  gl.useProgram(prog); gl.uniform1i(gl.getUniformLocation(prog, 'uVtx'), PULL_UNIT);
+  gl.uniform1i(gl.getUniformLocation(prog, 'uShadowMap'), SHADOW_UNIT); gl.uniform1i(gl.getUniformLocation(prog, 'uAO'), AO_UNIT);
+  gl.useProgram(cur);
   return { prog, u };
 }
 
@@ -53,24 +59,27 @@ export function createGfx(canvas: HTMLCanvasElement): Gfx | null {
   const { prog, u } = link(gl, BRICK_FS);
   gl.useProgram(prog);
   gl.uniform1f(u.uUnitDiv, 50);                  // units per viewer unit (1 / BRZ_UNIT)
-  variants.set(false, { prog, u: { ...u } });
+  variants.set('', { prog, u: { ...u } });
   return { gl, prog, u };
 }
 
-// The brick program's two variants: plain, and CUT (the X-ray cutaway's per-brick hiding, render/cutaway.ts).
-// The CUT one is linked the first time it's asked for.
-const variants = new Map<boolean, { prog: WebGLProgram; u: Uniforms }>();
+// The brick program's variants: plain, CUT (the X-ray cutaway's per-brick hiding, render/cutaway.ts)
+// and FX (the graphics effects, render/fx), alone or together. Each is linked the first time it's
+// asked for.
+const variants = new Map<string, { prog: WebGLProgram; u: Uniforms }>();
 
 /**
- * Makes the plain or the CUT brick program current (G.prog / G.u follow it). On a switch every
+ * Makes the plain, CUT and / or FX brick program current (G.prog / G.u follow it). On a switch every
  * uniform value is copied across, so state set once (or set earlier this frame) carries over.
  */
-export function useBrickVariant(G: Gfx, cut: boolean): void {
+export function useBrickVariant(G: Gfx, cut: boolean, fx = false): void {
   const { gl } = G;
-  let v = variants.get(cut);
+  const key = (cut ? 'C' : '') + (fx ? 'F' : '');
+  let v = variants.get(key);
   if (!v) {
-    const def = (src: string): string => src.replace('#version 300 es\n', '#version 300 es\n#define CUT 1\n');
-    v = link(gl, def(BRICK_FS), def(BRICK_VS)); variants.set(cut, v);
+    const defs = (cut ? '#define CUT 1\n' : '') + (fx ? '#define FX 1\n' : '');
+    const def = (src: string): string => src.replace('#version 300 es\n', '#version 300 es\n' + defs);
+    v = link(gl, def(BRICK_FS), def(BRICK_VS)); variants.set(key, v);
   }
   if (v.prog === G.prog) return;
   const old = G.prog, oldU = { ...G.u };

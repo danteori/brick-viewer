@@ -185,12 +185,13 @@ body.placing canvas { cursor:copy !important; }
 #props #appbody button:hover:not(:disabled) { color:#fff; border-color:#e8590c; }
 #props #appbody button:disabled { opacity:.4; cursor:default; }
 /* Environment: a button in the left column opens the panel beside it */
-#envbtn { padding:7px 10px; border-radius:10px; border:1px solid rgba(255,255,255,.12); background:rgba(29,30,33,.88); color:#eee;
+#envbtn, #gfxbtn { padding:7px 10px; border-radius:10px; border:1px solid rgba(255,255,255,.12); background:rgba(29,30,33,.88); color:#eee;
   font:13px system-ui, sans-serif; cursor:pointer; text-align:left; }
-#envbtn:hover, #envbtn[aria-expanded="true"] { border-color:#e8590c; }
-#envpanel { position:fixed; z-index:2; top:calc(12px + env(safe-area-inset-top, 0px)); left:260px; width:min(360px, calc(100vw - 24px));
+#envbtn:hover, #envbtn[aria-expanded="true"], #gfxbtn:hover, #gfxbtn[aria-expanded="true"] { border-color:#e8590c; }
+#envpanel, #gfxpanel { position:fixed; z-index:2; top:calc(12px + env(safe-area-inset-top, 0px)); left:260px; width:min(360px, calc(100vw - 24px));
   max-height:calc(100% - 24px); overflow:auto; display:flex; }
-#envpanel[hidden] { display:none; }
+#envpanel[hidden], #gfxpanel[hidden] { display:none; }
+#gfxpanel .gfxp-num { flex:1; min-width:0; padding:3px 5px; border:1px solid rgba(255,255,255,.14); border-radius:5px; background:#2b2c30; color:#eee; font:12px system-ui, sans-serif; }
 /* Map: a toggle in the bottom-right corner and the overview above it */
 #mapbtn { position:fixed; right:calc(12px + env(safe-area-inset-right, 0px)); bottom:calc(12px + env(safe-area-inset-bottom, 0px)); z-index:1;
   padding:6px 12px; border-radius:10px; border:1px solid rgba(255,255,255,.12); background:rgba(29,30,33,.88); color:#eee; font:13px system-ui, sans-serif; cursor:pointer; }

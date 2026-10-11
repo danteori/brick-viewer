@@ -549,6 +549,8 @@ function writeValue(v: unknown, depth: number): string {
   }
   return writeObject(Object.entries(v as Record<string, unknown>), depth);
 }
+/** A top-level object in the game's preset layout (tab indent, CRLF, %.17g numbers); also used by format/graphics.ts. */
+export const writeUeObject = (entries: [string, unknown][]): string => writeObject(entries, 0);
 function writeObject(entries: [string, unknown][], depth: number): string {
   const ind = '\t'.repeat(depth);
   if (!entries.length) return `{${NL}${ind}}`;

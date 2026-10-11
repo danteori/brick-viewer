@@ -11,6 +11,7 @@ import { environmentToLighting } from '../env/lighting.ts';
 import { environmentGroundPlate } from '../env/ground-plate.ts';
 import { loadedFiles } from '../scene/load.ts';
 import { setPreset, useLighting } from '../ui/panels/file.ts';
+import { fx } from '../render/fx/state.ts';
 
 export const ENV_PRESET = 'env';
 
@@ -26,12 +27,13 @@ export function applyEnvironment(e: Environment, source: EnvSource, label = sour
   useLighting(ENV_PRESET, { name: label, sun: l.sun, sky: l.sky, floor: l.floor, exposure: l.exposure });
   S.ground = environmentGroundPlate(e);
   env.current = e; env.source = source;
+  fx.env = e;                                // the graphics effects' sun, sky, fog and water (render/fx)
 }
 
 /** Back to the preset in use before an environment was applied, and no ground plate. */
 export function clearEnvironment(): void {
   if (S.lighting === ENV_PRESET) setPreset(env.before);
-  S.ground = null; env.current = null; env.source = null;
+  S.ground = null; env.current = null; env.source = null; fx.env = null;
 }
 
 /** Called when a world's environment is applied (the panel follows it). */
@@ -43,7 +45,10 @@ export const currentEnvironment = (): Environment | null => env.current;
 export function initWorldEnvironment(): void {
   // picking another lighting preset stops applying the environment (plate off); picking it again restores it
   const sel = document.getElementById('light') as HTMLSelectElement | null;
-  sel?.addEventListener('change', () => { S.ground = sel.value === ENV_PRESET && env.current ? environmentGroundPlate(env.current) : null; });
+  sel?.addEventListener('change', () => {
+    S.ground = sel.value === ENV_PRESET && env.current ? environmentGroundPlate(env.current) : null;
+    fx.env = sel.value === ENV_PRESET ? env.current : null;
+  });
   S.hooks.loaded.push(() => {
     if (S.testMode || !loadedFiles) return;
     let found: { kind: WorldKind | null; env: Environment | null };
