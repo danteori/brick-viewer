@@ -8,18 +8,18 @@ const close = (a: number, b: number, eps = 1e-3): void => { expect(Math.abs(a - 
 
 describe('fitted material constants', () => {
   it('glass tint strength reproduces the fit at 0 / 5 / 10', () => {
-    close(glassTint(0), 0.911); close(glassTint(5), 0.557); close(glassTint(10), 0.156);
-    close(glassTint(2.5), (0.911 + 0.557) / 2);
-    close(glassTint(-3), 0.911); close(glassTint(42), 0.156);
+    close(glassTint(0), 0.156); close(glassTint(5), 0.557); close(glassTint(10), 0.911);
+    close(glassTint(2.5), (0.156 + 0.557) / 2);
+    close(glassTint(-3), 0.156); close(glassTint(42), 0.911);
   });
   it('glass: a black tile seen head-on transmits 1 - t; a white one is clear', () => {
-    for (const [i, t] of [[0, 0.911], [5, 0.557], [10, 0.156]] as const) {
+    for (const [i, t] of [[0, 0.156], [5, 0.557], [10, 0.911]] as const) {
       close(glassTransmission([0, 0, 0], i, 1)[0], 1 - t);
       close(glassTransmission([1, 1, 1], i, 1)[2], 1);
     }
   });
   it('glass: transmission falls with the 1/cos^0.579 path term', () => {
-    close(glassTransmission([0, 0, 0], 10, 0.5)[0], (1 - 0.156) ** (1 / 0.5 ** 0.579));
+    close(glassTransmission([0, 0, 0], 10, 0.5)[0], (1 - 0.911) ** (1 / 0.5 ** 0.579));
     expect(glassTransmission([0, 0, 0], 5, 0.4)[0]).toBeLessThan(glassTransmission([0, 0, 0], 5, 0.9)[0]);
   });
   it('glass: Schlick Fresnel with F0 0.04 adds the sky reflection', () => {
@@ -31,14 +31,14 @@ describe('fitted material constants', () => {
     close(over[0], 0.2 * 0.96, 1e-9);
   });
   it('translucent opacity reproduces the fit and is linear in intensity', () => {
-    close(translucentOpacity(0), 0.897); close(translucentOpacity(5), 0.495); close(translucentOpacity(10), 0.096);
-    close(lerp3(TRANSLUCENT_OPACITY, 7.5), (0.495 + 0.096) / 2);
+    close(translucentOpacity(0), 0.096); close(translucentOpacity(5), 0.495); close(translucentOpacity(10), 0.897);
+    close(lerp3(TRANSLUCENT_OPACITY, 7.5), (0.495 + 0.897) / 2);
   });
   it('translucent: alpha blend of lit plastic over the background', () => {
     const K: Rgb = [5, 3, 2], floor: Rgb = [0.1, 0.1, 0.1], bg: Rgb = [0.2, 0.2, 0.2];
     const c = translucentColor([1, 0, 0], 10, bg, K, floor);
-    close(c[0], 0.2 * (1 - 0.096) + 0.096 * (5 + 0.1 * 0.939), 1e-6);
-    close(c[1], 0.2 * (1 - 0.096) + 0.096 * 0.1 * 0.939, 1e-6);
+    close(c[0], 0.2 * (1 - 0.897) + 0.897 * (5 + 0.1 * 0.939), 1e-6);
+    close(c[1], 0.2 * (1 - 0.897) + 0.897 * 0.1 * 0.939, 1e-6);
   });
   it('glow ladder: 1, 13.77, 47.2 at 0 / 5 / 10, log-linear between', () => {
     close(glowLevel(0), 1, 1e-9); close(glowLevel(5), 13.77, 1e-9); close(glowLevel(10), 47.2, 1e-9);

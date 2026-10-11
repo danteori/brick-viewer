@@ -8,11 +8,12 @@
 //   scene = background * (1 - F) * T + F * sky
 //   T     = mix(1, albedo, tint(i)) ^ (1 / cos^GLASS_PATH_EXP)      (cos = view vector . surface normal)
 //   F     = F0 + (1 - F0) * (1 - cos)^5,  F0 = 0.04                  (Schlick; sky = preset sky light)
-//   Intensity is the tint strength: 0 is strongly coloured, 10 is nearly clear.
+//   Intensity is the tint strength: 0 is nearly clear, 10 is strongly coloured (the user confirmed the
+//   in-game direction on 2026-10-10; the original fit had it mirrored).
 //
 // Translucent plastic (alpha-blended lit plastic, no reflection term, no measurable angle dependence):
 //   scene = mix(background, albedo * K + floor * TRANSLUCENT_FLOOR_SCALE, opacity(i))
-//   with K / floor the usual top-face light of the preset. Intensity 0 is nearly opaque, 10 nearly clear.
+//   with K / floor the usual top-face light of the preset. Intensity 0 is nearly clear, 10 nearly opaque.
 //
 // Glow (unlit: emission only, scene light is ignored):
 //   scene = albedo * GLOW_BASE * glowLevel(i)
@@ -35,14 +36,14 @@
 
 export type Rgb = [number, number, number];
 
-/** Glass tint strength t at intensity 0 / 5 / 10. */
-export const GLASS_TINT: readonly number[] = [0.911, 0.557, 0.156];
+/** Glass tint strength t at intensity 0 / 5 / 10: higher intensity = more tinted (user, 2026-10-10; the fit had the direction mirrored). */
+export const GLASS_TINT: readonly number[] = [0.156, 0.557, 0.911];
 /** Exponent on the 1/cos path-length term (1 would be Beer-Lambert through a slab). */
 export const GLASS_PATH_EXP = 0.579;
 /** Fresnel reflectance at normal incidence. */
 export const GLASS_F0 = 0.04;
-/** Translucent plastic opacity at intensity 0 / 5 / 10. */
-export const TRANSLUCENT_OPACITY: readonly number[] = [0.897, 0.495, 0.096];
+/** Translucent plastic opacity at intensity 0 / 5 / 10: higher intensity = more opaque (user, 2026-10-10). */
+export const TRANSLUCENT_OPACITY: readonly number[] = [0.096, 0.495, 0.897];
 /** Scale on the preset's floor (ambient) term for the translucent surface. */
 export const TRANSLUCENT_FLOOR_SCALE = 0.939;
 /** Glow emission relative to intensity 0, at intensity 0 / 5 / 10. */
