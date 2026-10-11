@@ -11,7 +11,7 @@
 import { SHADE } from '../../core/units.ts';
 import { TONEMAP_GLSL } from './tonemap.ts';
 import { MATERIALS_GLSL } from '../materials.ts';
-import { CUT_GLSL } from '../cutaway.ts';
+import { CUT_VS_GLSL } from '../cutaway.ts';
 
 /** a GLSL float literal */
 export const glf = (v: number): string => { const s = String(+v); return /[.e]/.test(s) ? s : s + '.0'; };
@@ -77,7 +77,7 @@ uniform float uShowHidden;
 uniform float uPull;
 uniform highp sampler2D uVtx;
 ${ORIENT_GLSL}
-// Bevel band width for a face L viewer units long along an axis:
+${CUT_VS_GLSL}// Bevel band width for a face L viewer units long along an axis:
 // W(L) = 0.43 / (0.957 + 0.86 / L) Brickadia units, which is uBevelMax at L = 20 units.
 float bevelW(float L){ return uBevelMax / (0.957 + 0.86 / max(L / 0.02, 0.5)); }
 // The vertex maths, from one mesh vertex. main() calls it with the mesh attributes, exactly as it
@@ -125,6 +125,15 @@ void vertex(vec3 mPos, vec3 mNrm, float mSlope, float mPart, vec4 mCap){
     uint bit = abs(nw.x) > 0.5 ? (nw.x > 0.0 ? 1u : 2u) : abs(nw.z) > 0.5 ? (nw.z > 0.0 ? 4u : 8u) : (nw.y > 0.0 ? 16u : 32u);
     if ((hid & bit) != 0u) gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
   }
+#ifdef CUT
+  // X-ray cutaway (render/cutaway.ts): a brick in the tube in front of the focus is hidden whole.
+  // Its world box: centre p - R lp, half-extents |R| size / 2. Overlays (single edge draws) stay,
+  // except the hover wash (uCutEdge); the bloom depth pass (instanced edge draws) hides it too.
+  if (!(single && uEdge > 0.5 && uCutEdge < 0.5)) {
+    vec3 hw = 0.5 * (abs(R[0]) * size.x + abs(R[1]) * size.y + abs(R[2]) * size.z);
+    if (cutHides(single ? uChunkOffset : (vec3(iPos.xzy) / uUnitDiv + uChunkOffset), hw)) gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+  }
+#endif
 }
 void main(){
   if (uPull > 0.5) {
@@ -176,7 +185,7 @@ in float vIntensity;
 // specular anti-aliasing (U-10): strength by stud size on screen, variance threshold, fade, cap
 uniform float uSpecAA;
 const float SPEC_AA_T = ${glf(SHADE.SPEC_AA_T)}, SPEC_AA_K = ${glf(SHADE.SPEC_AA_K)}, SPEC_AA_CAP = ${glf(SHADE.SPEC_AA_CAP)};
-${CUT_GLSL}${TONEMAP_GLSL}
+${TONEMAP_GLSL}
 ${MATERIALS_GLSL}
 float smin(float a, float b, float k){ float h = clamp(0.5 + 0.5*(b-a)/k, 0.0, 1.0); return mix(b, a, h) - k*h*(1.0-h); }
 // Stud surface height (in stud widths) at cell coord c (-0.5..0.5): flat top, sloped sides, a
@@ -275,16 +284,10 @@ float roundUnderside(vec2 q, vec2 sz, float eCirc, vec2 inward, out vec2 tilt){
 }
 void main(){
   if (uEdge > 0.5) {
-#ifdef CUT
-    if (uCutEdge > 0.5 && cutAway(vW)) discard;   // the hover wash on a brick the cutaway cuts into
-#endif
     float a = uLine.a;
     if (uFadeR > 0.0) a *= 1.0 - smoothstep(uFadeR*0.35, uFadeR, length(vW.xz - uFadeC.xz));
     fragColor = vec4(uLine.rgb, a); return;
   }
-#ifdef CUT
-  if (cutAway(vW)) discard;          // X-ray cutaway (render/cutaway.ts): only in the CUT variant
-#endif
   vec3 nG = normalize(vN);
   vec3 n = nG;
   bool slope = vSlope > 0.5;

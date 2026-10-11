@@ -6,7 +6,7 @@
 // CSR SpatialIndex.
 
 import { S } from '../app/state.ts';
-import { cutStart } from '../render/cutaway.ts';
+import { cutTube, tubeHides } from '../render/cutaway.ts';
 import { BRZ_UNIT } from '../core/units.ts';
 import { addMirror, syncScene } from './sync.ts';
 import type { SceneStore } from './store.ts';
@@ -123,13 +123,12 @@ export function viewRay(vx: number, vy: number): { S: number[]; D: number[] } {
 
 /**
  * The nearest brick under view-plane point (vx, vy) (relative to the render origin), or null. With
- * the X-ray cutaway on the ray starts where it leaves the cone (cutStart), so surfaces cut away are
- * passed through; a brick the cone cuts into is hit where the ray leaves the cone. The focused brick
- * is never cut.
+ * the X-ray cutaway on, the bricks it hides (cutTube / tubeHides) are passed through. The focused
+ * brick is never hidden.
  */
 export function pickRay(vx: number, vy: number): Hit | null {
   const { S: Sv, D } = viewRay(vx, vy), SMAX = 120;
-  const s0c = Math.max(0, cutStart(Sv, D));                 // 0 unless the X-ray cutaway is on
+  const tube = cutTube(), s0c = 0;                         // the X-ray cutaway's tube, or null
   let best: Hit | null = null;
   const s0 = rayBox(Sv, D, S.dlo, S.dhi, 0, SMAX);
   if (s0 && S.sel >= 0 && S.scene.alive(S.sel) && !S.hidden.has(S.sel)) best = { k: S.sel, s: s0.s, ax: s0.ax };
@@ -159,6 +158,7 @@ export function pickRay(vx: number, vy: number): Hit | null {
       if (hidden.size && hidden.has(k)) continue;
       const o = k * 6;
       bl[0] = G.box[o]!; bl[1] = G.box[o + 1]!; bl[2] = G.box[o + 2]!; bh[0] = G.box[o + 3]!; bh[1] = G.box[o + 4]!; bh[2] = G.box[o + 5]!;
+      if (tube && tubeHides(tube, bl, bh)) continue;
       const h = rayBox(Sg, D, bl, bh, s0c, SMAX);
       if (h && (!best || h.s < best.s)) best = { k, s: h.s, ax: h.ax };
     }

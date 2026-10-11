@@ -31,9 +31,9 @@ function compile(gl: WebGL2RenderingContext, type: number, src: string): WebGLSh
   return o;
 }
 
-function link(gl: WebGL2RenderingContext, fs: string): { prog: WebGLProgram; u: Uniforms } {
+function link(gl: WebGL2RenderingContext, fs: string, vs = BRICK_VS): { prog: WebGLProgram; u: Uniforms } {
   const prog = gl.createProgram()!;
-  gl.attachShader(prog, compile(gl, gl.VERTEX_SHADER, BRICK_VS));
+  gl.attachShader(prog, compile(gl, gl.VERTEX_SHADER, vs));
   gl.attachShader(prog, compile(gl, gl.FRAGMENT_SHADER, fs));
   for (const [name, loc] of Object.entries(LOC)) gl.bindAttribLocation(prog, loc, name);
   gl.linkProgram(prog);
@@ -57,7 +57,7 @@ export function createGfx(canvas: HTMLCanvasElement): Gfx | null {
   return { gl, prog, u };
 }
 
-// The brick program's two variants: plain, and CUT (the X-ray cutaway's discard, render/cutaway.ts).
+// The brick program's two variants: plain, and CUT (the X-ray cutaway's per-brick hiding, render/cutaway.ts).
 // The CUT one is linked the first time it's asked for.
 const variants = new Map<boolean, { prog: WebGLProgram; u: Uniforms }>();
 
@@ -68,7 +68,10 @@ const variants = new Map<boolean, { prog: WebGLProgram; u: Uniforms }>();
 export function useBrickVariant(G: Gfx, cut: boolean): void {
   const { gl } = G;
   let v = variants.get(cut);
-  if (!v) { v = link(gl, BRICK_FS.replace('#version 300 es\n', '#version 300 es\n#define CUT 1\n')); variants.set(cut, v); }
+  if (!v) {
+    const def = (src: string): string => src.replace('#version 300 es\n', '#version 300 es\n#define CUT 1\n');
+    v = link(gl, def(BRICK_FS), def(BRICK_VS)); variants.set(cut, v);
+  }
   if (v.prog === G.prog) return;
   const old = G.prog, oldU = { ...G.u };
   gl.useProgram(v.prog);

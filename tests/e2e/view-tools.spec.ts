@@ -1,4 +1,4 @@
-// View tools: the underside camera (U-03) and the X-ray cutaway (U-05). Startup brick and synthetic
+﻿// View tools: the underside camera (U-03) and the X-ray cutaway (U-05). Startup brick and synthetic
 // saves only, no private data.
 
 import { expect, test, type Page } from '@playwright/test';
@@ -145,13 +145,11 @@ test('X-ray: a click through the hole focuses an interior brick; the hole slider
   await page.keyboard.press('x');
   await expect(page.locator('#xray')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('#xraybox')).toBeVisible();
-  await slide(page, 'xrayspread', 0);                // a straight cylinder: only the hole size counts
-  await slide(page, 'xraysize', 100);
   await settle(page);
-  expect(await pick()).toBe(k);                               // through the hole to the block inside
-  await slide(page, 'xraysize', 0);                  // the hole shrinks to just around the focus
+  expect(await pick()).toBe(k);                               // the roof in the way is hidden: through to the block inside
+  await slide(page, 'xraysize', 0);                  // the narrowest tube still hides the roof (one brick over the focus)
   await settle(page);
-  expect(await pick()).not.toBe(k);
+  expect(await pick()).toBe(k);
   await slide(page, 'xraysize', 100);
   await settle(page);
   expect(await pick()).toBe(k);

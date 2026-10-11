@@ -1,6 +1,6 @@
 // The View row in the left column: Underside (U, backlog U-03) flips the camera to the iso corner
-// below the brick or back above; X-ray (X, U-05) toggles the cutaway cone, with its Hole, Spread and
-// Keep (dead zone) sliders shown underneath while it's on.
+// below the brick or back above; X-ray (X, U-05) toggles the cutaway cone, with its Hole (tube width)
+// and Keep (dead zone) sliders shown underneath while it's on.
 // Figure (P, U-16) shows the player reference figure; its button sits in the Lighting row, so the
 // View row never sets the left column's width (a wider column covers more of the scene).
 
@@ -37,13 +37,12 @@ export function initViewPanel(): void {
   const toggleFigure = (): void => { setFigure(!figure.on); initAudio(); playClick(); };
   fig.addEventListener('click', toggleFigure);
   const under = $<HTMLButtonElement>('underside'), xray = $<HTMLButtonElement>('xray');
-  const size = $<HTMLInputElement>('xraysize'), spread = $<HTMLInputElement>('xrayspread'), keep = $<HTMLInputElement>('xraykeep');
-  size.value = String(Math.round(cut.size / SIZE_MAX * 100)); spread.value = String(cut.spread); keep.value = String(Math.round(cut.keep / BRICK));
+  const size = $<HTMLInputElement>('xraysize'), keep = $<HTMLInputElement>('xraykeep');
+  size.value = String(Math.round(cut.size / SIZE_MAX * 100)); keep.value = String(Math.round(cut.keep / BRICK));
   const flip = (): void => { flipUnderside(); initAudio(); playClick(); };
   under.addEventListener('click', flip);
   xray.addEventListener('click', () => { setXray(!cut.on); initAudio(); playClick(); });
   size.addEventListener('input', () => { cut.size = +size.value / 100 * SIZE_MAX; });
-  spread.addEventListener('input', () => { cut.spread = +spread.value; });
   keep.addEventListener('input', () => { cut.keep = +keep.value * BRICK; });
   for (const id of ['viewbox', 'xraybox']) for (const t of ['pointerdown', 'dblclick']) $(id).addEventListener(t, (e) => e.stopPropagation());
   addEventListener('keydown', (e) => {
