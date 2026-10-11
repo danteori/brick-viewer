@@ -13,6 +13,10 @@ import { TONEMAP_GLSL } from './tonemap.ts';
 import { MATERIALS_GLSL } from '../materials.ts';
 import { CUT_VS_GLSL } from '../cutaway.ts';
 import { BRICK_FX_GLSL } from '../fx/glsl.ts';
+import { LIGHTING } from '../lighting.ts';
+
+/** luminance of the Default sky's sun + sky: the light the stud glint was tuned under */
+const SPEC_LIGHT_REF = ((s, k) => 0.2126 * (s[0]! + k[0]!) + 0.7152 * (s[1]! + k[1]!) + 0.0722 * (s[2]! + k[2]!))(LIGHTING.default.sun, LIGHTING.default.sky);
 
 /** a GLSL float literal */
 export const glf = (v: number): string => { const s = String(+v); return /[.e]/.test(s) ? s : s + '.0'; };
@@ -186,6 +190,8 @@ in float vIntensity;
 // specular anti-aliasing (U-10): strength by stud size on screen, variance threshold, fade, cap
 uniform float uSpecAA;
 const float SPEC_AA_T = ${glf(SHADE.SPEC_AA_T)}, SPEC_AA_K = ${glf(SHADE.SPEC_AA_K)}, SPEC_AA_CAP = ${glf(SHADE.SPEC_AA_CAP)};
+// luminance of the Default sky preset's sun + sky (render/lighting.ts), the light the glint was tuned under
+const float SPEC_LIGHT_REF = ${glf(SPEC_LIGHT_REF)};
 ${TONEMAP_GLSL}
 ${MATERIALS_GLSL}
 #ifdef FX
@@ -383,6 +389,9 @@ void main(){
   float nv = max(dot(dn, dn) - SPEC_AA_T, 0.0) * uSpecAA, sk = 1.0 / (1.0 + SPEC_AA_K * nv);
   float spec = pow(max(dot(n, normalize(L + vEyeL)), 0.0), 28.0) * 0.32 * bent * sk;
   if (nv > 0.0) spec = min(spec, SPEC_AA_CAP);     // an aliased pixel's glint can't approach white on dark plastic
+  // the glint is a reflection of the light: tuned under the Default sky, it dims with the sun + sky
+  // (night, overcast) instead of staying white over dark plastic. Brighter presets keep it as tuned.
+  spec *= min(dot(uSun + uSky, vec3(0.2126, 0.7152, 0.0722)) / SPEC_LIGHT_REF, 1.0);
   vec3 albedo = vMisc.x > 0.5 ? vBase : toLinear(vBase);
 #ifdef FX
   // graphics effects (render/fx): sun shadow on the direct terms, SSAO on the ambient ones, then
