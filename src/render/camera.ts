@@ -9,6 +9,7 @@ import { STEP } from '../core/units.ts';
 import { ELEV, S, YAW0 } from '../app/state.ts';
 import type { V3 } from '../scene/brick.ts';
 import { pinned, proposedBox } from '../editor/resize.ts';
+import { hold, isExplore } from '../app/mode.ts';
 
 export const PITCH_MIN = -80 * Math.PI / 180, PITCH_MAX = 80 * Math.PI / 180;   // below 0 = looking up at the underside
 export const ZOOM_MIN = 0.3, ZOOM_MAX = 20000;        // wide: a whole big build framed around one small brick
@@ -90,6 +91,13 @@ export function fitHalf(l: readonly number[], h: readonly number[]): number {
   return Math.max(minHalf(), 1.25 * (x1 - x0) / 2 / fx, 1.25 * (y1 - y0) / 2 / fy);
 }
 
+/** Frames the focused brick at once: Explore after a load or an undo (the glide in updateCamera only runs in Edit). */
+export function frameFocus(): void {
+  const [x0, x1, y0, y1] = extents(S.lo, S.hi);
+  S.cam.x = (x0 + x1) / 2; S.cam.y = (y0 + y1) / 2;
+  S.cam.half = S.zoomMul * fitHalf(S.lo, S.hi);
+}
+
 /** On-screen length (CSS px) of one grid step along axis i at the current zoom. */
 export function studPx(i: number): number {
   const cw = canvas.clientWidth || innerWidth, ch = canvas.clientHeight || innerHeight;
@@ -109,6 +117,7 @@ export function updateCamera(w: number, h: number): void {
   orbit.yaw += (orbit.yawT - orbit.yaw) * 0.25; orbit.pitch += (orbit.pitchT - orbit.pitch) * 0.25;
   if (!isoSettling()) { orbit.yaw = orbit.yawT; orbit.pitch = orbit.pitchT; }
   S.view = viewOf(orbit.yaw, orbit.pitch);
+  if (isExplore()) return;                               // Explore: the free camera (render/freecam.ts) owns the position and zoom
 
   const asp = w / h, fx = Math.max(asp, 1), fy = Math.max(1 / asp, 1);
   const [pl, ph] = proposedBox();
@@ -116,13 +125,13 @@ export function updateCamera(w: number, h: number): void {
   const [x0, x1, y0, y1] = extents(ul, uh);
   if (turning) {
     // rotating: keep the brick centred exactly (a lagging pan would swim around the spin)
-    cam.x = (x0 + x1) / 2; cam.y = (y0 + y1) / 2;
+    cam.x = (x0 + x1) / 2; cam.y = (y0 + y1) / 2; hold.cam = false;
     const needHalf = S.zoomMul * fitHalf(ul, uh);
     cam.half += (needHalf - cam.half) * 0.12;
   } else if (!S.held || S.autoCenter) {
     // released (or auto-center on): glide to the box's centre and fit it with margin
     const needHalf = S.zoomMul * fitHalf(ul, uh);
-    cam.x += ((x0 + x1) / 2 - cam.x) * 0.12; cam.y += ((y0 + y1) / 2 - cam.y) * 0.12;
+    if (!hold.cam) { cam.x += ((x0 + x1) / 2 - cam.x) * 0.12; cam.y += ((y0 + y1) / 2 - cam.y) * 0.12; }   // Edit entered without a click: stay where Explore left the camera
     cam.half += (needHalf - cam.half) * 0.12;
   } else if (!S.userZoomed) {
     // dragging: no panning. Only zoom out if the box nears the screen edge, about the pinned point.

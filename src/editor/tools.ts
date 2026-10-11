@@ -27,6 +27,7 @@ import { setStatus } from '../ui/status.ts';
 import { saveString, loadString } from '../app/settings.ts';
 import { isTyping } from './input.ts';
 import { fillPaint } from './fill.ts';
+import { isExplore } from '../app/mode.ts';
 
 export type Tool = 'resize' | 'move' | 'paint';
 /** middle-click vs middle-drag: at most this many px of movement and this many ms */
@@ -115,7 +116,7 @@ export function initTools(c: HTMLCanvasElement): void {
   setTool(TOOLS.includes(saved as Tool) && !S.testMode ? (saved as Tool) : 'resize', true);
 
   addEventListener('keydown', (e) => {
-    if (isTyping(e.target) || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+    if (isTyping(e.target) || e.ctrlKey || e.metaKey || e.altKey || e.repeat || isExplore()) return;
     const i = ['1', '2', '3'].indexOf(e.key);
     if (i >= 0 && !ed.ghost && !S.held) { e.preventDefault(); setTool(TOOLS[i]!); }
     else if ((e.key === 'm' || e.key === 'M') && !e.shiftKey && !ed.ghost && !S.held) { e.preventDefault(); setTool('move'); }

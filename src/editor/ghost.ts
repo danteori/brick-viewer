@@ -20,6 +20,7 @@ import { displayName } from '../ui/names.ts';
 import { initAudio, playClick } from '../ui/audio.ts';
 import { setStatus } from '../ui/status.ts';
 import { minOf, maxOf } from '../core/math';
+import { enterEdit } from '../app/mode.ts';
 
 export interface Ghost {
   items: Brick[];
@@ -96,6 +97,7 @@ export interface PlaceOpts { drop?: boolean; ignore?: ReadonlySet<number>; onPla
 
 export function startPlacing(items: Brick[], label: string, mode: 'drag' | 'click', from: HTMLElement | null, opts: PlaceOpts = {}): void {
   if (S.held) return;
+  enterEdit();                                           // a brick in hand is editing
   endPlacing();
   ed.ghost = { items: cloneBrick(items), label, mode, from, dz: 0, pose: null, valid: false, reason: '', mouse: ed.lastMouse, over: ed.lastOver, visited: false, drop: !!opts.drop, skip: [],
     ignore: opts.ignore, onPlace: opts.onPlace, onCancel: opts.onCancel, anchor: opts.anchor };

@@ -16,6 +16,7 @@ without WebGL2.
 
 On top of that:
 
+- **Explore / Edit modes:** the viewer starts in Explore, where clicks never touch bricks: drag orbits freely, right-drag or WASD pans (Shift is faster), scroll zooms toward the cursor. Double-click a brick (or press Edit) to switch to Edit, the editor below; Esc clears the selection, then returns to Explore.
 - **Save .brz:** download your edits, written back into the save you opened (uncompressed).
 - **Selection:** Shift+click adds or removes a brick, Shift+drag box-selects (Ctrl+Shift+drag
   removes), Ctrl+A selects everything, Esc clears; select by colour or everything connected to the
@@ -43,7 +44,7 @@ On top of that:
 - **Components and wires:** Brick Properties > Components lists the focused brick's components
   with an editor per setting (numbers, toggles, choices, text, colours, vectors, map entries,
   variant values), built from the save's own schema; add a component of a type the save uses, or
-  remove one. **Wires (W)** draws the save's wires between port dots on the bricks; click an output
+  remove one. **Wires (L)** draws the save's wires between port dots on the bricks; click an output
   dot, then an input dot, to connect them (one wire per input), or click a wire and press Delete.
   Every edit is one undo step, and saving writes them back.
 

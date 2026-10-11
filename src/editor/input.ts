@@ -15,6 +15,7 @@ import { copySelection, cutSelection, deleteSelection } from './selectops.ts';
 import { MICRO } from '../core/units.ts';
 import { setStatus } from '../ui/status.ts';
 import { initAudio, playClick, playSelect } from '../ui/audio.ts';
+import { enterExplore, escapeAction, isExplore } from '../app/mode.ts';
 
 export const isTyping = (a: EventTarget | null): boolean => {
   const e = a as HTMLElement | null;
@@ -112,6 +113,7 @@ export function initEditorInput(canvas: HTMLCanvasElement): void {
   addEventListener('keydown', (e) => {
     if (isTyping(e.target)) return;
     const k = e.key, ctrl = e.ctrlKey || e.metaKey;
+    if (isExplore() && !(ctrl && !e.altKey && !e.shiftKey && (k === 'v' || k === 'V'))) return;   // Explore: only a paste (it enters Edit) is an editor key
     if (ctrl && !e.altKey && !e.shiftKey && (k === 'c' || k === 'C')) { if (!S.held && !ed.ghost) copySelection(); return; }
     if (ctrl && !e.altKey && !e.shiftKey && (k === 'x' || k === 'X')) { if (!S.held && !ed.ghost) { e.preventDefault(); cutSelection(); } return; }
     if (ctrl && !e.altKey && !e.shiftKey && (k === 'v' || k === 'V')) { if (clip.mode === 'brick' && clip.items && !S.held) { e.preventDefault(); startPaste(); } return; }
@@ -133,7 +135,11 @@ export function initEditorInput(canvas: HTMLCanvasElement): void {
       return;
     }
     if (k === 'Delete') { e.preventDefault(); deleteSelection(); }
-    else if (k === 'Escape' && S.selection.size) { e.preventDefault(); clearSelection(); setStatus('Selection cleared'); }
+    else if (k === 'Escape') {
+      e.preventDefault();
+      if (escapeAction(S.selection.size > 0) === 'clear') { clearSelection(); setStatus('Selection cleared'); }
+      else if (!S.held && !S.orbit.dragging) { enterExplore(); setStatus('Explore mode: drag to orbit, right-drag or WASD to pan, scroll to zoom, double-click a brick to edit it'); }
+    }
   });
   // Shift+click toggles a brick in the selection; Shift+drag draws a box (Ctrl+Shift+drag removes)
   addEventListener('pointerdown', (e) => {
