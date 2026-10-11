@@ -4,6 +4,7 @@
 // the cursor, the camera or the scene changed.
 
 import { S } from '../app/state.ts';
+import { exploreDrag, isExplore } from '../app/mode.ts';
 import { fixedSize } from '../scene/brick.ts';
 import { pickRay } from '../scene/spatial.ts';
 import { sceneRev } from '../scene/sync.ts';
@@ -11,7 +12,7 @@ import { isFixedAxis } from './resize.ts';
 import { cutKey } from '../render/cutaway.ts';
 
 export function updateHover(canvas: HTMLCanvasElement, sx: number, sy: number): void {
-  const live = !S.noOverlay && !S.held && !S.orbit.dragging && S.mouse && S.mouseOnCanvas && !S.hooks.placing();   // no hover while placing a ghost
+  const live = !isExplore() && !S.noOverlay && !S.held && !S.orbit.dragging && S.mouse && S.mouseOnCanvas && !S.hooks.placing();   // no hover while placing a ghost
   const { cam, orbit } = S;
   const key = live ? [S.mouse![0], S.mouse![1], cam.x, cam.y, sx, sy, orbit.yaw, orbit.pitch, S.sel, sceneRev, S.hidden.size, ...S.dlo, ...S.dhi, cutKey()].join() : '';
   if (key !== S.pickKey) {
@@ -24,6 +25,7 @@ export function updateHover(canvas: HTMLCanvasElement, sx: number, sy: number): 
       if ((S.tool === 'move' || (S.tool === 'resize' && !fixedSize(S.focus) && !isFixedAxis(S.hoverFace))) && S.hoverBrick === S.sel) S.hoverAxis = S.hoverFace;   // grab faces: Resize (not fixed rounds / axes) and Move
     }
   }
+  if (isExplore()) { canvas.style.cursor = exploreDrag.kind === 'orbit' ? 'move' : exploreDrag.kind === 'pan' ? 'grabbing' : 'default'; return; }
   canvas.style.cursor = orbit.dragging ? 'move' : S.held ? (S.lockAxis >= 0 ? 'grabbing' : 'default')
     : S.hoverAxis >= 0 ? 'grab' : S.hoverBrick >= 0 && S.hoverBrick !== S.sel ? 'pointer' : 'default';
 }

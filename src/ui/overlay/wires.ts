@@ -20,6 +20,7 @@ import type { Wire, WireEnd } from '../../scene/wires.ts';
 import { isTyping } from '../../editor/input.ts';
 import { initAudio, playClick, playError, playSelect } from '../audio.ts';
 import { setStatus } from '../status.ts';
+import { enterEdit } from '../../app/mode.ts';
 
 /** Wire colour per value kind. */
 export const KIND_COLOUR: Record<PortKind, string> = {
@@ -58,13 +59,13 @@ export function initWires(c: HTMLCanvasElement): void {
   document.body.append(label);
   btn = document.createElement('button');
   btn.type = 'button'; btn.id = 'wiresbtn'; btn.setAttribute('aria-pressed', 'false');
-  btn.title = 'Wires (W): draw the save\'s wires between port dots; click an output dot, then an input dot, to connect them; click a wire and press Delete to remove it';
-  btn.textContent = 'Wires (W)';
+  btn.title = 'Wires (L): draw the save\'s wires between port dots; click an output dot, then an input dot, to connect them; click a wire and press Delete to remove it';
+  btn.textContent = 'Wires (L)';
   document.getElementById('xray')!.after(btn);
   btn.addEventListener('click', () => { setWireView(!wireView.on); initAudio(); playClick(); });
   addEventListener('keydown', (e) => {
     if (isTyping(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
-    if ((e.key === 'w' || e.key === 'W') && !e.repeat) { e.preventDefault(); setWireView(!wireView.on); return; }
+    if ((e.key === 'l' || e.key === 'L') && !e.repeat) { e.preventDefault(); setWireView(!wireView.on); return; }
     if (!wireView.on) return;
     if (e.key === 'Escape' && (wireView.from || wireView.selected)) {
       e.preventDefault(); e.stopImmediatePropagation();
@@ -115,6 +116,7 @@ function onPointerDown(e: PointerEvent): void {
   const pi = el.getAttribute('data-i'), wi = el.getAttribute('data-w');
   if (pi !== null) {
     e.preventDefault();
+    enterEdit();
     const d = dots[+pi];
     if (!d) return;
     if (d.port.dir === 'out') {

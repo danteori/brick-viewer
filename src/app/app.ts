@@ -18,6 +18,8 @@ import { initGrid } from '../render/grid.ts';
 import { initCamera, updateCamera } from '../render/camera.ts';
 import { renderFrame } from '../render/pipeline.ts';
 import { edgeTick, onDown, onMove, onRightDown, onUp, onWheel, orbitMove } from '../editor/resize.ts';
+import { initExplore, exploreTick } from './explore.ts';
+import { resetMode } from './mode.ts';
 import { histStep } from '../scene/history.ts';
 import { initGhost } from '../editor/ghost.ts';
 import { initOps } from '../editor/ops.ts';
@@ -49,7 +51,9 @@ export interface AppOptions {
 
 export function createApp(root: HTMLElement | null, opts: AppOptions): void {
   mountDom(root);
-  S.testMode = new URLSearchParams(location.search).has('test');
+  const q = new URLSearchParams(location.search);
+  S.testMode = q.has('test');
+  if (S.testMode && q.get('mode') !== 'explore') resetMode('edit');   // the suites and parity drive the editor: ?test starts in Edit (?test&mode=explore for Explore)
   const canvas = $<HTMLCanvasElement>('c');
   const gfx = createGfx(canvas);
   if (!gfx) {
@@ -72,7 +76,8 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
   initWires(canvas);
   selectBrick(S.scene.first());               // the startup brick
 
-  // --- input, in the legacy order
+  // --- input, in the legacy order (Explore's capture listeners come first: they swallow what the editor would act on)
+  initExplore(canvas);
   addEventListener('keydown', (e) => {
     if ((e.key === 'c' || e.key === 'C') && !e.ctrlKey && !e.metaKey && !e.altKey && !(e.target instanceof HTMLInputElement)) S.autoCenter = !S.autoCenter;   // not Ctrl+C (copy)
   });
@@ -127,6 +132,7 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
 
   const frame = (t: number = performance.now()): void => {
     edgeTick(t);
+    exploreTick(t);
     const dpr = devicePixelRatio || 1, w = canvas.clientWidth * dpr | 0, h = canvas.clientHeight * dpr | 0;
     if (w && h) {
       if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }

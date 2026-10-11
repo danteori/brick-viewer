@@ -115,10 +115,10 @@ test('Components: add one with defaults and remove one with its wires; undo / re
   expect((await comps(page)).instances.filter((i) => i[0] === '1/1_0_0/0').map((i) => i[1]).sort()).toEqual(['Test_Light', 'Test_Switch']);
 });
 
-test('Wires: W shows them; fan-in is refused; select + Delete removes one; output -> input adds one; undo / redo; saved', async ({ page }) => {
+test('Wires: L shows them; fan-in is refused; select + Delete removes one; output -> input adds one; undo / redo; saved', async ({ page }) => {
   await open(page);
   await page.mouse.move(640, 790);
-  await page.keyboard.press('w');
+  await page.keyboard.press('l');
   await expect(page.locator('#wiresbtn')).toHaveAttribute('aria-pressed', 'true');
   await expect.poll(async () => (await comps(page)).drawn.ports).toBeGreaterThan(0);
   const lamp = await page.evaluate(() => { const t = (window as unknown as W).__brickTest; return (t as unknown as { ids(): number[] }).ids()[t.rowOfBrick('1/1_0_0/0')]!; });

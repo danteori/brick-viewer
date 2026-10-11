@@ -15,6 +15,7 @@ import { farOf, fitHalf, PITCH_MAX, PITCH_MIN, snapToIso, studPx, toView, update
 import { viewOf } from '../core/math.ts';
 import { histBegin, histEnd } from '../scene/history.ts';
 import { applyMove, beginMove, endMove, moveFree } from './move.ts';
+import { hold, isExplore } from '../app/mode.ts';
 import { gridClick } from './grids.ts';
 import { initAudio, playClick, playError, playResize, playSelect } from '../ui/audio.ts';
 import { drawGuide, clearGuide } from '../ui/overlay/dims.ts';
@@ -158,6 +159,7 @@ export function selectBrick(i: number): void {
     S.pendAxis = -1; S.pendUnits = 0; S.lockAxis = -1; S.lastAxis = -1;
     return;
   }
+  hold.cam = false;                                      // a new focus: the camera glides onto it
   S.sel = i; const b = brickView(S.scene, i);
   S.focus = b;
   S.lo = b.lo; S.hi = b.hi; S.micro = !!b.micro;
@@ -222,7 +224,8 @@ export const SNAP = 0.6;
 
 export function onDown(e: PointerEvent, canvas: HTMLCanvasElement): void {
   if (e.button === 1) { startOrbit(e, canvas); return; }
-  if (e.button !== 0 || S.orbit.dragging || !hasFocus()) return;
+  if (e.button !== 0 || S.orbit.dragging || !hasFocus() || isExplore()) return;
+  hold.cam = false;
   if (S.hoverBrick >= 0 && S.hoverBrick !== S.sel) {            // clicked another brick: just move the focus
     const keep = S.cam.half, prev = S.sel;
     histEnd(); initAudio(); selectBrick(S.hoverBrick); playSelect();
@@ -312,7 +315,7 @@ export function onRightDown(): void {
 
 // --- Middle-mouse orbit: horizontal drag spins about the vertical axis, vertical drag tilts.
 export function startOrbit(e: PointerEvent, canvas: HTMLCanvasElement): void {
-  if (S.held) return;
+  if (S.held || isExplore()) return;                     // Explore orbits through app/explore.ts
   e.preventDefault();
   S.orbit.dragging = true; S.orbit.last = [e.clientX, e.clientY];
   try { (e.target as Element).setPointerCapture(e.pointerId); } catch { /* not capturable */ }
