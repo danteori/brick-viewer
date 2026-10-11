@@ -132,7 +132,7 @@ function drawClear(it: Item): void {
  * body uniforms set and the cube's element array bound). Leaves uMat at 0 and blending off.
  */
 export function drawMaterials(dlo: readonly number[], dhi: readonly number[]): void {
-  if (!inst.special.length && !focusIsSpecial()) return;
+  if (!inst.specialCount && !focusIsSpecial()) return;
   const { gl, u } = G;
   drawGlow(dlo, dhi);
   drawMetallic(dlo, dhi);

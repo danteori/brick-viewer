@@ -29,7 +29,7 @@ import { ASSETS, F_LINEAR, MATERIALS, worldHalfOf, type SceneStore } from '../sc
 import { topOf } from '../scene/view.ts';
 import { MAT_GLASS, MAT_GLOW, MAT_HOLOGRAM, MAT_METALLIC, MAT_TRANSLUCENT, matCode } from './matcode.ts';
 import { FULLY_HIDDEN } from '../scene/cull.ts';
-import { BLOCK, buildLod, CELL, hidesCovered, LOD_LEVELS, LOD_MERGED, LOD_MERGED_BOX, MERGE_MIN_CHUNKS } from './lod.ts';
+import { BLOCK, LOD_LEVELS, LodBuilder, MERGE_MIN_CHUNKS } from './lod.ts';
 
 /** Render chunk size, units (about 50 studs). */
 export const CHUNK = 1024;
@@ -50,6 +50,8 @@ interface RChunk {
   minZ: number;
   /** special-material rows (glass, translucent, glow, metallic, hologram: drawn by matpass) */
   special: number[];
+  /** how many of them per material code (index = MAT_*) */
+  mc: number[];
   /** the special rows' instance groups */
   sgroups: SpecialGroups;
   /** per sorted material (SORTED_MATS), the view direction its rows (slists) were last sorted for */
@@ -73,34 +75,56 @@ interface LodSet { dirty: boolean; groups: Map<Mesh, Group>; sgroups: SpecialGro
 interface LBlock {
   c: [number, number, number];
   chunks: Set<RChunk>;
-  /** when a member chunk was last re-packed (ms): merged full detail waits until edits settle */
-  editedAt: number;
   /** per LOD level (1, 2, ...): built on first use, out of date when a member chunk is re-packed */
   lv: (LodSet | undefined)[];
   box: [number, number, number, number, number, number];
 }
 
-/** Far-LOD level for this frame, 0 = full detail (pipeline.ts sets it from the zoom). */
+/** Far-LOD level for this frame, 0 = full detail, 1..LOD_LEVELS = coarse cells (pipeline.ts sets it from the zoom). */
 let farLod = 0;
-export function setFarLod(level: number): void { farLod = level; }
+export function setFarLod(level: number): void { farLod = level >= 1 && level <= LOD_LEVELS ? level : 0; }
 /** Far levels from this one up use the coarser block tier (fewer, bigger draws: on ANGLE / D3D11 each draw costs ~5 us of GPU time). */
 const SUPER_LEVEL = 2;
 /** Special materials that have coarse sets (translucent plastic and hologram stay sorted per chunk). */
 const LOD_MATS = [MAT_GLOW, MAT_GLASS, MAT_METALLIC];
 /** Transparent materials whose rows are kept per mesh and sorted back to front (blending that doesn't commute). */
 const SORTED_MATS: readonly number[] = [MAT_TRANSLUCENT, MAT_HOLOGRAM];
-/** ms a frame may spend building coarse sets (the rest of the blocks draw in full until built) */
-const LOD_BUDGET_MS = 8;
-/** ms spent building coarse sets this frame, and builds done */
-let lodSpent = 0, lodBuilt = 0;
+/**
+ * ms a frame may spend building coarse sets. A block's build is split into steps (one member
+ * chunk's rows of one material each, then the upload) and goes on over as many frames as it needs;
+ * blocks not built yet draw an older set, their chunks when cheap, or nothing yet.
+ */
+const LOD_BUDGET_MS = 6;
+/** ms spent building coarse sets this frame, and steps done */
+let lodSpent = 0, lodSteps = 0;
 /** Starts a frame's coarse-set build budget (syncInstances). */
-const lodFrame = (): void => { lodSpent = 0; lodBuilt = 0; };
-/** May another coarse set be built this frame? (at least one a frame, then up to the budget) */
-const lodBudget = (): boolean => lodBuilt === 0 || lodSpent < LOD_BUDGET_MS;
+const lodFrame = (): void => { lodSpent = 0; lodSteps = 0; sortSpent = 0; };
+/** May another build step run this frame? (at least one a frame, then up to the budget) */
+const lodBudget = (): boolean => lodSteps === 0 || lodSpent < LOD_BUDGET_MS;
 /** A block without a usable coarse set draws its chunks in full only when they hold at most this many instances (else it waits: pop-in, as streaming would). */
 const LOD_FALLBACK_INSTANCES = 20000;
-/** A block edited this recently (ms) draws its chunks instead of rebuilding its merged set every edit. */
-const MERGE_SETTLE_MS = 1500;
+/**
+ * ms a frame may spend re-sorting translucent / hologram rows after the view turned: round-robin
+ * over the chunks in view, the rest keep their last order until their turn (at least one a frame).
+ */
+const SORT_BUDGET_MS = 2;
+let sortSpent = 0;
+
+/**
+ * A coarse set being built over several frames: for each pass (opaque rows, then each LOD_MATS
+ * material), each member chunk's rows go through a LodBuilder in the chunks' order; the result is
+ * the same as building it in one go.
+ */
+interface LodJob {
+  level: number;
+  chunks: RChunk[];
+  /** pass (0 = opaque, 1.. = LOD_MATS[pass - 1]) and chunk index of the next step */
+  pass: number; k: number;
+  builders: LodBuilder[];
+  /** per pass, the rows too big for a cell, per mesh in first-seen order */
+  keep: Map<Mesh, number[]>[];
+  ms: number;
+}
 
 /** The word bits of an asset (top style, micro), cached by asset table index. */
 const assetWord: number[] = [];
@@ -122,9 +146,16 @@ export class ChunkSet {
   private rowChunk: (RChunk | undefined)[] = [];
   private blocks = new Map<string, LBlock>();
   private sblocks = new Map<string, LBlock>();
+  /** coarse sets being built (LodJob), by block */
+  private jobs = new Map<LBlock, LodJob>();
+  /** where the next translucent re-sort starts among the chunks in view (round-robin) */
+  private sortAt = 0;
+  /** the chunks in view for one view rectangle and instance revision (inView) */
+  private viewCache: { cull: ViewCull; rev: number; list: RChunk[] } | null = null;
   /** bumped whenever instance data changed */
   rev = 0;
-  special: number[] = [];
+  /** the special rows (all chunks, in chunk order), gathered when asked for (matpass's exact path only) */
+  private specialRows: number[] | null = [];
   /** chunks holding glow rows (rebuilt with special) */
   private glowChunks: RChunk[] = [];
   /** special rows per material code (index = MAT_*) */
@@ -145,7 +176,7 @@ export class ChunkSet {
     for (const ch of this.chunks.values()) this.drop(ch);
     for (const b of this.blocks.values()) this.dropBlock(b);
     for (const b of this.sblocks.values()) this.dropBlock(b);
-    this.chunks.clear(); this.blocks.clear(); this.sblocks.clear(); this.rowChunk = []; this.store = s;
+    this.chunks.clear(); this.blocks.clear(); this.sblocks.clear(); this.jobs.clear(); this.rowChunk = []; this.store = s;
     for (const id of s.ids()) this.place(id);
     this.specialDirty = true; this.rev++;
   }
@@ -168,7 +199,7 @@ export class ChunkSet {
     if (!ch) {
       const s = this.store, c: [number, number, number] = [Math.floor(s.px[id]! / CHUNK) * CHUNK + CHUNK / 2, Math.floor(s.py[id]! / CHUNK) * CHUNK + CHUNK / 2, Math.floor(s.pz[id]! / CHUNK) * CHUNK + CHUNK / 2];
       const block = this.blockAt(this.blocks, c, CHUNK * BLOCK), sblock = this.blockAt(this.sblocks, c, CHUNK * BLOCK * BLOCK);
-      ch = { c, ids: new Set(), groups: new Map(), dirty: true, box: [0, 0, 0, 0, 0, 0], minZ: Infinity, special: [], sgroups: new Map(), sortEye: new Map(), block, sblock, lists: new Map(), slists: new Map(), masked: false, seq: this.nextSeq++ };
+      ch = { c, ids: new Set(), groups: new Map(), dirty: true, box: [0, 0, 0, 0, 0, 0], minZ: Infinity, special: [], mc: [0, 0, 0, 0, 0, 0], sgroups: new Map(), sortEye: new Map(), block, sblock, lists: new Map(), slists: new Map(), masked: false, seq: this.nextSeq++ };
       block.chunks.add(ch); sblock.chunks.add(ch);
       this.chunks.set(key, ch);
     }
@@ -210,21 +241,31 @@ export class ChunkSet {
       this.minZ = m;
     }
     if (this.specialDirty) {
-      this.special = [];
-      const mc = this.matCount, s = this.store;
+      // totals from each chunk's own counts: a re-pack doesn't walk every special row of the scene
+      // (half a million in the big builds: 8-20 ms a focus change or edit)
+      const mc = this.matCount;
       mc.fill(0);
-      for (const ch of this.chunks.values()) for (const id of ch.special) { this.special.push(id); mc[materialCode(s.material[id]!)]!++; }
+      for (const ch of this.chunks.values()) if (ch.special.length) for (let i = 0; i < mc.length; i++) mc[i]! += ch.mc[i]!;
+      this.specialRows = null;
       this.glowChunks = [];
       for (const ch of this.chunks.values()) if (ch.sgroups.has(MAT_GLOW)) this.glowChunks.push(ch);
       this.specialDirty = false;
     }
   }
 
+  /** The special rows (glass, translucent, glow, metallic, hologram; not the focused one), in chunk order. */
+  get special(): number[] {
+    if (!this.specialRows) { const r: number[] = []; for (const ch of this.chunks.values()) for (const id of ch.special) r.push(id); this.specialRows = r; }
+    return this.specialRows;
+  }
+  /** How many special rows there are. */
+  get specialCount(): number { let n = 0; for (const v of this.matCount) n += v; return n; }
+
   /** The block of `map` (blocks `size` units a side) holding the chunk centred at c, made when missing. */
   private blockAt(map: Map<string, LBlock>, c: readonly number[], size: number): LBlock {
     const k = c.map((v) => Math.floor(v / size)), key = k.join('_');
     let b = map.get(key);
-    if (!b) { b = { c: k.map((v) => v * size + size / 2) as [number, number, number], chunks: new Set(), editedAt: -Infinity, lv: [], box: [0, 0, 0, 0, 0, 0] }; map.set(key, b); }
+    if (!b) { b = { c: k.map((v) => v * size + size / 2) as [number, number, number], chunks: new Set(), lv: [], box: [0, 0, 0, 0, 0, 0] }; map.set(key, b); }
     return b;
   }
 
@@ -242,7 +283,7 @@ export class ChunkSet {
   /** The blocks the far LOD draws at this frame's level: the coarser tier for levels 3 and up. */
   private get lodBlocks(): Map<string, LBlock> { return farLod >= SUPER_LEVEL && farLod <= LOD_LEVELS ? this.sblocks : this.blocks; }
 
-  private staleBlock(b: LBlock): void { b.editedAt = performance.now(); for (const L of b.lv) if (L) L.dirty = true; }
+  private staleBlock(b: LBlock): void { this.jobs.delete(b); for (const L of b.lv) if (L) L.dirty = true; }
 
   private dropGroups(groups: Map<Mesh, Group>): void {
     const gl = G.gl;
@@ -252,7 +293,7 @@ export class ChunkSet {
 
   private dropBlock(b: LBlock): void {
     for (const L of b.lv) if (L) { this.dropGroups(L.groups); for (const m of L.sgroups.values()) this.dropGroups(m); }
-    b.lv = [];
+    b.lv = []; this.jobs.delete(b);
   }
 
   /** A group for raw cell records on the cube, under key `key` in `groups`. */
@@ -271,83 +312,78 @@ export class ChunkSet {
     g.n = n;
   }
 
-  /** Coarse groups for the rows of `per` (chunk -> mesh -> rows) into `groups`, at LOD `level`. */
-  private coarse(b: LBlock, groups: Map<Mesh, Group>, per: (ch: RChunk) => Map<Mesh, number[]> | undefined, level: number): void {
-    if (level === LOD_MERGED || level === LOD_MERGED_BOX) {
-      // full detail, the block's chunks merged: one draw per mesh instead of one per (chunk, mesh);
-      // LOD_MERGED_BOX also draws small non-box bricks as plain boxes (their many meshes are what
-      // multiplies the draws)
-      const s = this.store, boxes = level === LOD_MERGED_BOX, lists = new Map<Mesh, number[]>();
-      for (const ch of b.chunks) {
-        const l = per(ch);
-        if (l) for (const [mesh, ids] of l) {
-          let o = lists.get(mesh);
-          if (!o) lists.set(mesh, (o = []));
-          if (!boxes) { for (const id of ids) o.push(id); continue; }
-          let bo = lists.get(BOX_MESH);
-          if (!bo) lists.set(BOX_MESH, (bo = []));
-          for (const id of ids) {
-            if (s.faceMask[id]! & FULLY_HIDDEN) continue;        // culled from this level on (hidesCovered)
-            (mesh === BOX_MESH || (s.hx[id]! <= CELL && s.hy[id]! <= CELL && s.hz[id]! <= CELL) ? bo : o).push(id);
-          }
-        }
-      }
-      for (const [mesh, ids] of lists) if (!ids.length) lists.delete(mesh);
-      this.fill(b, groups, lists);
-      return;
+  /** One step of a coarse-set build: the next chunk's rows of the job's current pass; true when every pass is through. */
+  private jobStep(b: LBlock, J: LodJob): boolean {
+    const fm = this.store.faceMask;
+    if (J.pass > LOD_MATS.length) return true;
+    const ch = J.chunks[J.k];
+    const l = !ch ? undefined : J.pass === 0 ? ch.lists : ch.slists.get(LOD_MATS[J.pass - 1]!);
+    let B = J.builders[J.pass], keep = J.keep[J.pass];
+    if (!B || !keep) { B = J.builders[J.pass] = new LodBuilder(this.store, b.c, J.level); keep = J.keep[J.pass] = new Map(); }
+    if (l) for (const [mesh, ids] of l) for (const id of ids) {
+      if (fm[id]! & FULLY_HIDDEN) continue;                // culled at the coarse levels (hidesCovered)
+      if (B.add(id)) continue;
+      let o = keep.get(mesh);
+      if (!o) keep.set(mesh, (o = []));
+      o.push(id);
     }
-    const all: number[] = [], meshes: Mesh[] = [], fm = this.store.faceMask;
-    for (const ch of b.chunks) {
-      const l = per(ch);
-      if (l) for (const [mesh, ids] of l) for (const id of ids) if (!(fm[id]! & FULLY_HIDDEN)) { all.push(id); meshes.push(mesh); }
-    }
-    const L = buildLod(this.store, all, b.c, level);
-    const lists = new Map<Mesh, number[]>();
-    for (const q of L.keep) {
-      const m = meshes[q]!;
-      let l = lists.get(m);
-      if (!l) lists.set(m, (l = []));
-      l.push(all[q]!);
-    }
+    if (++J.k >= J.chunks.length) { J.k = 0; J.pass++; }
+    return J.pass > LOD_MATS.length;
+  }
+
+  /** Coarse groups from a finished pass into `groups`: the kept big rows as they are, then the cells. */
+  private coarseGroups(b: LBlock, groups: Map<Mesh, Group>, B: LodBuilder, keep: Map<Mesh, number[]>): void {
+    const L = B.finish();
     const cells = groups.get(LOD_CELLS);
     if (cells) groups.delete(LOD_CELLS);
-    this.fill(b, groups, lists);
+    this.fill(b, groups, keep);
     if (cells) groups.set(LOD_CELLS, cells);
     this.cellGroup(groups, L.cells, L.count);
   }
 
-  /** Builds block b's coarse sets for LOD `level` (render/lod.ts). */
-  private buildBlock(b: LBlock, level: number): LodSet {
-    const t = performance.now();
-    let L = b.lv[level];
-    if (!L) L = b.lv[level] = { dirty: true, groups: new Map(), sgroups: new Map() };
-    this.coarse(b, L.groups, (ch) => ch.lists, level);
-    for (const m of LOD_MATS) {
-      let g = L.sgroups.get(m);
-      if (!g) L.sgroups.set(m, (g = new Map()));
-      this.coarse(b, g, (ch) => ch.slists.get(m), level);
+  /**
+   * Goes on with block b's coarse set for this frame's level (render/lod.ts) within the frame's
+   * budget; the set once it is done (uploaded), else null.
+   */
+  private buildBlock(b: LBlock): LodSet | null {
+    const level = farLod;
+    let J = this.jobs.get(b);
+    if (!J || J.level !== level) { J = { level, chunks: [...b.chunks], pass: 0, k: 0, builders: [], keep: [], ms: 0 }; this.jobs.set(b, J); }
+    let done = false;
+    while (!done && lodBudget()) {
+      const t = performance.now();
+      done = this.jobStep(b, J);
+      if (done) {
+        let L = b.lv[level];
+        if (!L) L = b.lv[level] = { dirty: true, groups: new Map(), sgroups: new Map() };
+        this.coarseGroups(b, L.groups, J.builders[0]!, J.keep[0]!);
+        for (let i = 0; i < LOD_MATS.length; i++) {
+          const m = LOD_MATS[i]!;
+          let g = L.sgroups.get(m);
+          if (!g) L.sgroups.set(m, (g = new Map()));
+          this.coarseGroups(b, g, J.builders[i + 1]!, J.keep[i + 1]!);
+        }
+        L.dirty = false;
+      }
+      const ms = performance.now() - t;
+      J.ms += ms; lodSpent += ms; lodSteps++;
+      lodStats.maxStepMs = Math.max(lodStats.maxStepMs, ms);
     }
+    if (!done) return null;
+    this.jobs.delete(b);
     lodStats.built++;
-    const ms = performance.now() - t;
-    lodStats.ms += ms; lodStats.maxMs = Math.max(lodStats.maxMs, ms);
-    lodSpent += ms; lodBuilt++;
-    L.dirty = false;
-    return L;
+    lodStats.ms += J.ms; lodStats.maxMs = Math.max(lodStats.maxMs, J.ms);
+    return b.lv[level]!;
   }
 
   /**
-   * Block b's coarse set for this frame: this level's when current, else built now if `build`,
-   * else (out of budget) another level's current set, else this level's out-of-date one, else null.
+   * Block b's coarse set for this frame: this level's when current, else (going on with its build
+   * when `build`) another level's current set, else this level's out-of-date one, else null.
    */
   private lodSet(b: LBlock, build: boolean): LodSet | null {
     const L = b.lv[farLod];
     if (L && !L.dirty) return L;
-    if (farLod > LOD_LEVELS) {
-      // merged full detail must show the current bricks exactly: rebuild once edits have settled,
-      // and until then the block draws its chunks (never another level or an old set)
-      return build && performance.now() - b.editedAt > MERGE_SETTLE_MS ? this.buildBlock(b, farLod) : null;
-    }
-    if (build) return this.buildBlock(b, farLod);
+    if (build) { const N = this.buildBlock(b); if (N) return N; }
     for (const o of b.lv) if (o && !o.dirty) return o;
     return L ?? null;
   }
@@ -375,7 +411,7 @@ export class ChunkSet {
     const lists = new Map<Mesh, number[]>(), slists = new Map<number, Map<Mesh, number[]>>();
     const box = ch.box;
     box[0] = box[1] = box[2] = Infinity; box[3] = box[4] = box[5] = -Infinity;
-    ch.minZ = Infinity; ch.special = []; ch.masked = false;
+    ch.minZ = Infinity; ch.special = []; ch.mc = [0, 0, 0, 0, 0, 0]; ch.masked = false;
     for (const id of ch.ids) {
       if (s.faceMask[id]) ch.masked = true;
       const o = s.orient[id]!, h = worldHalfOf(o, s.hx[id]!, s.hy[id]!, s.hz[id]!);
@@ -389,7 +425,7 @@ export class ChunkSet {
       const m = scene ? materialCode(s.material[id]!) : 0;   // extras draw every brick as plastic, as before
       let into = lists;
       if (m > 0) {
-        ch.special.push(id);
+        ch.special.push(id); ch.mc[m]!++;
         let sl = slists.get(m);
         if (!sl) slists.set(m, (sl = new Map()));
         into = sl;
@@ -467,7 +503,8 @@ export class ChunkSet {
   /** Writes rows `ids` (all in chunk ch) into group g's buffer, in that order; `slots`: each row's template slot (family groups). */
   private upload(ch: { c: readonly number[] }, g: Group, ids: readonly number[], slots?: readonly number[]): void {
     const gl = G.gl, s = this.store, selection = this.opts.scene ? S.selection : null, box = g.mesh === BOX_MESH;
-    const data = new ArrayBuffer(ids.length * REC), i16 = new Int16Array(data), u16 = new Uint16Array(data), u32 = new Uint32Array(data), u8 = new Uint8Array(data);
+    if (scratch.byteLength < ids.length * REC) growScratch(ids.length * REC);
+    const i16 = sI16, u16 = sU16, u32 = sU32, u8 = sU8;
     for (let j = 0; j < ids.length; j++) {
       const id = ids[j]!, b = j * REC, w = j * 12;
       const slot = slots ? slots[j]! : 0;
@@ -479,7 +516,7 @@ export class ChunkSet {
     }
     gl.bindBuffer(gl.ARRAY_BUFFER, g.buf);
     if (ids.length > g.cap) { g.cap = Math.max(ids.length, g.cap * 2); gl.bufferData(gl.ARRAY_BUFFER, g.cap * REC, gl.DYNAMIC_DRAW); }
-    gl.bufferSubData(gl.ARRAY_BUFFER, 0, new Uint8Array(data));
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, u8, 0, ids.length * REC);
     g.n = ids.length;
   }
 
@@ -505,17 +542,29 @@ export class ChunkSet {
   }
 
   /**
-   * The chunks passing `want` that are in the view, in the chunks map's (insertion) order. With
-   * many chunks only the coarse blocks in view are searched (a big, sparse build can have 100k+
-   * chunks but a few hundred coarse blocks), and the hits are sorted back into that order. A block out of view
-   * skips its chunks' tests (each block is tested once).
+   * The chunks passing `want` that are in the view, in the chunks map's (insertion) order. The
+   * chunks in view are found once per view rectangle (cull object) and instance revision, then
+   * filtered: the opaque pass and each special material's pass share one search.
    */
   private inView(cull: ViewCull | null, want: (ch: RChunk) => boolean): RChunk[] {
     const out: RChunk[] = [];
     if (!cull) { for (const ch of this.chunks.values()) if (want(ch)) out.push(ch); return out; }
+    let V = this.viewCache;
+    if (!V || V.cull !== cull || V.rev !== this.rev) V = this.viewCache = { cull, rev: this.rev, list: this.findInView(cull) };
+    for (const ch of V.list) if (want(ch)) out.push(ch);
+    return out;
+  }
+
+  /**
+   * Every chunk in the view, in the chunks map's (insertion) order. With many chunks only the
+   * coarse blocks in view are searched (a big, sparse build can have 100k+ chunks but a few
+   * hundred coarse blocks), and the hits are sorted back into that order. A block out of view
+   * skips its chunks' tests (each block is tested once).
+   */
+  private findInView(cull: ViewCull): RChunk[] {
+    const out: RChunk[] = [];
     const seen = new Map<LBlock, boolean>();
     const test = (ch: RChunk): void => {
-      if (!want(ch)) return;
       let v = seen.get(ch.block);
       if (v === undefined) seen.set(ch.block, (v = this.visible(ch.block, cull)));
       if (v && this.visible(ch, cull)) out.push(ch);
@@ -547,7 +596,7 @@ export class ChunkSet {
         if (cull && !this.visible(b, cull)) continue;
         const L = this.lodSet(b, lodBudget());
         if (L) { stats.chunks++; this.drawGroups(b.c, L.groups); continue; }
-        if (farLod <= LOD_LEVELS && this.heavy(b)) { lodStats.waiting++; continue; }
+        if (this.heavy(b)) { lodStats.waiting++; continue; }
         for (const ch of b.chunks) {
           if (!ch.groups.size || (cull && !this.visible(ch, cull))) continue;
           stats.chunks++;
@@ -582,7 +631,7 @@ export class ChunkSet {
         if (cull && !this.visible(b, cull)) continue;
         const L = this.lodSet(b, false);                 // built by draw() (opaque first, same frame)
         if (L) { const g = L.sgroups.get(m); if (g) this.drawGroups(b.c, g); continue; }
-        if (farLod <= LOD_LEVELS && this.heavy(b)) continue;   // waiting for its coarse set (see draw)
+        if (this.heavy(b)) continue;                     // waiting for its coarse set (see draw)
         for (const ch of b.chunks) if (ch.sgroups.has(m) && (!cull || this.visible(ch, cull))) list.push(ch);
       }
     } else {
@@ -590,13 +639,18 @@ export class ChunkSet {
     }
     if (!list.length) { endGroups(); return; }
     if (sorted) {
-      const e = eyeOf();
-      for (const ch of list) {
-        const se = ch.sortEye.get(m);
+      const e = eyeOf(), n = list.length, start = this.sortAt % n;
+      let resorted = 0;
+      for (let j = 0; j < n; j++) {
+        const ch = list[(start + j) % n]!, se = ch.sortEye.get(m);
         if (se && se[0] === e[0] && se[1] === e[1] && se[2] === e[2]) continue;
-        const groups = ch.sgroups.get(m)!;
+        // out of this frame's budget: the rest keep the order they were last sorted in (the next
+        // frames go on from here); once the view stops turning they all catch up
+        if (resorted && sortSpent >= SORT_BUDGET_MS) { this.sortAt = start + j; break; }
+        const t = performance.now(), groups = ch.sgroups.get(m)!;
         for (const [mesh, ids] of ch.slists.get(m) ?? []) { sortBackToFront(this.store, ids); const g = groups.get(mesh); if (g) this.upload(ch, g, ids); }
         ch.sortEye.set(m, e);
+        sortSpent += performance.now() - t; resorted++;
       }
       const d = (ch: RChunk): number => ch.c[0] * e[0] + ch.c[2] * e[1] + ch.c[1] * e[2];
       list.sort((a, b) => d(a) - d(b));
@@ -616,7 +670,9 @@ export class ChunkSet {
    * be all zero: those records must not keep hiding faces).
    */
   masksChanged(): void {
-    for (const map of [this.blocks, this.sblocks]) for (const b of map.values()) b.lv.forEach((L, level) => { if (L && hidesCovered(level)) L.dirty = true; });
+    // every coarse level drops covered faces (lod.ts hidesCovered); builds under way restart
+    for (const map of [this.blocks, this.sblocks]) for (const b of map.values()) for (const L of b.lv) if (L) L.dirty = true;
+    this.jobs.clear();
     for (const ch of this.chunks.values()) if (ch.masked) ch.dirty = true;
   }
 
@@ -688,9 +744,23 @@ const eyeOf = (): [number, number, number] => [S.view[2]!, S.view[6]!, S.view[10
 
 /** Sorts rows farthest first along the view direction (centres). */
 function sortBackToFront(s: SceneStore, ids: number[]): void {
-  const e = eyeOf();
-  const d = (id: number): number => s.px[id]! * e[0] + s.pz[id]! * e[1] + s.py[id]! * e[2];
-  ids.sort((a, b) => d(a) - d(b));
+  const e = eyeOf(), n = ids.length;
+  if (n < 2) return;
+  // keys computed once (the comparator used to recompute both per comparison); ties keep their
+  // current order, as the stable sort of ids did
+  if (sortKey.length < n) { sortKey = new Float64Array(Math.max(n, sortKey.length * 2)); sortIdx = new Uint32Array(sortKey.length); sortTmp = new Array<number>(sortKey.length); }
+  const key = sortKey, idx = sortIdx.subarray(0, n), tmp = sortTmp;
+  for (let i = 0; i < n; i++) { const id = ids[i]!; key[i] = s.px[id]! * e[0] + s.pz[id]! * e[1] + s.py[id]! * e[2]; idx[i] = i; tmp[i] = id; }
+  idx.sort((a, b) => key[a]! - key[b]! || a - b);
+  for (let i = 0; i < n; i++) ids[i] = tmp[idx[i]!]!;
+}
+let sortKey = new Float64Array(0), sortIdx = new Uint32Array(0), sortTmp: number[] = [];
+
+/** Scratch for packing instance records (grown, never shrunk: no garbage per upload). */
+let scratch = new ArrayBuffer(0), sI16 = new Int16Array(0), sU16 = new Uint16Array(0), sU32 = new Uint32Array(0), sU8 = new Uint8Array(0);
+function growScratch(bytes: number): void {
+  scratch = new ArrayBuffer(Math.max(bytes, scratch.byteLength * 2, 1 << 16));
+  sI16 = new Int16Array(scratch); sU16 = new Uint16Array(scratch); sU32 = new Uint32Array(scratch); sU8 = new Uint8Array(scratch);
 }
 
 /** Is the brick program in template mode (uPull = 1)? Only between drawGroup calls of one pass. */
@@ -749,16 +819,18 @@ function maskHit(m: TileMask, R: readonly number[]): boolean {
 
 /** Per-frame counters (test hook / benchmark): chunks and instanced draws drawn, instances in them. */
 export const stats = { chunks: 0, draws: 0, instances: 0 };
-/** Far-LOD counters: coarse sets built so far, their total and longest build (ms). */
-export const lodStats = { built: 0, ms: 0, maxMs: 0, waiting: 0 };
+/** Far-LOD counters: coarse sets built so far, their total and longest build (ms, over all its frames), the longest build step in one frame. */
+export const lodStats = { built: 0, ms: 0, maxMs: 0, maxStepMs: 0, waiting: 0 };
 /** The key the cells group sits under in a block's groups (any object that is not a real mesh). */
 const LOD_CELLS = { buf: null, count: 36, layout: 0, key: 'lod-cells' } as unknown as Mesh;
 
 /** The scene's chunks and what the rest of the renderer reads from them. */
 export const inst = {
   set: null as ChunkSet | null,
-  /** glass / translucent / glow bricks (not the focused one): drawn by matpass.ts */
-  special: [] as number[],
+  /** glass / translucent / glow bricks (not the focused one): drawn by matpass.ts (gathered on first use after a change) */
+  get special(): number[] { return inst.set ? inst.set.special : []; },
+  /** how many there are */
+  get specialCount(): number { return inst.set ? inst.set.specialCount : 0; },
   /** lowest brick bottom except the focused one (absolute viewer units), for the ground grid */
   groundAbs: Infinity,
   /** bumped whenever the instance data changed (hover re-pick key) */
@@ -791,7 +863,6 @@ export function syncInstances(): void {
   stats.chunks = stats.draws = stats.instances = 0;
   lodFrame();
   set.sync();
-  inst.special = set.special;
   inst.groundAbs = set.minZ * BRZ_UNIT;
   inst.rev = set.rev;
 }

@@ -26,27 +26,28 @@ export const LOD_STUD_PX = 0.75;
 export const LOD_CELL_PX = 4;
 
 /**
- * Below this stud width (device px) and above LOD_STUD_PX, full detail is still drawn but each
- * block's chunks are merged into one buffer per mesh (draw calls, not triangles, are the limit when
- * a wide view holds thousands of chunks). The picture is the same.
+ * Between LOD_STUD_PX and this stud width (device px) full detail is drawn per chunk as usual, but
+ * covered faces are collapsed in the vertex shader (hidesCovered). There used to be merged levels
+ * here (each block's chunks merged into one buffer per mesh, rebuilt per block on the main thread):
+ * since the shape templates (S-05) a chunk draws one group per template family, so merging no longer
+ * saved draws, drew 2-10x the instances (a merged block can't be culled per chunk) and each block's
+ * rebuild was one 50-220 ms frame on 3-6 M brick builds.
  */
-export const MERGE_STUD_PX = 12;
-/** Below this, merged blocks also draw small non-box bricks (ramps, rounds, special shapes) as their boxes: far fewer meshes, so far fewer draws. */
-export const MERGE_BOX_STUD_PX = 1.5;
+export const HIDE_STUD_PX = 1.5;
 /**
- * Merging only pays off with many chunks, and it changes the draw order, which decides which of two
- * exactly coplanar faces (a brick sitting flush on a plate draws its bottom there too) wins the
- * depth test. Scenes with fewer render chunks than this keep per-chunk full detail at these zooms.
+ * Scenes with fewer render chunks than this keep showing covered faces down to LOD_STUD_PX, and
+ * merge only runs of consecutive meshes into template family groups (render/instances.ts fill): the
+ * draw order decides which of two exactly coplanar faces wins the depth test, so small scenes (their
+ * golden pictures) draw exactly as they always did.
  */
 export const MERGE_MIN_CHUNKS = 64;
-/** The pseudo-levels for merged full detail, and merged with small shapes as boxes. */
-export const LOD_MERGED = LOD_LEVELS + 1, LOD_MERGED_BOX = LOD_LEVELS + 2;
+/** The pseudo-level for per-chunk full detail with covered faces dropped. */
+export const LOD_HIDE = LOD_LEVELS + 1;
 
-/** The LOD level for a stud this many device pixels wide: 0 = per-chunk full detail, LOD_MERGED, LOD_MERGED_BOX, or 1..LOD_LEVELS. */
+/** The LOD level for a stud this many device pixels wide: 0 = full detail, LOD_HIDE, or 1..LOD_LEVELS (coarse cells). */
 export function lodLevel(studPx: number): number {
-  if (!(studPx < MERGE_STUD_PX)) return 0;
-  if (!(studPx < MERGE_BOX_STUD_PX)) return LOD_MERGED;
-  if (!(studPx < LOD_STUD_PX)) return LOD_MERGED_BOX;
+  if (!(studPx < HIDE_STUD_PX)) return 0;
+  if (!(studPx < LOD_STUD_PX)) return LOD_HIDE;
   let L = 1;
   while (L < LOD_LEVELS && 4 * 4 ** L * studPx <= LOD_CELL_PX) L++;
   return L;
@@ -55,9 +56,9 @@ export function lodLevel(studPx: number): number {
  * Does this level drop covered faces and fully hidden bricks (render/facecull.ts)? Not at full
  * detail: where bricks of different sizes meet, their outer faces leave sub-pixel slivers
  * (T-junctions), and the covered faces behind are what fills them, so dropping those would let
- * the background sparkle through the seams. From LOD_MERGED_BOX on the picture is approximate anyway.
+ * the background sparkle through the seams. From LOD_HIDE on the picture is approximate anyway.
  */
-export const hidesCovered = (level: number): boolean => level !== 0 && level !== LOD_MERGED;
+export const hidesCovered = (level: number): boolean => level !== 0;
 
 /** Switches (test hook / bench). */
 export const lodSettings = { on: true };
@@ -69,20 +70,29 @@ export interface LodBuild { cells: ArrayBuffer; count: number; keep: number[] }
 const CELL_WORD = 16 | 128;
 
 /**
- * Bins rows `ids` of store `s` into cells. `c`: the block centre the records are relative to
- * (units). Rows too big for a cell are kept as they are.
+ * Bins rows of store `s` into cells, a few rows at a time (render/instances.ts spreads a block's
+ * build over frames): add() each row in order, then finish(). `c`: the block centre the records are
+ * relative to (units). Rows too big for a cell are kept as they are (add returns false). The
+ * result is the same whatever the slices: only the order of the rows counts.
  */
-export function buildLod(s: SceneStore, ids: readonly number[], c: readonly [number, number, number], level = 1): LodBuild {
-  const sc = 4 ** (level - 1), CX = CELL * sc, CZ = CELL_Z * sc;
+export class LodBuilder {
+  private readonly CX: number; private readonly CZ: number;
+  private at = new Map<number, number>();
   // per cell (E floats from index * E): lo x y z, hi x y z (union), best volume, best top, colour, flags
-  const E = 10, at = new Map<number, number>();
-  let tab = new Float64Array(1024 * E), n = 0;
-  const keep: number[] = [];
-  for (let q = 0; q < ids.length; q++) {
-    const id = ids[q]!, h = worldHalfOf(s.orient[id]!, s.hx[id]!, s.hy[id]!, s.hz[id]!);
+  private tab = new Float64Array(1024 * E);
+  private n = 0;
+  constructor(private readonly s: SceneStore, private readonly c: readonly [number, number, number], level = 1) {
+    const sc = 4 ** (level - 1);
+    this.CX = CELL * sc; this.CZ = CELL_Z * sc;
+  }
+
+  /** Bins row id; false when it is too big for a cell (the caller keeps it as it is). */
+  add(id: number): boolean {
+    const s = this.s, c = this.c, CX = this.CX, CZ = this.CZ, at = this.at;
+    const h = worldHalfOf(s.orient[id]!, s.hx[id]!, s.hy[id]!, s.hz[id]!);
     const hx = h[0], hy = h[1], hz = h[2];
-    if (hx * 2 > CX || hy * 2 > CX || hz * 2 > CZ) { keep.push(q); continue; }
-    if (!(hx > 0 && hy > 0 && hz > 0)) continue;
+    if (hx * 2 > CX || hy * 2 > CX || hz * 2 > CZ) return false;
+    if (!(hx > 0 && hy > 0 && hz > 0)) return true;
     const x = s.px[id]! - c[0], y = s.py[id]! - c[1], z = s.pz[id]! - c[2];
     const x0 = x - hx, y0 = y - hy, z0 = z - hz, x1 = x + hx, y1 = y + hy, z1 = z + hz;
     const col = s.color[id]!, lin = (s.flags[id]! & F_LINEAR) !== 0 ? 256 : 0;
@@ -94,12 +104,13 @@ export function buildLod(s: SceneStore, ids: readonly number[], c: readonly [num
       if (v <= 0) continue;
       const k = ((a + 512) * 1024 + (b + 512)) * 1024 + (d + 512);
       const i = at.get(k);
+      let tab = this.tab;
       if (i === undefined) {
-        if ((n + 1) * E > tab.length) { const t = new Float64Array(tab.length * 2); t.set(tab); tab = t; }
-        const o = n * E;
+        if ((this.n + 1) * E > tab.length) { const t = new Float64Array(tab.length * 2); t.set(tab); this.tab = tab = t; }
+        const o = this.n * E;
         tab[o] = lx; tab[o + 1] = ly; tab[o + 2] = lz; tab[o + 3] = ux; tab[o + 4] = uy; tab[o + 5] = uz;
         tab[o + 6] = v; tab[o + 7] = uz; tab[o + 8] = col; tab[o + 9] = lin;
-        at.set(k, n++);
+        at.set(k, this.n++);
         continue;
       }
       const o = i * E;
@@ -111,21 +122,39 @@ export function buildLod(s: SceneStore, ids: readonly number[], c: readonly [num
       if (uz > tab[o + 5]!) tab[o + 5] = uz;
       if (v > tab[o + 6]! || (v === tab[o + 6]! && uz > tab[o + 7]!)) { tab[o + 6] = v; tab[o + 7] = uz; tab[o + 8] = col; tab[o + 9] = lin; }
     }
+    return true;
   }
-  const data = new ArrayBuffer(n * 24);
-  const i16 = new Int16Array(data), u16 = new Uint16Array(data), u32 = new Uint32Array(data);
-  for (let j = 0; j < n; j++) {
-    // whole-unit centre and half-extents: an odd span grows by one unit (invisible at this scale)
-    const w = j * 12, o = j * E;
-    for (let i = 0; i < 3; i++) {
-      const l = tab[o + i]!; let hh = tab[o + 3 + i]!;
-      if ((hh - l) & 1) hh++;
-      i16[w + i] = (l + hh) / 2; u16[w + 4 + i] = (hh - l) / 2;
+
+  /** The cells' 24-byte instance records (relative to `c`) and their count. */
+  finish(): { cells: ArrayBuffer; count: number } {
+    const n = this.n, tab = this.tab;
+    const data = new ArrayBuffer(n * 24);
+    const i16 = new Int16Array(data), u16 = new Uint16Array(data), u32 = new Uint32Array(data);
+    for (let j = 0; j < n; j++) {
+      // whole-unit centre and half-extents: an odd span grows by one unit (invisible at this scale)
+      const w = j * 12, o = j * E;
+      for (let i = 0; i < 3; i++) {
+        const l = tab[o + i]!; let hh = tab[o + 3 + i]!;
+        if ((hh - l) & 1) hh++;
+        i16[w + i] = (l + hh) / 2; u16[w + 4 + i] = (hh - l) / 2;
+      }
+      i16[w + 3] = 0;
+      u16[w + 7] = CELL_WORD | tab[o + 9]!;
+      u32[j * 6 + 4] = tab[o + 8]!;
+      u32[j * 6 + 5] = 0;
     }
-    i16[w + 3] = 0;
-    u16[w + 7] = CELL_WORD | tab[o + 9]!;
-    u32[j * 6 + 4] = tab[o + 8]!;
-    u32[j * 6 + 5] = 0;
+    return { cells: data, count: n };
   }
-  return { cells: data, count: n, keep };
+}
+/** Floats per cell in LodBuilder's table. */
+const E = 10;
+
+/**
+ * Bins rows `ids` of store `s` into cells in one go (LodBuilder). `c`: the block centre the records
+ * are relative to (units). Rows too big for a cell are kept as they are.
+ */
+export function buildLod(s: SceneStore, ids: readonly number[], c: readonly [number, number, number], level = 1): LodBuild {
+  const B = new LodBuilder(s, c, level), keep: number[] = [];
+  for (let q = 0; q < ids.length; q++) if (!B.add(ids[q]!)) keep.push(q);
+  return { ...B.finish(), keep };
 }

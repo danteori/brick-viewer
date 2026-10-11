@@ -8,7 +8,7 @@ import { BEVEL, BEVEL_FIT, SHADE, STEP } from '../core/units.ts';
 import type { V3 } from '../scene/brick.ts';
 import { G, bodyShape, drawBody, setBox } from './draw.ts';
 import { drawInstances, inst, setFarLod, syncInstances, type ViewCull } from './instances.ts';
-import { hidesCovered, LOD_MERGED, LOD_MERGED_BOX, lodLevel, lodSettings, MERGE_MIN_CHUNKS } from './lod.ts';
+import { hidesCovered, LOD_HIDE, lodLevel, lodSettings, MERGE_MIN_CHUNKS } from './lod.ts';
 import { syncScene } from '../scene/sync.ts';
 import { drawGrid } from './grid.ts';
 import { drawExtras, extrasDepth } from './extras.ts';
@@ -63,8 +63,8 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
   if (zr !== 60) { ortho[10] = -1 / zr; cull.depth = zr; gl.uniformMatrix4fv(u.uMVP, false, mul(ortho, view)); }
   // far LOD (render/lod.ts) by how many device pixels a stud (0.2 view units) is
   let level = lodSettings.on ? lodLevel(0.2 * h / (2 * half * fy)) : 0;
-  if ((level === LOD_MERGED || level === LOD_MERGED_BOX) && inst.set!.chunks.size < MERGE_MIN_CHUNKS) level = 0;
-  setFarLod(level);
+  if (level === LOD_HIDE && inst.set!.chunks.size < MERGE_MIN_CHUNKS) level = 0;
+  setFarLod(level);                          // LOD_HIDE draws per chunk as full detail does
   // covered faces are dropped only from the approximate levels on, and never in the X-ray cutaway
   // (its hole exposes them)
   gl.uniform1f(u.uShowHidden, cutOn || !hidesCovered(level) ? 1 : 0);

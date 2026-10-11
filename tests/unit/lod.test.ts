@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { SceneStore } from '../../src/scene/store.ts';
 import { putPlain } from '../../src/scene/view.ts';
-import { buildLod, CELL, LOD_MERGED, LOD_MERGED_BOX, lodLevel } from '../../src/render/lod.ts';
+import { buildLod, CELL, LOD_HIDE, LodBuilder, lodLevel } from '../../src/render/lod.ts';
 
 const add = (s: SceneStore, pos: [number, number, number], size: [number, number, number], color: [number, number, number, number] = [10, 20, 30, 5]): number => {
   const id = s.alloc();
@@ -32,13 +32,28 @@ describe('far LOD cells', () => {
 
   it('picks coarser levels as studs shrink', () => {
     expect(lodLevel(12)).toBe(0);
-    expect(lodLevel(6)).toBe(LOD_MERGED);
-    expect(lodLevel(2)).toBe(LOD_MERGED);
-    expect(lodLevel(1)).toBe(LOD_MERGED_BOX);
-    expect(lodLevel(0.75)).toBe(LOD_MERGED_BOX);
+    expect(lodLevel(6)).toBe(0);
+    expect(lodLevel(1.5)).toBe(0);
+    expect(lodLevel(1)).toBe(LOD_HIDE);
+    expect(lodLevel(0.75)).toBe(LOD_HIDE);
     expect(lodLevel(0.7)).toBe(1);
     expect(lodLevel(0.25)).toBe(2);
     expect(lodLevel(0.06)).toBe(3);
     expect(lodLevel(0.001)).toBe(4);
+  });
+
+  it('builds the same cells whether the rows come in one go or a few at a time', () => {
+    const s = new SceneStore(), ids: number[] = [];
+    for (let i = 0; i < 300; i++) ids.push(add(s, [(i * 37) % 400, (i * 53) % 300, 6 + 12 * (i % 7)], [5 + (i % 4) * 5, 5, 6], [i % 256, 40, 80, 5]));
+    ids.push(add(s, [200, 200, 2], [400, 400, 2]));
+    for (const level of [1, 2]) {
+      const one = buildLod(s, ids, [100, 100, 0], level);
+      const B = new LodBuilder(s, [100, 100, 0], level), keep: number[] = [];
+      for (let a = 0; a < ids.length; a += 7) for (let q = a; q < Math.min(ids.length, a + 7); q++) if (!B.add(ids[q]!)) keep.push(q);
+      const r = B.finish();
+      expect(r.count).toBe(one.count);
+      expect(keep).toEqual(one.keep);
+      expect(new Uint8Array(r.cells)).toEqual(new Uint8Array(one.cells));
+    }
   });
 });
