@@ -12,6 +12,7 @@ import { SHADE } from '../../core/units.ts';
 import { TONEMAP_GLSL } from './tonemap.ts';
 import { MATERIALS_GLSL } from '../materials.ts';
 import { CUT_VS_GLSL } from '../cutaway.ts';
+import { BRICK_FX_GLSL } from '../fx/glsl.ts';
 
 /** a GLSL float literal */
 export const glf = (v: number): string => { const s = String(+v); return /[.e]/.test(s) ? s : s + '.0'; };
@@ -187,6 +188,9 @@ uniform float uSpecAA;
 const float SPEC_AA_T = ${glf(SHADE.SPEC_AA_T)}, SPEC_AA_K = ${glf(SHADE.SPEC_AA_K)}, SPEC_AA_CAP = ${glf(SHADE.SPEC_AA_CAP)};
 ${TONEMAP_GLSL}
 ${MATERIALS_GLSL}
+#ifdef FX
+${BRICK_FX_GLSL}
+#endif
 float smin(float a, float b, float k){ float h = clamp(0.5 + 0.5*(b-a)/k, 0.0, 1.0); return mix(b, a, h) - k*h*(1.0-h); }
 // Stud surface height (in stud widths) at cell coord c (-0.5..0.5): flat top, sloped sides, a
 // valley at the cell border, with every crease slightly rounded.
@@ -380,7 +384,15 @@ void main(){
   float spec = pow(max(dot(n, normalize(L + vEyeL)), 0.0), 28.0) * 0.32 * bent * sk;
   if (nv > 0.0) spec = min(spec, SPEC_AA_CAP);     // an aliased pixel's glint can't approach white on dark plastic
   vec3 albedo = vMisc.x > 0.5 ? vBase : toLinear(vBase);
+#ifdef FX
+  // graphics effects (render/fx): sun shadow on the direct terms, SSAO on the ambient ones, then
+  // the water and the fog
+  float fxSh = d > 0.0 ? fxShadow(orientGL(uint(vOrient + 0.5)) * nG) : 1.0, fxAo = fxAO();
+  d *= fxSh; spec *= fxSh;
+  vec3 lit = fxAtmos((albedo * (uSky*fxAo + uSun*d) + uFloor*fxAo + spec) * shade);
+#else
   vec3 lit = (albedo * (uSky + uSun*d) + uFloor + spec) * shade;
+#endif
   if (uMat > 0.5) {
     // Glass, translucent plastic and hologram are one-sided, as in the game: a face turned away
     // from the camera (the underside seen from above, the top from below, the far sides) isn't
@@ -399,6 +411,9 @@ void main(){
       fragColor = uMatPass < 0.5 ? vec4(pow((1.0 - F)*T, vec3(1.0/2.2)), 1.0) : vec4(ueFilmic(uExposure * F * uSky), 1.0);
     } else if (uMat < 2.5) {
       vec3 surf = (albedo * (uSky + uSun*d) + uFloor*TRANSLUCENT_FLOOR_SCALE) * shade;
+#ifdef FX
+      surf = fxAtmos(surf);
+#endif
       fragColor = vec4(ueFilmic(uExposure * surf), translucentOpacity(inten));
     } else if (uMat > 4.5) {
       // hologram: premultiplied (blend ONE, ONE_MINUS_SRC_ALPHA): the scene behind shows through by
@@ -410,9 +425,15 @@ void main(){
       // lit-plastic share that grows with intensity
       vec3 r = orientGL(uint(vOrient + 0.5)) * reflect(-normalize(vEyeL), n);
       vec3 c = metalColor(albedo, inten, r.y, uSky, uSky + uSun*d) * shade + spec;
+#ifdef FX
+      c = fxAtmos(c);
+#endif
       fragColor = vec4(mix(ueFilmic(uExposure * c), SEL_TINT, vMisc.y * SEL_MIX), 1.0);
     } else {
       vec3 e = uExposure * glowColor(albedo, inten);
+#ifdef FX
+      if (uMatPass < 1.5) e = uExposure * fxAtmos(glowColor(albedo, inten));
+#endif
       fragColor = uMatPass > 1.5 ? vec4(e, 1.0) : vec4(mix(ueFilmic(e), SEL_TINT, vMisc.y * SEL_MIX), 1.0);
     }
     return;

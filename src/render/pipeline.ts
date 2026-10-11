@@ -22,6 +22,8 @@ import { perfBegin, perfEnd, perfMark } from './perf.ts';
 import { useBrickVariant } from './gl.ts';
 import { cutActive, setCutUniforms } from './cutaway.ts';
 import { movedBox } from '../editor/move.ts';
+import { fxFrameOn, fxLight, fxPrepass, fxProgram, fxWater, type FxCtx } from './fx/frame.ts';
+import { fx as fxState } from './fx/state.ts';
 
 /** index in the cube's faces of the near face for X (+-x), Y (+-GL z), Z (top +y, bottom -y) */
 export const faceOf = (i: number): number => (i === 0 ? (S.ns[0] > 0 ? 0 : 1) : i === 1 ? (S.ns[1] > 0 ? 4 : 5) : (S.ns[2] > 0 ? 2 : 3));
@@ -29,7 +31,10 @@ export const faceOf = (i: number): number => (i === 0 ? (S.ns[0] > 0 ? 0 : 1) : 
 /** Draws one frame into a w x h drawing buffer; returns the ortho scale (sx, sy) for the DOM overlays. */
 export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { sx: number; sy: number } {
   const cutOn = cutActive();
-  useBrickVariant(G, cutOn);                 // the X-ray cutaway's program only while it's on
+  // graphics effects (render/fx): their program variant only while they're on; off, the frame is the original one
+  const fxOn = fxFrameOn();
+  if (fxOn) fxProgram(cutOn, true);
+  else useBrickVariant(G, cutOn);            // the X-ray cutaway's program only while it's on
   const { gl, u } = G, { cam, dlo, dhi } = S;
   perfBegin(); perfMark('setup');
   gl.viewport(0, 0, w, h);
@@ -47,6 +52,7 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
   if (cutOn) setCutUniforms(G);
   { const P = LIGHTING[S.lighting]; gl.uniform3fv(u.uSun, P.sun); gl.uniform3fv(u.uSky, P.sky); gl.uniform3fv(u.uFloor, P.floor); gl.uniform1f(u.uExposure, P.exposure); }
   { const L = lightDir(); gl.uniform3f(u.uLight, L[0], L[1], L[2]); }
+  if (fxOn) fxLight(LIGHTING[S.lighting]!, S.lighting);   // world-fixed sun (or moon)
   // hologram animation clock (seconds, wrapped to keep float precision); frozen in test mode so
   // golden captures stay deterministic
   gl.uniform1f(u.uTime, S.testMode ? 0 : (performance.now() / 1000) % 1000);
@@ -68,6 +74,22 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
   // covered faces are dropped only from the approximate levels on, and never in the X-ray cutaway
   // (its hole exposes them)
   gl.uniform1f(u.uShowHidden, cutOn || !hidesCovered(level) ? 1 : 0);
+  const drawFocus = (): void => {
+    const b = S.focus;
+    if (!hasFocus() || !b || focusIsSpecial() || S.hidden.has(S.sel)) return;   // empty scene, glass / glow (drawMaterials has it), or being moved
+    drawBody(b, dlo, dhi, S.selection.has(S.sel) ? 1 : 0, bodyShape(b, dlo, dhi, S.scene.orient[S.sel]));
+  };
+  let fxc: FxCtx | null = null;
+  if (fxOn) {
+    // shadow map and SSAO passes, the effects' uniforms, then the sky behind everything
+    perfMark('fx');
+    fxc = {
+      w, h, ortho, view, mvp: mul(ortho, view), half, fx, fy, zr, cull, lodLevel: level, cutOn,
+      light: LIGHTING[S.lighting]!, presetKey: S.lighting,
+      drawOpaque: (cl, ground) => { drawInstances(drawFocus, cl); drawMetallic(dlo, dhi); drawExtras(cl); if (ground) drawGround(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxIB); },
+    };
+    fxPrepass(fxc);
+  }
   perfMark('opaque');
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxIB);
   gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(1, 1);
@@ -81,19 +103,15 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
   const bumpFade = Math.max(0, Math.min(1, (studPx(0) * STEP / S.STEPS[0] / SHADE.BUMPS - 1.5) / 2.5));
   gl.uniform1f(u.uBump, SHADE.BUMP_STRENGTH * bumpFade);
   drawGroundBackdrop(ortho, view);           // the far ground plate, if an environment shows one
-  const drawFocus = (): void => {
-    const b = S.focus;
-    if (!hasFocus() || !b || focusIsSpecial() || S.hidden.has(S.sel)) return;   // empty scene, glass / glow (drawMaterials has it), or being moved
-    drawBody(b, dlo, dhi, S.selection.has(S.sel) ? 1 : 0, bodyShape(b, dlo, dhi, S.scene.orient[S.sel]));
-  };
   drawInstances(drawFocus, cull);
   perfMark('extras');
   drawExtras(cull);                          // read-only dynamic grids (none unless a world placed some)
   drawGround();                              // the ground plate (off unless an environment is applied)
+  if (fxc) { perfMark('fxWater'); fxWater(fxc); }   // the water surface over what's under it
   perfMark('materials');
   drawMaterials(dlo, dhi);                   // glow, metallic, then glass / translucent / hologram back to front (if any)
   perfMark('bloom');
-  if (bloomPass && hasGlow()) {              // full build: the glow halo
+  if (bloomPass && hasGlow() && fxState.want.bloom) {              // full build: the glow halo
     // the depth-only pass takes the shader's early exit (uEdge): its colour is masked off anyway
     // and only the bodies over glow on screen (glowCull: the rest can't hide any); the focused
     // brick glowing: everything in view

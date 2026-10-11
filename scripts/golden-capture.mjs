@@ -4,6 +4,9 @@
 //   npm run golden:capture -- --target full        new app (dist/)          -> tests/golden/full/
 //   npm run golden:capture -- --target lite        new app (dist-lite/)     -> tests/golden/lite/
 //   npm run golden:capture -- ships                only saves whose path contains "ships"
+//   npm run golden:capture -- --target full --gfx  graphics effects on (L-03) -> tests/golden/full-gfx/:
+//                                                  iso0, close and below with the default environment,
+//                                                  plus iso0 with water; no preset shots
 //
 // Every target is driven through the same page API, window.__brickTest:
 //   - the new app has it built in (load it with ?test);
@@ -29,8 +32,10 @@ const args = process.argv.slice(2);
 const ti = args.indexOf('--target');
 const TARGET = ti >= 0 ? args[ti + 1] : 'legacy';
 const filter = args.filter((a, i) => !a.startsWith('--') && i !== ti + 1)[0] ?? '';
+const GFX = args.includes('--gfx');
 if (!['legacy', 'full', 'lite'].includes(TARGET)) { console.error(`unknown target ${TARGET}`); process.exit(2); }
-const OUT = TARGET === 'legacy' ? join(ROOT, 'tests/golden') : join(ROOT, `tests/golden/${TARGET}`);
+if (GFX && TARGET === 'legacy') { console.error('--gfx needs --target full or lite'); process.exit(2); }
+const OUT = TARGET === 'legacy' ? join(ROOT, 'tests/golden') : join(ROOT, `tests/golden/${TARGET}${GFX ? '-gfx' : ''}`);
 
 if (!existsSync(join(REFS, 'saves'))) {
   console.log(`no reference saves at ${REFS}; nothing to capture`);
@@ -114,6 +119,8 @@ async function shoot(file, meta) {
 }
 const setView = (v, baseZoom) => page.evaluate((a) => window.__brickTest.setView(a), { k: v.k, pitchDeg: v.pitchDeg, zoom: v.zoom, baseZoom });
 const setPreset = (p) => page.evaluate((p) => window.__brickTest.setPreset(p), p);
+const setGfx = (env) => page.evaluate((env) => window.__brickTest.setGraphics({ on: true, env }), env);
+const GFX_VIEWS = ['iso0', 'close', 'below'];
 
 // the startup scene (one red 2x2), before any save is loaded
 if (!filter) {
@@ -130,11 +137,18 @@ for (const entry of ENTRIES) {
   const status = await page.evaluate(({ b64, name }) => window.__brickTest.loadSave(b64, name), { b64, name: basename(rel) });
   console.log(`loaded ${rel}: ${status.status}`);
   await setPreset('default');
-  for (const v of VIEWS.filter((v) => !entry.views || entry.views.includes(v.name))) {
+  if (GFX) await setGfx('default');
+  for (const v of VIEWS.filter((v) => (!entry.views || entry.views.includes(v.name)) && (!GFX || GFX_VIEWS.includes(v.name)))) {
     await setView(v, status.zoom);
-    await shoot(`${stem}__${v.name}.png`, { save: rel, view: v, preset: 'default', bricks: status.bricks });
+    await shoot(`${stem}__${v.name}.png`, { save: rel, view: v, preset: 'default', bricks: status.bricks, gfx: GFX });
   }
-  if (rel === PALETTE) {
+  if (GFX) {
+    await setGfx('water');
+    await setView(VIEWS[0], status.zoom);
+    await shoot(`${stem}__water.png`, { save: rel, view: VIEWS[0], preset: 'env', bricks: status.bricks, gfx: true });
+    await setGfx('none');
+  }
+  if (rel === PALETTE && !GFX) {
     for (const p of PRESETS) {
       await setPreset(p);
       await setView(VIEWS[0], status.zoom);

@@ -8,6 +8,10 @@ const MARKUP = `
 <svg id="ov"></svg>
 <div id="hud"></div>
 <div id="side">
+  <div id="viewmode" role="group" aria-label="Mode">
+    <button type="button" data-vm="explore" aria-pressed="true" title="Explore: look around freely. Drag orbits, right-drag or WASD pans (Shift = faster), scroll zooms toward the cursor. Clicks never touch bricks; double-click a brick to edit it">Explore</button>
+    <button type="button" data-vm="edit" aria-pressed="false" title="Edit: select, resize, move, paint and place bricks. Esc clears the selection, then returns to Explore">Edit</button>
+  </div>
   <div id="tool" role="group" aria-label="Tool">
     <button type="button" data-tool="resize" aria-pressed="true" title="Resize (1): drag to resize the focused brick">Resize</button>
     <button type="button" data-tool="move" aria-pressed="false" title="Move (2 or M): drag like Resize, but the focused brick or the selection moves along one axis">Move</button>
