@@ -1,10 +1,10 @@
-// Lite size budget (ARCHITECTURE.md section 2): dist-lite/brick-viewer.html must stay <= 490 KB (raised from 300 KB on 2026-10-10 as the editor grew, to 460 KB for Explore / Edit, then to 490 KB for the graphics pass: sky, fog, water and the world-fixed sun in lite, about 23 KB),
+// Lite size budget (ARCHITECTURE.md section 2): dist-lite/brick-viewer.html must stay <= 490 KB (raised from 300 KB on 2026-10-10 as the editor grew, to 460 KB for Explore / Edit, then to 490 KB for the graphics pass: sky, fog, water and the world-fixed sun in lite, about 23 KB, then to 510 KB for the moving-grid tools),
 // and full-only libraries must stay out of it (sql.js is loaded lazily by the full build only).
 import { readFileSync, statSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 
 const FILE = 'dist-lite/brick-viewer.html';
-const BUDGET = 505 * 1024;
+const BUDGET = 510 * 1024;
 const FULL_ONLY = [['sql.js', /initSqlJs|sqlite3_open/]];
 const bytes = statSync(FILE).size;
 const html = readFileSync(FILE);
