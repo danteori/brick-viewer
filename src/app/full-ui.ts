@@ -1,5 +1,5 @@
 // Full-build UI, loaded lazily through features.ts (the lite build never imports it):
-//   - the Environment panel (src/ui/panels/environment.ts), floating next to the left column;
+//   - the Environment and Graphics panels, opened from the Esc menu, floating next to the left column;
 //   - the Map: a toggleable top-down overview of the opened save with click-to-focus.
 
 import { S } from './state.ts';
@@ -13,6 +13,7 @@ import { BRZ_UNIT } from '../core/units.ts';
 import { keepZoom, selectBrick } from '../editor/resize.ts';
 import { initAudio, playSelect } from '../ui/audio.ts';
 import { $ } from '../ui/dom.ts';
+import { closeWindow, registerPanel } from '../ui/windows.ts';
 import { createGraphicsPanel, type GraphicsPanel } from '../ui/panels/graphics.ts';
 
 const h = <K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string, string> = {}, text = ''): HTMLElementTagNameMap[K] => {
@@ -33,7 +34,8 @@ export function mountFullUi(): void {
 // ---------------------------------------------------------------------------------- graphics
 function initGraphicsUi(): void {
   const btn = h('button', { type: 'button', id: 'gfxbtn', 'aria-expanded': 'false', 'aria-controls': 'gfxpanel', title: 'Graphics settings: shadows, SSAO, water, quality presets (the graphics .bp of the game)' }, 'Graphics');
-  (document.getElementById('envbtn') ?? $('lightbox')).after(btn);
+  const envBtn = document.getElementById('envbtn');
+  if (envBtn) envBtn.after(btn); else $('mview').prepend(btn);
   const box = h('div', { id: 'gfxpanel', hidden: '' });
   document.body.append(box);
   stopDrag(btn); stopDrag(box);
@@ -43,9 +45,10 @@ function initGraphicsUi(): void {
     box.hidden = !open;
     btn.setAttribute('aria-expanded', String(open));
     if (open && !panel) { panel = createGraphicsPanel({ onClose: () => { show(false); btn.focus(); } }); box.append(panel.el); }
-    if (open) { place(); const env = document.getElementById('envpanel'); if (env && !env.hidden) document.getElementById('envbtn')?.click(); }
+    if (open) { closeWindow('escmenu'); place(); const env = document.getElementById('envpanel'); if (env && !env.hidden) document.getElementById('envbtn')?.click(); }
   };
   btn.addEventListener('click', () => show(box.hidden !== false));
+  registerPanel(() => !box.hidden, () => show(false));
   document.getElementById('envbtn')?.addEventListener('click', () => { if (!box.hidden) show(false); });
   addEventListener('resize', () => { if (!box.hidden) place(); });
 }
@@ -53,7 +56,7 @@ function initGraphicsUi(): void {
 // ------------------------------------------------------------------------------- environment
 function initEnvironmentUi(): void {
   const btn = h('button', { type: 'button', id: 'envbtn', 'aria-expanded': 'false', 'aria-controls': 'envpanel', title: 'Sky, sun, clouds, fog, water and ground plate settings (.bp)' }, 'Environment');
-  $('lightbox').after(btn);
+  $('mview').prepend(btn);
   const box = h('div', { id: 'envpanel', hidden: '' });
   document.body.append(box);
   stopDrag(btn); stopDrag(box);
@@ -75,9 +78,10 @@ function initEnvironmentUi(): void {
       });
       box.append(panel.el);
     }
-    if (open) place();
+    if (open) { closeWindow('escmenu'); place(); }
   };
   btn.addEventListener('click', () => show(box.hidden !== false));
+  registerPanel(() => !box.hidden, () => show(false));
   addEventListener('resize', () => { if (!box.hidden) place(); });
   onWorldEnvironment((e, kind) => { if (panel) { fromWorld = true; panel.set(e, kindOf(kind)); } });
 }

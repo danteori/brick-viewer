@@ -14,6 +14,7 @@ import { readEntities } from '../../src/format/entities.ts';
 import { fileMapView } from '../../src/format/saveview.ts';
 import { extractBricks } from '../../src/format/world.ts';
 import { gridWorld } from '../unit/gridworld.ts';
+import { inMenu } from './windows.ts';
 
 type P2 = [number, number];
 interface Grid { id: number; origin: number[]; frac: number[]; quat: number[]; ids: number[] }
@@ -123,7 +124,7 @@ for (const [label, path] of [['full', '/?test'], ['lite', '/lite.html?test']] as
 
     // the saved world: the entity is where the grid now is
     const dl = page.waitForEvent('download');
-    await page.locator('#savebrdb').click();
+    await inMenu(page, () => page.locator('#savebrdb').click());
     const files = await flatWorld(new Uint8Array(readFileSync((await (await dl).path())!)));
     const e = readEntities(fileMapView(files)).byIndex.get(2)!;
     expect(e.location[0]).toBeCloseTo(g2.origin[0]! + g2.frac[0]!, 3);
@@ -171,7 +172,7 @@ test('full: New grid from a selection, Move to grid and a typed place, saved in 
   await expect(status(page)).toContainText('into grid 2');
   // Save .brz: three grids' worth of bricks where they are, two entities
   const dl = page.waitForEvent('download');
-  await page.locator('#savebrz').click();
+  await inMenu(page, () => page.locator('#savebrz').click());
   const files = readBrz(new Uint8Array(readFileSync((await (await dl).path())!)));
   const t = readEntities(fileMapView(files));
   expect(t.entities.map((e) => e.persistentIndex).sort()).toEqual([2, 3]);

@@ -3,6 +3,7 @@
 // id, box and colour.
 
 import { expect, test, type Page } from '@playwright/test';
+import { inMenu } from './windows.ts';
 
 type Row = [number, number[], number[], number[]];
 interface Api {
@@ -50,9 +51,8 @@ function expectOnly(before: Row[], after: Row[], gone: number[]): void {
 test('cut and delete remove only the selection, with holes in the free list; undo / redo exact', async ({ page }) => {
   await page.goto('/?test');
   await page.waitForFunction(() => !!(window as unknown as W).__brickTest);
-  await page.locator('#btoggle').click();
   await page.evaluate(() => (window as unknown as W).__brickTest.settle());
-  await page.locator('#pastemode button[data-paste="brick"]').click();
+  await inMenu(page, () => page.locator('#pastemode button[data-paste="brick"]').click());
   await pasteGrid(page, 6, 0.6, 0);
   const r0 = await rows(page);
   expect(r0.length).toBe(37);

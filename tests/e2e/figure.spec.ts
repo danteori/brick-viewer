@@ -28,7 +28,6 @@ const UNIT = 0.02;          // viewer units per Brickadia unit (a plate, 4 units
 test('P shows the figure beside the focused brick, 48 units tall on its base level; clicks pass through; P hides it', async ({ page }) => {
   await page.goto('/?test');
   await page.waitForFunction(() => !!(window as unknown as W).__brickTest);
-  await page.locator('#btoggle').click();
   await page.locator('#ptoggle').click();
   await settle(page);
   expect(await api(page, () => (window as unknown as W).__brickTest.figureBoxes())).toEqual([]);

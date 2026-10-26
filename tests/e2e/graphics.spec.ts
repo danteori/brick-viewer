@@ -2,6 +2,7 @@
 // test hook turns them on. Startup brick only, no private data.
 
 import { expect, test, type Page } from '@playwright/test';
+import { inMenu } from './windows.ts';
 
 interface GState { shadow: boolean; shadowTexel: number; ao: number; water: boolean; on: boolean }
 interface Api {
@@ -54,8 +55,8 @@ test('effects are off in ?test, then shadows, SSAO and water run without GL erro
 
 test('the Graphics panel loads a game preset and marks what is not implemented', async ({ page }) => {
   await page.goto('/?test');
-  await page.waitForSelector('#gfxbtn');
-  await page.locator('#gfxbtn').click();
+  await page.waitForSelector('#gfxbtn', { state: 'attached' });
+  await inMenu(page, () => page.locator('#gfxbtn').click());
   const panel = page.locator('#gfxpanel');
   await expect(panel).toBeVisible();
   await expect(panel.locator('.envp-ni').first()).toHaveText('Not Implemented');
@@ -74,7 +75,7 @@ test('the Graphics panel loads a game preset and marks what is not implemented',
   expect(text).toContain('"shadowQuality": 3');
   expect(text).toContain('"oldKey": true');
   // the Environment panel marks its unrendered rows too
-  await page.locator('#envbtn').click();
+  await inMenu(page, () => page.locator('#envbtn').click());
   await expect(page.locator('#gfxpanel')).toBeHidden();
   await expect(page.locator('#envpanel [data-key="rain"] .envp-ni')).toHaveCount(1);
   await expect(page.locator('#envpanel [data-key="wind"] .envp-ni')).toHaveCount(0);

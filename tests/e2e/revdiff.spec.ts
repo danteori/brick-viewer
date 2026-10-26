@@ -6,6 +6,7 @@ import { appendRevision, BrdbWorld, writeNewWorld } from '../../src/format/brdb.
 import { readBrz } from '../../src/format/brz.ts';
 import { nodeSql } from '../unit/brdb-helpers.ts';
 import { synthSave } from '../unit/synthsave.ts';
+import { openWin } from './windows.ts';
 
 test.describe.configure({ timeout: 90_000 });
 
@@ -31,6 +32,7 @@ for (const [label, path] of [['full', '/?test'], ['lite', '/lite.html?test']] as
     await page.waitForFunction(() => !!(window as unknown as { __brickTest?: unknown }).__brickTest);
     await page.locator('#pick').setInputFiles({ name: 'synthetic.brdb', mimeType: 'application/octet-stream', buffer: world });
     await expect(status(page)).toContainText('synthetic.brdb: 2 bricks', { timeout: 30_000 });
+    await openWin(page, 'escmenu');
     const out = page.locator('#revdiff');
     await expect(page.locator('#revdiffbox')).toBeVisible();
     // Live = #3, against #2: one brick added, one repainted

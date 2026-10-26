@@ -1,11 +1,11 @@
-// The Sound row in the left column: a mute toggle and a master volume slider for the editor's
+// The Sound row in the Esc menu: a mute toggle and a master volume slider for the editor's
 // synthesised sounds (src/ui/audio.ts keeps both in localStorage).
 
 import { $ } from '../dom.ts';
 import { getVolume, initAudio, isMuted, playSelect, setMuted, setVolume } from '../audio.ts';
 
 export function initSoundPanel(): void {
-  const btn = $<HTMLButtonElement>('mute'), vol = $<HTMLInputElement>('vol'), box = $('soundbox');
+  const btn = $<HTMLButtonElement>('mute'), vol = $<HTMLInputElement>('vol');
   const sync = (): void => {
     const m = isMuted();
     btn.setAttribute('aria-pressed', String(m)); btn.textContent = m ? 'Muted' : 'On';
@@ -15,6 +15,5 @@ export function initSoundPanel(): void {
   btn.addEventListener('click', () => { setMuted(!isMuted()); sync(); initAudio(); playSelect(); });
   vol.addEventListener('input', () => { setVolume(+vol.value / 100); if (isMuted()) setMuted(false); sync(); });
   vol.addEventListener('change', () => { initAudio(); playSelect(); });   // a preview tick at the new level
-  for (const t of ['pointerdown', 'dblclick']) box.addEventListener(t, (e) => e.stopPropagation());
   sync();
 }

@@ -3,6 +3,7 @@
 // that would overlap. Uses only the startup brick, so it needs no private saves.
 
 import { expect, test, type Page } from '@playwright/test';
+import { inMenu } from './windows.ts';
 
 type P2 = [number, number];
 interface Box { lo: number[]; hi: number[] }
@@ -55,12 +56,11 @@ async function click(page: Page, at: P2): Promise<void> {
 async function twoBricks(page: Page): Promise<void> {
   await page.goto('/?test');
   await page.waitForFunction(() => !!(window as unknown as W).__brickTest);
-  await page.locator('#btoggle').click();          // fold the side panels: the bricks stay clickable
   await page.locator('#ptoggle').click();
   await settle(page);
   await page.mouse.move(640, 790);
   await page.keyboard.press('Control+c');
-  await page.locator('#pastemode button[data-paste="brick"]').click();
+  await inMenu(page, () => page.locator('#pastemode button[data-paste="brick"]').click());
   await page.keyboard.press('Control+v');
   const at = await page.evaluate(() => {          // ground 0.6 beyond A's +X face: B is centred there
     const { lo, hi } = (window as unknown as W).__brickTest.focusBox();

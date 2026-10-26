@@ -129,6 +129,17 @@ in both and compares the results.
   SQLite (public domain) as wasm to read and write `.brdb` worlds. Full build only, loaded on
   demand; the lite build doesn't contain it.
 
+## Design credits
+
+The Menu (Esc) and Bricks (B) windows use a Brickadia-community look. The styles are in
+`src/ui/styles.css`, under "Windows".
+
+- [heightmap2brz](https://github.com/Meshiest/heightmap2brz) by cake (Meshiest), used with his
+  permission: the text and title colours, the title outline, the selection colour and the
+  button spacing.
+- [omegga](https://github.com/brickadia-community/omegga) (ISC): the dark navy colour ladder,
+  the muted text colour, the corner radii and the side-menu button shape.
+
 ## Licence
 
 MIT; see [LICENSE](LICENSE). Bundled third-party code keeps its own licence (fzstd, sql.js: MIT).

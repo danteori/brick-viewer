@@ -6,10 +6,11 @@
 
 import { viewOf, type Mat4 } from '../core/math.ts';
 import { STEP } from '../core/units.ts';
-import { ELEV, S, YAW0 } from '../app/state.ts';
+import { ELEV, S, YAW0, hasFocus } from '../app/state.ts';
 import type { V3 } from '../scene/brick.ts';
 import { pinned, proposedBox } from '../editor/resize.ts';
-import { hold, isExplore } from '../app/mode.ts';
+import { isFree } from '../app/mode.ts';
+import { centrePoint } from './freecam.ts';
 
 export const PITCH_MIN = -80 * Math.PI / 180, PITCH_MAX = 80 * Math.PI / 180;   // below 0 = looking up at the underside
 export const ZOOM_MIN = 0.3, ZOOM_MAX = 20000;        // wide: a whole big build framed around one small brick
@@ -91,7 +92,7 @@ export function fitHalf(l: readonly number[], h: readonly number[]): number {
   return Math.max(minHalf(), 1.25 * (x1 - x0) / 2 / fx, 1.25 * (y1 - y0) / 2 / fy);
 }
 
-/** Frames the focused brick at once: Explore after a load or an undo (the glide in updateCamera only runs in Edit). */
+/** Frames the focused brick at once (the free camera, after a load). */
 export function frameFocus(): void {
   const [x0, x1, y0, y1] = extents(S.lo, S.hi);
   S.cam.x = (x0 + x1) / 2; S.cam.y = (y0 + y1) / 2;
@@ -114,39 +115,56 @@ export function updateCamera(w: number, h: number): void {
   const { orbit, cam, dlo, dhi } = S;
   for (let i = 0; i < 3; i++) { dlo[i] = S.lo[i]; dhi[i] = S.hi[i]; }   // snap straight to whole-stud sizes, no easing
   const turning = orbit.dragging || isoSettling();
+  const pivot = isFree() && isoSettling() ? settlePivot() : null;
+  const before = pivot && viewDir(pivot[0], pivot[1], pivot[2]);
   orbit.yaw += (orbit.yawT - orbit.yaw) * 0.25; orbit.pitch += (orbit.pitchT - orbit.pitch) * 0.25;
   if (!isoSettling()) { orbit.yaw = orbit.yawT; orbit.pitch = orbit.pitchT; }
   S.view = viewOf(orbit.yaw, orbit.pitch);
-  if (isExplore()) return;                               // Explore: the free camera (render/freecam.ts) owns the position and zoom
+  if (pivot && before) {
+    const after = viewDir(pivot[0], pivot[1], pivot[2]);
+    cam.x += after[0] - before[0]; cam.y += after[1] - before[1];
+  }
 
   const asp = w / h, fx = Math.max(asp, 1), fy = Math.max(1 / asp, 1);
   const [pl, ph] = proposedBox();
   const ul = dlo.map((v, i) => Math.min(v, pl[i])) as V3, uh = dhi.map((v, i) => Math.max(v, ph[i])) as V3;   // default + ghost
   const [x0, x1, y0, y1] = extents(ul, uh);
+  if (isFree()) {
+    if (S.held && !S.userZoomed) keepOnScreen(x0, x1, y0, y1, fx, fy);
+    return;
+  }
   if (turning) {
     // rotating: keep the brick centred exactly (a lagging pan would swim around the spin)
-    cam.x = (x0 + x1) / 2; cam.y = (y0 + y1) / 2; hold.cam = false;
+    cam.x = (x0 + x1) / 2; cam.y = (y0 + y1) / 2;
     const needHalf = S.zoomMul * fitHalf(ul, uh);
     cam.half += (needHalf - cam.half) * 0.12;
   } else if (!S.held || S.autoCenter) {
     // released (or auto-center on): glide to the box's centre and fit it with margin
     const needHalf = S.zoomMul * fitHalf(ul, uh);
-    if (!hold.cam) { cam.x += ((x0 + x1) / 2 - cam.x) * 0.12; cam.y += ((y0 + y1) / 2 - cam.y) * 0.12; }   // Edit entered without a click: stay where Explore left the camera
+    cam.x += ((x0 + x1) / 2 - cam.x) * 0.12; cam.y += ((y0 + y1) / 2 - cam.y) * 0.12;
     cam.half += (needHalf - cam.half) * 0.12;
-  } else if (!S.userZoomed) {
-    // dragging: no panning. Only zoom out if the box nears the screen edge, about the pinned point.
-    const P = pinned(), H = cam.half, B = 0.9;
-    const ux = (P[0] - cam.x) / (H * fx), uy = (P[1] - cam.y) / (H * fy);
-    let k = 1;
-    const fit = (dq: number, u: number): void => {
-      if (dq > 0 && B - u > 0.05) k = Math.max(k, dq / (B - u));
-      if (dq < 0 && B + u > 0.05) k = Math.max(k, -dq / (B + u));
-    };
-    fit((x1 - P[0]) / (H * fx), ux); fit((x0 - P[0]) / (H * fx), ux);
-    fit((y1 - P[1]) / (H * fy), uy); fit((y0 - P[1]) / (H * fy), uy);
-    cam.half = H + (H * k - H) * 0.2;
-    cam.x = P[0] - ux * cam.half * fx; cam.y = P[1] - uy * cam.half * fy;
-  }
+  } else if (!S.userZoomed) keepOnScreen(x0, x1, y0, y1, fx, fy);
+}
+
+/** The point the view turns about while it eases to an iso corner (free camera): the focused brick's centre, else the screen centre. Relative to the render origin. */
+function settlePivot(): V3 {
+  if (!hasFocus()) return centrePoint();
+  return [0, 1, 2].map((i) => (S.lo[i] + S.hi[i]) / 2 - S.origin[i]!) as V3;
+}
+
+/** Dragging: no panning. Only zoom out if the box [x0..x1, y0..y1] nears the screen edge, about the pinned point. */
+function keepOnScreen(x0: number, x1: number, y0: number, y1: number, fx: number, fy: number): void {
+  const cam = S.cam, P = pinned(), H = cam.half, B = 0.9;
+  const ux = (P[0] - cam.x) / (H * fx), uy = (P[1] - cam.y) / (H * fy);
+  let k = 1;
+  const fit = (dq: number, u: number): void => {
+    if (dq > 0 && B - u > 0.05) k = Math.max(k, dq / (B - u));
+    if (dq < 0 && B + u > 0.05) k = Math.max(k, -dq / (B + u));
+  };
+  fit((x1 - P[0]) / (H * fx), ux); fit((x0 - P[0]) / (H * fx), ux);
+  fit((y1 - P[1]) / (H * fy), uy); fit((y0 - P[1]) / (H * fy), uy);
+  cam.half = H + (H * k - H) * 0.2;
+  cam.x = P[0] - ux * cam.half * fx; cam.y = P[1] - uy * cam.half * fy;
 }
 
 /** The camera's settle signature (test hook): unchanged values mean the glide has stopped. */

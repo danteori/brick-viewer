@@ -11,6 +11,7 @@ import { readBrz } from '../../src/format/brz.ts';
 import { bytesSource } from '../../src/format/sqlitelazy.ts';
 import { nodeSql } from '../unit/brdb-helpers.ts';
 import { synthSave } from '../unit/synthsave.ts';
+import { closeWin, inMenu, openWin } from './windows.ts';
 
 test.describe.configure({ timeout: 90_000 });
 
@@ -38,6 +39,7 @@ for (const [label, path] of [['full', '/?test'], ['lite', '/lite.html?test']] as
     await page.waitForFunction(() => !!(window as unknown as { __brickTest?: unknown }).__brickTest);
     await page.locator('#pick').setInputFiles({ name: 'synthetic.brdb', mimeType: 'application/octet-stream', buffer: world });
     await expect(status(page)).toContainText('synthetic.brdb: 2 bricks', { timeout: 30_000 });
+    await openWin(page, 'escmenu');
     await expect(page.locator('#revbox')).toBeVisible();
     await expect(page.locator('#rev option')).toHaveCount(4);          // live + 3 revisions (the new world's own first one)
     await page.locator('#rev').selectOption({ index: 2 });               // the one-brick revision
@@ -45,13 +47,14 @@ for (const [label, path] of [['full', '/?test'], ['lite', '/lite.html?test']] as
     expect(await bricks(page)).toBe(1);
     await page.locator('#rev').selectOption({ index: 0 });
     await expect(status(page)).toContainText('synthetic.brdb: 2 bricks');
+    await closeWin(page, 'escmenu');
     const dl = page.waitForEvent('download');
-    await page.locator('#savebrz').click();
+    await inMenu(page, () => page.locator('#savebrz').click());
     expect((await dl).suggestedFilename()).toBe('synthetic (edited).brz');
     await expect(status(page)).toContainText('Saved');
     await expect(page.locator('#savebrdb')).toHaveText('Save as new world (.brdb)');
     const dw = page.waitForEvent('download');
-    await page.locator('#savebrdb').click();
+    await inMenu(page, () => page.locator('#savebrdb').click());
     const saved = await dw;
     expect(saved.suggestedFilename()).toBe('synthetic (edited).brdb');
     const bytes = new Uint8Array(readFileSync((await saved.path())!));

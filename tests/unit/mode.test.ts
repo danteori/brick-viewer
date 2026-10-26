@@ -1,35 +1,39 @@
-import { beforeEach, describe, expect, it } from 'vitest';
-import { enterEdit, enterExplore, escapeAction, getMode, hold, isEdit, isExplore, onModeChange, resetMode, setMode } from '../../src/app/mode.ts';
+import { afterEach, describe, expect, it } from 'vitest';
+import { camDrag, cameraStyle, escapeStep, isClassic, isFree, setCameraStyle } from '../../src/app/mode.ts';
 
-describe('Explore / Edit modes', () => {
-  beforeEach(() => resetMode('explore'));
+describe('camera style', () => {
+  afterEach(() => setCameraStyle('free'));
 
-  it('starts in Explore', () => {
-    expect(getMode()).toBe('explore');
-    expect(isExplore()).toBe(true);
-    expect(isEdit()).toBe(false);
+  it('starts with the free camera', () => {
+    expect(cameraStyle()).toBe('free');
+    expect(isFree()).toBe(true);
+    expect(isClassic()).toBe(false);
   });
 
-  it('switches, reports a change once and tells the listeners', () => {
-    const seen: string[] = [];
-    onModeChange((m, p) => seen.push(`${p}>${m}`));
-    expect(enterEdit()).toBe(true);
-    expect(enterEdit()).toBe(false);
-    expect(isEdit()).toBe(true);
-    expect(enterExplore()).toBe(true);
-    expect(setMode('explore')).toBe(false);
-    expect(seen).toEqual(['explore>edit', 'edit>explore']);
+  it('switches to the classic camera and clears a camera drag', () => {
+    camDrag.kind = 'orbit';
+    setCameraStyle('classic');
+    expect(isClassic()).toBe(true);
+    expect(camDrag.kind).toBe(null);
+  });
+});
+
+describe('Esc order', () => {
+  const none = { window: false, inHand: false, selected: false };
+
+  it('closes a window first', () => {
+    expect(escapeStep({ window: true, inHand: true, selected: true })).toBe('window');
   });
 
-  it('holds the camera only on entering Edit', () => {
-    enterEdit();
-    expect(hold.cam).toBe(true);
-    enterExplore();
-    expect(hold.cam).toBe(false);
+  it('then drops the brick in hand', () => {
+    expect(escapeStep({ ...none, inHand: true, selected: true })).toBe('drop');
   });
 
-  it('Esc clears first, then leaves Edit', () => {
-    expect(escapeAction(true)).toBe('clear');
-    expect(escapeAction(false)).toBe('exit');
+  it('then deselects', () => {
+    expect(escapeStep({ ...none, selected: true })).toBe('deselect');
+  });
+
+  it('then opens the Menu', () => {
+    expect(escapeStep(none)).toBe('menu');
   });
 });

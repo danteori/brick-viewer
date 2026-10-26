@@ -4,6 +4,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { synthSave, type SynthBrick } from '../unit/synthsave.ts';
 import { readBrz } from '../../src/format/brz.ts';
 import { extractBricks } from '../../src/format/world.ts';
+import { inMenu } from './windows.ts';
 
 test.describe.configure({ timeout: 120_000 });
 
@@ -92,7 +93,7 @@ test('Mirror X: the selection mirrors in place (a ramp flips its lip), one undo 
   // a ghost (Ctrl+C, Ctrl+V of the ramp) mirrors in hand
   await page.evaluate(() => { const t = (window as unknown as W).__brickTest; t.select([]); t.focus(0); });
   await page.keyboard.press('Control+c');
-  await page.locator('#pastemode button[data-paste="brick"]').click();
+  await inMenu(page, () => page.locator('#pastemode button[data-paste="brick"]').click());
   await page.keyboard.press('Control+v'); await frames(page);
   expect((await snap(page)).ghost).toBe(true);
   await page.keyboard.press('Alt+x'); await frames(page);
@@ -130,7 +131,7 @@ test('Save selection downloads just the selection; Save to game writes a timesta
   await open(page, b64([brick(0, 0), brick(20, 0), brick(40, 0, BLUE)]), 'parts.brz');
   await page.evaluate(() => { const t = (window as unknown as W).__brickTest; const ids = t.ids(); t.select([ids[0]!, ids[2]!]); });
   const dl = page.waitForEvent('download');
-  await page.locator('#savesel').click();
+  await inMenu(page, () => page.locator('#savesel').click());
   const d = await dl;
   expect(d.suggestedFilename()).toBe('parts (selection).brz');
   const path = await d.path();
@@ -138,8 +139,8 @@ test('Save selection downloads just the selection; Save to game writes a timesta
   const files = readBrz(new Uint8Array(readFileSync(path!)));
   expect(extractBricks(files).bricks.map((b) => b.pos[0])).toEqual([0, 40]);
   // Save to game: the selection, into the (mock) picked folder
-  await expect(page.locator('#savegame')).toBeVisible();
-  await page.locator('#savegame').click();
+  await expect(page.locator('#savegame')).toBeAttached();
+  await inMenu(page, () => page.locator('#savegame').click());
   await expect.poll(() => page.evaluate(() => (window as unknown as { __saved: unknown[] }).__saved.length)).toBe(1);
   const out = await page.evaluate(() => (window as unknown as { __saved: { name: string; bytes: number[] }[] }).__saved[0]!);
   expect(out.name).toMatch(/^parts selection \d{4}-\d\d-\d\d \d\d-\d\d-\d\d\.brz$/);
@@ -147,7 +148,7 @@ test('Save selection downloads just the selection; Save to game writes a timesta
   await expect.poll(async () => (await snap(page)).status).toMatch(/into "PROJECT WORK"/);
   // nothing selected: the whole build
   await page.evaluate(() => (window as unknown as W).__brickTest.select([]));
-  await page.locator('#savegame').click();
+  await inMenu(page, () => page.locator('#savegame').click());
   await expect.poll(() => page.evaluate(() => (window as unknown as { __saved: unknown[] }).__saved.length)).toBe(2);
   const all = await page.evaluate(() => (window as unknown as { __saved: { name: string; bytes: number[] }[] }).__saved[1]!);
   expect(all.name).toMatch(/^parts \d{4}-/);
@@ -158,6 +159,6 @@ test('Save to game is hidden where the File System Access API is missing', async
   await page.addInitScript(() => { Object.defineProperty(window, 'showDirectoryPicker', { value: undefined, configurable: true }); });
   await page.goto('/?test');
   await page.waitForFunction(() => !!(window as unknown as W).__brickTest);
-  await expect(page.locator('#savesel')).toBeVisible();
+  await expect(page.locator('#savesel')).toBeAttached();
   await expect(page.locator('#savegame')).toHaveCount(0);
 });

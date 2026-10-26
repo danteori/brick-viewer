@@ -6,6 +6,7 @@ import { synthSave, type SynthBrick } from '../unit/synthsave.ts';
 import { readBrz } from '../../src/format/brz.ts';
 import { extractBricks } from '../../src/format/world.ts';
 import { readFileSync } from 'node:fs';
+import { inMenu } from './windows.ts';
 
 test.describe.configure({ timeout: 120_000 });
 
@@ -67,7 +68,7 @@ test('Applicator: type and material changes on the focused brick, undo / redo, s
   expect(s.bricks[0]!.material).toBe('BMC_Glow');
   // saved
   const dl = page.waitForEvent('download');
-  await page.locator('#savebrz').click();
+  await inMenu(page, () => page.locator('#savebrz').click());
   const files = readBrz(new Uint8Array(readFileSync((await (await dl).path())!)));
   const saved = extractBricks(files).bricks;
   expect(saved.map((b) => b.asset).sort()).toEqual(['B_2x2F_Round', 'PB_DefaultBrick']);

@@ -2,7 +2,7 @@
 // (the dimension overlay used to draw NaN coordinates before the camera was ready).
 import { expect, test } from '@playwright/test';
 
-for (const url of ['/', '/?test', '/?test&mode=explore']) {
+for (const url of ['/', '/?test', '/?test&mode=one']) {
   test(`fresh load of ${url} logs no console errors`, async ({ page }) => {
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(String(e)));

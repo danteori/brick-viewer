@@ -33,7 +33,7 @@ export const cut = {
   /** 0..1: extra tube radius around the focus, as a fraction of the view's half-height */
   size: 0.2,
   /** dead zone, viewer units above the focused brick's top (below its bottom from underneath) that are never cut */
-  keep: 9 * PLATE,                     // 3 bricks
+  keep: 15 * PLATE,
 };
 
 /** The tube in world [X,Y,Z] (absolute viewer units): centre a, axis e toward the camera, radius r; the keep level and side. */

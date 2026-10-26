@@ -15,7 +15,7 @@ import { farOf, fitHalf, PITCH_MAX, PITCH_MIN, snapToIso, studPx, toView, update
 import { viewOf } from '../core/math.ts';
 import { histBegin, histEnd } from '../scene/history.ts';
 import { applyMove, beginMove, endMove, moveFree } from './move.ts';
-import { hold, isExplore } from '../app/mode.ts';
+import { isClassic, isFree } from '../app/mode.ts';
 import { gridClick } from './grids.ts';
 import { initAudio, playClick, playError, playResize, playSelect } from '../ui/audio.ts';
 import { drawGuide, clearGuide } from '../ui/overlay/dims.ts';
@@ -150,8 +150,8 @@ export function recenter(): void {
 }
 
 /**
- * Give brick i the focus: the size menu, dimensions, name label and resizing all follow it, and the
- * camera glides over to centre on it. i < 0 (or a brick that's gone): no focus, a detached box.
+ * Give brick i the focus: the size menu, dimensions, name label and resizing all follow it (the
+ * classic camera glides over to centre on it). i < 0 (or a brick that's gone): no focus, a detached box.
  */
 export function selectBrick(i: number): void {
   if (!S.scene.alive(i)) {
@@ -159,7 +159,6 @@ export function selectBrick(i: number): void {
     S.pendAxis = -1; S.pendUnits = 0; S.lockAxis = -1; S.lastAxis = -1;
     return;
   }
-  hold.cam = false;                                      // a new focus: the camera glides onto it
   S.sel = i; const b = brickView(S.scene, i);
   S.focus = b;
   S.lo = b.lo; S.hi = b.hi; S.micro = !!b.micro;
@@ -221,11 +220,14 @@ export function keepZoom(keep: number): void {
 
 // --- Pointer input. A step fires once the cursor is SNAP of the way to the next grid line.
 export const SNAP = 0.6;
+/** The free camera snaps to the iso corner once the drag moves, not on a plain click. */
+let snapOnMove = false;
+const SNAP_PX = 3;
 
 export function onDown(e: PointerEvent, canvas: HTMLCanvasElement): void {
   if (e.button === 1) { startOrbit(e, canvas); return; }
-  if (e.button !== 0 || S.orbit.dragging || !hasFocus() || isExplore()) return;
-  hold.cam = false;
+  if (e.button !== 0 || S.orbit.dragging || !hasFocus()) return;
+  if (isFree() && S.hoverAxis < 0) return;
   if (S.hoverBrick >= 0 && S.hoverBrick !== S.sel) {            // clicked another brick: just move the focus
     const keep = S.cam.half, prev = S.sel;
     histEnd(); initAudio(); selectBrick(S.hoverBrick); playSelect();
@@ -235,7 +237,7 @@ export function onDown(e: PointerEvent, canvas: HTMLCanvasElement): void {
   }
   const moving = S.tool === 'move';
   if (!moving && fixedSize(S.focus)) return;          // rounds / cones can't be resized (they can move)
-  snapToIso();                                           // resize from a balanced iso corner
+  if (isClassic()) snapToIso(); else snapOnMove = true;   // resize from a balanced iso corner
   if (moving) { if (!beginMove()) return; } else histBegin('resize');   // the whole drag is one undo step
   S.held = true; S.grab = [0, 0, 0]; S.steppedThisDrag = false; S.userZoomed = false;
   S.lockAxis = -1; S.bannedAxis = -1; S.lastAxis = -1;
@@ -249,6 +251,7 @@ export function onDown(e: PointerEvent, canvas: HTMLCanvasElement): void {
 
 export function onUp(e?: { type: string }): void {
   clearGuide();
+  snapOnMove = false;
   if (!S.held) return;
   if (e && e.type === 'pointerup') { commit(); playClick(); }   // release commits + clicks
   else { S.pendAxis = -1; S.pendUnits = 0; S.lockAxis = -1; }         // window blur / cancel: discard the step
@@ -261,6 +264,7 @@ export function onMove(e: PointerEvent): void {
   if (!S.held || !S.anchor) return;
   if (!(e.buttons & 1)) { onUp({ type: 'pointerup' }); return; }   // left released while right still held
   const p: [number, number] = [e.clientX, e.clientY]; S.cursor = p;
+  if (snapOnMove && Math.hypot(p[0] - S.anchor[0], p[1] - S.anchor[1]) > SNAP_PX) { snapOnMove = false; snapToIso(); }
   for (let guard = 0; guard < 200; guard++) {
     const anchor: [number, number] = S.anchor!;
     const dx = p[0] - anchor[0], dy = p[1] - anchor[1], d = Math.hypot(dx, dy);
@@ -315,7 +319,7 @@ export function onRightDown(): void {
 
 // --- Middle-mouse orbit: horizontal drag spins about the vertical axis, vertical drag tilts.
 export function startOrbit(e: PointerEvent, canvas: HTMLCanvasElement): void {
-  if (S.held || isExplore()) return;                     // Explore orbits through app/explore.ts
+  if (S.held || isFree()) return;
   e.preventDefault();
   S.orbit.dragging = true; S.orbit.last = [e.clientX, e.clientY];
   try { (e.target as Element).setPointerCapture(e.pointerId); } catch { /* not capturable */ }
@@ -336,6 +340,7 @@ export function orbitMove(e: PointerEvent): void {
  * immediately about the pinned point without touching the drag state.
  */
 export function onWheel(e: WheelEvent, canvas: HTMLCanvasElement): void {
+  if (isFree()) return;
   e.preventDefault();
   const px = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? innerHeight : 1);
   const m = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, S.zoomMul * Math.exp(px * 0.0015)));

@@ -19,7 +19,8 @@ import { initCamera, updateCamera } from '../render/camera.ts';
 import { renderFrame } from '../render/pipeline.ts';
 import { edgeTick, onDown, onMove, onRightDown, onUp, onWheel, orbitMove } from '../editor/resize.ts';
 import { initExplore, exploreTick } from './explore.ts';
-import { resetMode } from './mode.ts';
+import { isClassic, setCameraStyle } from './mode.ts';
+import { initWindow } from '../ui/windows.ts';
 import { histStep } from '../scene/history.ts';
 import { initGhost } from '../editor/ghost.ts';
 import { initOps } from '../editor/ops.ts';
@@ -55,7 +56,9 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
   mountDom(root);
   const q = new URLSearchParams(location.search);
   S.testMode = q.has('test');
-  if (S.testMode && q.get('mode') !== 'explore') resetMode('edit');   // the suites and parity drive the editor: ?test starts in Edit (?test&mode=explore for Explore)
+  setCameraStyle(S.testMode && q.get('mode') !== 'one' ? 'classic' : 'free');
+  initWindow('escmenu');
+  initWindow('catwin');
   initGraphics();                             // graphics settings (stored; ?test: effects off)
   const canvas = $<HTMLCanvasElement>('c');
   const gfx = createGfx(canvas);
@@ -79,10 +82,9 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
   initWires(canvas);
   selectBrick(S.scene.first());               // the startup brick
 
-  // --- input, in the legacy order (Explore's capture listeners come first: they swallow what the editor would act on)
   initExplore(canvas);
   addEventListener('keydown', (e) => {
-    if ((e.key === 'c' || e.key === 'C') && !e.ctrlKey && !e.metaKey && !e.altKey && !(e.target instanceof HTMLInputElement)) S.autoCenter = !S.autoCenter;   // not Ctrl+C (copy)
+    if (isClassic() && (e.key === 'c' || e.key === 'C') && !e.ctrlKey && !e.metaKey && !e.altKey && !(e.target instanceof HTMLInputElement)) S.autoCenter = !S.autoCenter;
   });
   addEventListener('pointermove', (e) => { S.mouse = [e.clientX, e.clientY]; S.mouseOnCanvas = e.target === canvas; });
   document.addEventListener('pointerout', (e) => { if (!e.relatedTarget) S.mouse = null; });   // left the window

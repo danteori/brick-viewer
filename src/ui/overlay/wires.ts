@@ -1,4 +1,4 @@
-// The wire view (backlog C-03): a toggle (View > Wires, or W) that draws every wire of the opened
+// The wire view (backlog C-03): a toggle (the Wires button in the Esc menu) that draws every wire of the opened
 // save as a curve between port dots on its bricks, coloured by the kind of value it carries where
 // that's known (the target's field of the port's name). It doubles as a Connector: click an output
 // port, then an input port, to add a wire (checked with the game's rules: no fan-in, chip
@@ -20,7 +20,6 @@ import type { Wire, WireEnd } from '../../scene/wires.ts';
 import { isTyping } from '../../editor/input.ts';
 import { initAudio, playClick, playError, playSelect } from '../audio.ts';
 import { setStatus } from '../status.ts';
-import { enterEdit } from '../../app/mode.ts';
 
 /** Wire colour per value kind. */
 export const KIND_COLOUR: Record<PortKind, string> = {
@@ -59,13 +58,12 @@ export function initWires(c: HTMLCanvasElement): void {
   document.body.append(label);
   btn = document.createElement('button');
   btn.type = 'button'; btn.id = 'wiresbtn'; btn.setAttribute('aria-pressed', 'false');
-  btn.title = 'Wires (L): draw the save\'s wires between port dots; click an output dot, then an input dot, to connect them; click a wire and press Delete to remove it';
-  btn.textContent = 'Wires (L)';
-  document.getElementById('xray')!.after(btn);
+  btn.title = 'Wires: draw the save\'s wires between port dots; click an output dot, then an input dot, to connect them; click a wire and press Delete to remove it';
+  btn.textContent = 'Wires: off';
+  document.getElementById('mview')!.append(btn);
   btn.addEventListener('click', () => { setWireView(!wireView.on); initAudio(); playClick(); });
   addEventListener('keydown', (e) => {
     if (isTyping(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
-    if ((e.key === 'l' || e.key === 'L') && !e.repeat) { e.preventDefault(); setWireView(!wireView.on); return; }
     if (!wireView.on) return;
     if (e.key === 'Escape' && (wireView.from || wireView.selected)) {
       e.preventDefault(); e.stopImmediatePropagation();
@@ -87,6 +85,7 @@ export function initWires(c: HTMLCanvasElement): void {
 export function setWireView(on: boolean): void {
   wireView.on = on; wireView.from = null; wireView.selected = null; shownKey = '';
   btn.setAttribute('aria-pressed', String(on));
+  btn.textContent = on ? 'Wires: on' : 'Wires: off';
   document.body.classList.toggle('wiring', on);
   if (!on) { svg.replaceChildren(); label.hidden = true; setStatus('Wires hidden'); return; }
   const m = componentsOf(S.scene);
@@ -116,7 +115,6 @@ function onPointerDown(e: PointerEvent): void {
   const pi = el.getAttribute('data-i'), wi = el.getAttribute('data-w');
   if (pi !== null) {
     e.preventDefault();
-    enterEdit();
     const d = dots[+pi];
     if (!d) return;
     if (d.port.dir === 'out') {

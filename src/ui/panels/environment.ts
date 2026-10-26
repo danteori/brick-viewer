@@ -389,7 +389,7 @@ export function createEnvironmentPanel(opts: EnvironmentPanelOptions = {}): Envi
 
   const showMenu = (on: boolean): void => { menu.hidden = !on; btnPresets.setAttribute('aria-expanded', String(on)); };
   btnPresets.addEventListener('click', () => showMenu(menu.hidden !== false));
-  root.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !menu.hidden) { showMenu(false); btnPresets.focus(); } });
+  root.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !menu.hidden) { e.stopPropagation(); showMenu(false); btnPresets.focus(); } });
   document.addEventListener('pointerdown', (e) => { if (!menu.hidden && !head.contains(e.target as Node)) showMenu(false); });
 
   // A value-in-bar slider: drag (or click) along the bar, arrow keys step, Enter / double-click / a

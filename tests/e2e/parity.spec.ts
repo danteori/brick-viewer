@@ -13,11 +13,14 @@
 //   there (material "BMC_Plastic", top "studs", tile false, intensity 5 on the clipboard) where
 //   legacy's hand-made bricks (the startup brick, catalogue drops) leave them out. canon() drops
 //   those defaults on both sides, in the brick list and on the clipboard.
+// - U-25 menu: the paste-mode buttons are in the Esc menu. The menu closes after the click, so the
+//   page body keeps the focus where legacy keeps it on the button.
 
 import { expect, test, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { REFS, referenceSaves } from '../unit/refs.ts';
+import { inMenu } from './windows.ts';
 
 type P2 = [number, number];
 interface Api {
@@ -160,12 +163,14 @@ async function run(page: Page): Promise<{ step: string; snap: unknown }[]> {
   // copy, switch Ctrl+V to Paste brick, paste and place on the ground beside the brick
   await page.mouse.move(640, 790);
   await page.keyboard.press('Control+c');
-  await page.locator('#pastemode button[data-paste="brick"]').click();
+  await inMenu(page, () => page.locator('#pastemode button[data-paste="brick"]').click());
   await page.keyboard.press('Control+v');
   await click(page, await beside(page, 0.6, 0));
   await snap('paste');
 
   // catalogue: drag a Ramp next to it
+  const openCatalogue = async (): Promise<void> => { if (await page.locator('#catwin').count()) await page.keyboard.press('b'); };
+  await openCatalogue();
   const item = page.locator('.bitem', { hasText: /^Ramp$/ });
   await item.scrollIntoViewIfNeeded();
   const box = (await item.boundingBox())!;
@@ -181,6 +186,7 @@ async function run(page: Page): Promise<{ step: string; snap: unknown }[]> {
   // Pressing it puts "Placing ..." in the status line above the catalogue; where that rewraps (the
   // Linux runner's fonts) the list shifts under the pointer, a release on ANOTHER item, and legacy
   // cancels. So the release follows the item to where it is then, in both viewers.
+  await openCatalogue();
   const micro = page.locator('.bitem', { hasText: /^Microbrick$/ });
   await micro.scrollIntoViewIfNeeded();
   const centre = async (): Promise<P2> => { const b = (await micro.boundingBox())!; return [b.x + b.width / 2, b.y + b.height / 2]; };
@@ -200,7 +206,7 @@ async function run(page: Page): Promise<{ step: string; snap: unknown }[]> {
   await snap('place microbrick');
 
   // fold the side panels away so more of the scene is clickable, then zoom out (scroll down)
-  await page.locator('#btoggle').click();
+  if (await page.locator('#btoggle').count()) await page.locator('#btoggle').click();
   await page.locator('#ptoggle').click();
   await page.mouse.move(640, 400);
   await page.mouse.wheel(0, 500);
@@ -241,7 +247,7 @@ async function run(page: Page): Promise<{ step: string; snap: unknown }[]> {
   return out;
 }
 
-interface Snap { bricks: { lo: number[]; hi: number[]; grid?: string }[]; sel: number; status: string }
+interface Snap { bricks: { lo: number[]; hi: number[]; grid?: string }[]; sel: number; status: string; active?: string }
 
 /** A snapshot with default brick fields dropped (see the Phase 2 note at the top). */
 function canon(snap: unknown): unknown {
@@ -259,6 +265,7 @@ function canon(snap: unknown): unknown {
 function expectedApp(step: string, legacy: unknown, prev: unknown): unknown {
   const s = structuredClone(legacy) as Snap;
   if (step === 'paste') s.status = s.status.replace(/^Placed /, 'Pasted ');
+  if (s.active === 'BUTTON') s.active = 'BODY';
   if (step === 'grow into neighbour') {
     // the +Y face grows in studs until it touches the nearest same-grid brick ahead of it
     const p = prev as Snap, f = p.bricks[p.sel], over = (a: number, b: number, i: number): boolean => Math.max(f.lo[i], a) < Math.min(f.hi[i], b) - 1e-9;

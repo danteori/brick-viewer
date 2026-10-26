@@ -8,10 +8,6 @@ const MARKUP = `
 <svg id="ov"></svg>
 <div id="hud"></div>
 <div id="side">
-  <div id="viewmode" role="group" aria-label="Mode">
-    <button type="button" data-vm="explore" aria-pressed="true" title="Explore: look around freely. Drag orbits, right-drag or WASD pans (Shift = faster), scroll zooms toward the cursor. Clicks never touch bricks; double-click a brick to edit it">Explore</button>
-    <button type="button" data-vm="edit" aria-pressed="false" title="Edit: select, resize, move, paint and place bricks. Esc clears the selection, then returns to Explore">Edit</button>
-  </div>
   <div id="tool" role="group" aria-label="Tool">
     <button type="button" data-tool="resize" aria-pressed="true" title="Resize (1): drag to resize the focused brick">Resize</button>
     <button type="button" data-tool="move" aria-pressed="false" title="Move (2 or M): drag like Resize, but the focused brick or the selection moves along one axis">Move</button>
@@ -24,38 +20,47 @@ const MARKUP = `
     <button type="button" data-mode="tile" aria-pressed="false" title="Smooth Tile: flat top, no top bevel, stud underside">Smooth Tile</button>
     <button type="button" data-mode="micro" aria-pressed="false">Microbrick</button>
   </div>
-  <label id="lightbox">Lighting <select id="light" aria-label="Lighting preset"></select>
-    <button type="button" id="figure" aria-pressed="false" title="Player figure: a player-sized mannequin (4 bricks tall) beside the focused brick, for scale. Not a brick: never saved, picked or collided with (P)">Figure (P)</button></label>
-  <label id="undobox" title="How many edits Ctrl+Z can step back through">Undo steps <input id="undolim" type="number" min="1" max="500" step="1"></label>
-  <div id="soundbox" role="group" aria-label="Sound">Sound
-    <button type="button" id="mute" aria-pressed="false" title="Mute the editor sounds">On</button>
-    <input id="vol" type="range" min="0" max="100" step="1" aria-label="Sound volume" title="Sound volume">
-  </div>
   <div id="viewbox" role="group" aria-label="View">View
     <button type="button" id="underside" aria-pressed="false" title="Flip to the iso corner below the brick, or back above (U)">Underside (U)</button>
     <button type="button" id="xray" aria-pressed="false" title="X-ray: hide the bricks between the focused brick and the camera (X)">X-ray (X)</button>
+    <button type="button" id="figure" aria-pressed="false" title="Player figure: a player-sized mannequin (4 bricks tall) beside the focused brick, for scale. Not a brick: never saved, picked or collided with (P)">Figure (P)</button>
   </div>
   <div id="xraybox" hidden>
     <label title="Width of the X-ray tube around the focused brick: bricks reaching into it in front of the brick are hidden">Hole <input id="xraysize" type="range" min="0" max="100" step="1" aria-label="X-ray hole size"></label>
     <label title="Dead zone: how far above the focused brick's top nothing is cut, so furniture in the room stays (bricks)">Keep <input id="xraykeep" type="range" min="0" max="20" step="1" aria-label="X-ray dead zone above the focus, bricks"></label>
   </div>
   <div id="file">
-    <button type="button" id="open">Open save (.brz)</button>
-    <input type="file" id="pick" accept=".brz,.bp" hidden>
     <div id="status">drop or paste (Ctrl+V) a .brz</div>
-    <div id="saverow"><button type="button" id="savebrz" title="Download the scene as a .brz (uncompressed), written into the save you opened">Save .brz</button></div>
   </div>
-  <div id="pastemode" role="group" aria-label="What Ctrl+V does" title="What Ctrl+V does. Dropping a file or the Open button always opens a save.">Ctrl+V
-    <button type="button" data-paste="upload" aria-pressed="true" title="Ctrl+V opens a .brz copied in the file manager">Upload</button>
-    <button type="button" data-paste="brick" aria-pressed="false" title="Ctrl+V places the brick copied with Ctrl+C">Paste brick</button>
-  </div>
-  <section id="bricks" aria-label="Bricks catalogue">
-    <button type="button" id="btoggle" aria-expanded="true" aria-controls="bgrid">Bricks
-      ${CHEV}</button>
-    <div id="bgrid"></div>
-  </section>
 </div>
 <div id="name"></div>
+<section id="escmenu" class="win" role="dialog" aria-labelledby="escmenutitle" hidden>
+  <div class="winhead"><h2 class="wintitle" id="escmenutitle">Menu</h2><button type="button" class="winclose" aria-label="Close">×</button></div>
+  <div class="winbody">
+    <div class="mbtns" id="mfile">
+      <button type="button" id="open">Open save (.brz)</button>
+      <div id="saverow"><button type="button" id="savebrz" title="Download the scene as a .brz (uncompressed), written into the save you opened">Save .brz</button></div>
+    </div>
+    <input type="file" id="pick" accept=".brz,.bp" hidden>
+    <div class="mbtns" id="mview"></div>
+    <div class="mrows">
+      <label id="lightbox">Lighting <select id="light" aria-label="Lighting preset"></select></label>
+      <label id="undobox" title="How many edits Ctrl+Z can step back through">Undo steps <input id="undolim" type="number" min="1" max="500" step="1"></label>
+      <div id="soundbox" role="group" aria-label="Sound">Sound
+        <button type="button" id="mute" aria-pressed="false" title="Mute the editor sounds">On</button>
+        <input id="vol" type="range" min="0" max="100" step="1" aria-label="Sound volume" title="Sound volume">
+      </div>
+      <div id="pastemode" role="group" aria-label="What Ctrl+V does" title="What Ctrl+V does. Dropping a file or the Open button always opens a save.">Ctrl+V
+        <button type="button" data-paste="upload" aria-pressed="true" title="Ctrl+V opens a .brz copied in the file manager">Upload</button>
+        <button type="button" data-paste="brick" aria-pressed="false" title="Ctrl+V places the brick copied with Ctrl+C">Paste brick</button>
+      </div>
+    </div>
+  </div>
+</section>
+<section id="catwin" class="win" role="dialog" aria-labelledby="catwintitle" hidden>
+  <div class="winhead"><h2 class="wintitle" id="catwintitle">Bricks</h2><button type="button" class="winclose" aria-label="Close">×</button></div>
+  <div class="winbody"><div id="bgrid"></div></div>
+</section>
 <section id="props" aria-label="Brick properties">
   <button type="button" id="ptoggle" aria-expanded="true" aria-controls="pbody">Brick Properties
     ${CHEV}</button>

@@ -6,6 +6,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { writeBrz } from '../../src/format/brz.ts';
 import { save } from '../unit/comp-fixture.ts';
+import { inMenu } from './windows.ts';
 
 test.describe.configure({ timeout: 240_000 });   // SwiftShader renders every frame on the CPU
 
@@ -39,7 +40,7 @@ async function focusBrick(page: Page, key: string): Promise<void> {
 /** Save .brz, then open the downloaded file as the scene. */
 async function saveAndReload(page: Page): Promise<void> {
   const dl = page.waitForEvent('download');
-  await page.locator('#savebrz').click();
+  await inMenu(page, () => page.locator('#savebrz').click());
   const bytes = readFileSync((await (await dl).path())!);
   await open(page, bytes.toString('base64'), 'components (edited).brz');
 }
@@ -115,11 +116,12 @@ test('Components: add one with defaults and remove one with its wires; undo / re
   expect((await comps(page)).instances.filter((i) => i[0] === '1/1_0_0/0').map((i) => i[1]).sort()).toEqual(['Test_Light', 'Test_Switch']);
 });
 
-test('Wires: L shows them; fan-in is refused; select + Delete removes one; output -> input adds one; undo / redo; saved', async ({ page }) => {
+test('Wires: the Menu button shows them; fan-in is refused; select + Delete removes one; output -> input adds one; undo / redo; saved', async ({ page }) => {
   await open(page);
   await page.mouse.move(640, 790);
-  await page.keyboard.press('l');
+  await inMenu(page, () => page.locator('#wiresbtn').click());
   await expect(page.locator('#wiresbtn')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#wiresbtn')).toHaveText('Wires: on');
   await expect.poll(async () => (await comps(page)).drawn.ports).toBeGreaterThan(0);
   const lamp = await page.evaluate(() => { const t = (window as unknown as W).__brickTest; return (t as unknown as { ids(): number[] }).ids()[t.rowOfBrick('1/1_0_0/0')]!; });
   // fan-in: the lamp's bEnabled already has a wire (from the chip)
@@ -179,7 +181,7 @@ test('C-04: a pasted switch carries its component; the inspector edits it; saved
   await page.mouse.move(640, 790);
   await page.keyboard.press('Control+c');
   expect(await status(page)).toMatch(/with the components of 1 brick/);
-  await page.locator('#pastemode button[data-paste="brick"]').click();
+  await inMenu(page, () => page.locator('#pastemode button[data-paste="brick"]').click());
   await page.keyboard.press('Control+v');
   // on the ground beside the switch (toward -Y first: a chunk the save has no bricks in), on the canvas
   const at = await page.evaluate(() => {

@@ -15,7 +15,9 @@ import { copySelection, cutSelection, deleteSelection } from './selectops.ts';
 import { MICRO } from '../core/units.ts';
 import { setStatus } from '../ui/status.ts';
 import { initAudio, playClick, playSelect } from '../ui/audio.ts';
-import { enterExplore, escapeAction, isExplore } from '../app/mode.ts';
+import { escapeStep, isFree } from '../app/mode.ts';
+import { anyOpen, closeTop, openWindow } from '../ui/windows.ts';
+import { onUp, selectBrick } from './resize.ts';
 
 export const isTyping = (a: EventTarget | null): boolean => {
   const e = a as HTMLElement | null;
@@ -44,6 +46,17 @@ export function selectionHud(): string {
   return n
     ? `<b>${n} brick${n === 1 ? '' : 's'} selected</b> · the Move tool (2 or M) drags them along an axis · Ctrl+C / Ctrl+X copy / cut · Alt+X / Alt+Y mirror · Delete removes · Shift+click adds or removes one · Shift+drag adds a box, Ctrl+Shift+drag removes · Esc clears`
     : 'Shift+click a brick to select it · Shift+drag box-selects (Ctrl+Shift+drag removes) · Ctrl+A selects all · the Move tool (2 or M) moves the focused brick';
+}
+/** Esc: close the top window, else drop the brick in hand (or cancel the tool drag), else deselect, else open the Menu. The classic test camera keeps its focus and opens no Menu while it has one. */
+/** Esc: close the top window, else drop the brick in hand (or cancel the tool drag), else deselect, else open the Menu. */
+export function escape(): void {
+  const step = escapeStep({ window: anyOpen(), inHand: !!ed.ghost || S.held, selected: S.selection.size > 0 || (isFree() && hasFocus()) });
+  if (step === 'window') closeTop();
+  else if (step === 'drop') {
+    if (ed.ghost) endPlacing(ed.ghost.onPlace ? 'Move cancelled: the bricks are back' : 'Placement cancelled');
+    else onUp({ type: 'pointercancel' });
+  } else if (step === 'deselect') { clearSelection(); if (isFree()) selectBrick(-1); setStatus('Selection cleared'); }
+  else if (isFree() || !hasFocus()) openWindow('escmenu');
 }
 
 export function initEditorInput(canvas: HTMLCanvasElement): void {
@@ -111,9 +124,11 @@ export function initEditorInput(canvas: HTMLCanvasElement): void {
     else rotateTap(d < 0 ? 1 : -1);
   }, { capture: true, passive: false });
   addEventListener('keydown', (e) => {
-    if (isTyping(e.target)) return;
     const k = e.key, ctrl = e.ctrlKey || e.metaKey;
-    if (isExplore() && !(ctrl && !e.altKey && !e.shiftKey && (k === 'v' || k === 'V'))) return;   // Explore: only a paste (it enters Edit) is an editor key
+    if (k === 'Escape' && !ctrl && !e.altKey && (!isTyping(e.target) || (e.target as HTMLElement).tagName === 'SELECT')) {
+      e.preventDefault(); (e.target as HTMLElement).blur?.(); escape(); return;
+    }
+    if (isTyping(e.target)) return;
     if (ctrl && !e.altKey && !e.shiftKey && (k === 'c' || k === 'C')) { if (!S.held && !ed.ghost) copySelection(); return; }
     if (ctrl && !e.altKey && !e.shiftKey && (k === 'x' || k === 'X')) { if (!S.held && !ed.ghost) { e.preventDefault(); cutSelection(); } return; }
     if (ctrl && !e.altKey && !e.shiftKey && (k === 'v' || k === 'V')) { if (clip.mode === 'brick' && clip.items && !S.held) { e.preventDefault(); startPaste(); } return; }
@@ -130,16 +145,10 @@ export function initEditorInput(canvas: HTMLCanvasElement): void {
       return;
     }
     if (ed.ghost) {
-      if (k === 'Escape') { e.preventDefault(); endPlacing(ed.ghost.onPlace ? 'Move cancelled: the bricks are back' : 'Placement cancelled'); }
-      else if (k === 'PageUp' || k === 'PageDown') { e.preventDefault(); nudgeGhost(k === 'PageUp' ? 1 : -1); }
+      if (k === 'PageUp' || k === 'PageDown') { e.preventDefault(); nudgeGhost(k === 'PageUp' ? 1 : -1); }
       return;
     }
     if (k === 'Delete') { e.preventDefault(); deleteSelection(); }
-    else if (k === 'Escape') {
-      e.preventDefault();
-      if (escapeAction(S.selection.size > 0) === 'clear') { clearSelection(); setStatus('Selection cleared'); }
-      else if (!S.held && !S.orbit.dragging) { enterExplore(); setStatus('Explore mode: drag to orbit, right-drag or WASD to pan, scroll to zoom, double-click a brick to edit it'); }
-    }
   });
   // Shift+click toggles a brick in the selection; Shift+drag draws a box (Ctrl+Shift+drag removes)
   addEventListener('pointerdown', (e) => {

@@ -59,7 +59,6 @@ async function dragBottom(page: Page, plates: number): Promise<void> {
 test('U flips to the iso corner below; the bottom face drags down and up by a plate; undo restores', async ({ page }) => {
   await page.goto('/?test');
   await page.waitForFunction(() => !!(window as unknown as W).__brickTest);
-  await page.locator('#btoggle').click();
   await page.locator('#ptoggle').click();
   await settle(page);
   await page.keyboard.press('u');
@@ -116,7 +115,6 @@ test('X-ray: a click through the hole focuses an interior brick; the hole slider
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   await page.goto('/?test');
   await page.waitForFunction(() => !!(window as unknown as W).__brickTest);
-  await page.locator('#btoggle').click();
   await page.locator('#ptoggle').click();
   const focus0 = async (): Promise<void> => { await page.evaluate(() => (window as unknown as W).__brickTest.focus(0)); await settle(page); };
   await page.evaluate((b64) => (window as unknown as W).__brickTest.loadSave(b64, 'house.brz'), house);
@@ -145,6 +143,7 @@ test('X-ray: a click through the hole focuses an interior brick; the hole slider
   await page.keyboard.press('x');
   await expect(page.locator('#xray')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('#xraybox')).toBeVisible();
+  await slide(page, 'xraykeep', 3);                  // the old default: the house's roof is inside the 5-brick default
   await settle(page);
   expect(await pick()).toBe(k);                               // the roof in the way is hidden: through to the block inside
   await slide(page, 'xraysize', 0);                  // the narrowest tube still hides the roof (one brick over the focus)

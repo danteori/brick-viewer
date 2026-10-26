@@ -10,6 +10,7 @@ import { hist, setUndoLimit } from '../../scene/history.ts';
 import { initAudio, playClick } from '../audio.ts';
 import { setStatus } from '../status.ts';
 import { $ } from '../dom.ts';
+import { closeWindow } from '../windows.ts';
 
 let lightSel: HTMLSelectElement;
 
@@ -51,8 +52,8 @@ export function useLighting(k: string, p: LightPreset): void {
 
 export function initFilePanel(): void {
   const pickEl = $<HTMLInputElement>('pick');
-  $('open').addEventListener('click', () => pickEl.click());
-  for (const t of ['pointerdown', 'dblclick']) $('file').addEventListener(t, (e) => e.stopPropagation());   // not a drag
+  $('open').addEventListener('click', () => { closeWindow('escmenu'); pickEl.click(); });
+  for (const t of ['pointerdown', 'dblclick']) $('file').addEventListener(t, (e) => e.stopPropagation());
   pickEl.addEventListener('change', () => { if (pickEl.files?.[0]) void openFile(pickEl.files[0]); pickEl.value = ''; });
   addEventListener('dragover', (e) => { e.preventDefault(); document.body.classList.add('drop'); });
   addEventListener('dragleave', (e) => { if (!e.relatedTarget) document.body.classList.remove('drop'); });
@@ -69,12 +70,10 @@ export function initFilePanel(): void {
   lightSel = $<HTMLSelectElement>('light');
   for (const [k, p] of Object.entries(LIGHTING)) lightSel.add(new Option(p.name, k, false, k === S.lighting));
   lightSel.addEventListener('change', () => { S.lighting = lightSel.value; });
-  for (const t of ['pointerdown', 'dblclick']) $('lightbox').addEventListener(t, (e) => e.stopPropagation());
 
   // undo steps
   const inp = $<HTMLInputElement>('undolim');
   inp.value = String(hist.limit);
-  for (const t of ['pointerdown', 'dblclick']) $('undobox').addEventListener(t, (e) => e.stopPropagation());
   inp.addEventListener('change', () => { setUndoLimit(parseInt(inp.value, 10)); inp.value = String(hist.limit); });
 
   // Ctrl+V / Cmd+V: paste a .brz copied in the file manager (browsers only expose real files on the

@@ -2,7 +2,9 @@
 // the e2e parity scripts. The same API is built for the legacy viewer from its globals, so both are
 // driven identically.
 
-import { getMode, setMode } from './mode.ts';
+import { cameraStyle } from './mode.ts';
+import { gliding } from './explore.ts';
+import { closeWindow, openWindow, openWindows } from '../ui/windows.ts';
 import { ELEV, S, YAW0 } from './state.ts';
 import { viewOf } from '../core/math.ts';
 import { camSignature, isoSettling, toView, updateCamera, updateDirs } from '../render/camera.ts';
@@ -69,9 +71,16 @@ export interface BrickTest {
   /** the player reference figure's part boxes (absolute viewer units), empty while it's off */
   figureBoxes(): [number[], number[]][];
   /** the scene's dynamic grids (W-03): persistent index, transform and their rows' ids; null without a GridSet */
-  /** the current mode, and switching it (as the toggle does) */
+  /** the camera style: 'free' (the one mode) or 'classic' (plain ?test) */
   mode(): string;
-  setMode(m: 'explore' | 'edit'): void;
+  /** whether a double-click glide is still moving the camera */
+  gliding(): boolean;
+  /** the focused brick's list index, or -1 with no focus */
+  focused(): number;
+  /** the open windows, oldest first, and opening or closing one by id */
+  windows(): string[];
+  openWindow(id: string): void;
+  closeWindow(id: string): void;
   /** the camera: view-plane centre, half-height, yaw and pitch (radians) */
   camera(): { x: number; y: number; half: number; yaw: number; pitch: number };
   grids(): { id: number; origin: number[]; frac: number[]; quat: number[]; ids: number[] }[] | null;
@@ -159,8 +168,12 @@ export function installTestHook(canvas: HTMLCanvasElement): void {
       const v = toView(x, y, z);
       return [((v[0] - cam.x) * sx + 1) * cw / 2, (1 - (v[1] - cam.y) * sy) * ch / 2];
     },
-    mode: () => getMode(),
-    setMode: (m) => { setMode(m); },
+    mode: () => cameraStyle(),
+    gliding: () => gliding(),
+    focused: () => S.scene.ordered().indexOf(S.sel),
+    windows: () => openWindows(),
+    openWindow: (id) => { openWindow(id); },
+    closeWindow: (id) => { closeWindow(id); },
     camera: () => ({ x: S.cam.x, y: S.cam.y, half: S.cam.half, yaw: S.orbit.yaw, pitch: S.orbit.pitch }),
     focusBox: () => ({ lo: S.lo.slice(), hi: S.hi.slice() }),
     brickBox: (k) => { const b = brickView(S.scene, S.scene.ordered()[k]!); return { lo: b.lo, hi: b.hi }; },

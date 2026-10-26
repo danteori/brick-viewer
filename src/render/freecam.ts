@@ -1,4 +1,4 @@
-// Free camera moves for Explore mode (U-24): pan, orbit about a fixed point, zoom toward a point.
+// Free camera moves for the one mode (U-24, U-25): pan, orbit about a fixed point, zoom toward a point.
 // They change S.cam (the view-plane offset from the render origin, plus the half-height) and the
 // orbit angles directly, with no framing of the focused brick. The orthographic projection lives in
 // updateCamera; a perspective camera (U-24 phase B) would replace these three moves, not the callers.
