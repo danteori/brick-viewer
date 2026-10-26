@@ -6,7 +6,7 @@ import { readEntities } from '../../src/format/entities.ts';
 import { fileMapView } from '../../src/format/saveview.ts';
 import { loadComponents } from '../../src/scene/components.ts';
 import { loadWires } from '../../src/scene/wires.ts';
-import { importParts, mergeImport, placePos } from '../../src/scene/importmerge.ts';
+import { importParts, mergeImport, placePos, prefabOffset } from '../../src/scene/importmerge.ts';
 import { DYN, DYN_LOCATION, gridWorld, MAIN } from './gridworld.ts';
 import { save as compSave } from './comp-fixture.ts';
 
@@ -31,6 +31,15 @@ describe('import parts', () => {
   it('counts grid-1 bricks and dynamic grids, and finds the environment', () => {
     expect(importParts(gridWorld())).toEqual({ bricks: MAIN.length, entities: 1, environment: true, other: false });
     expect(importParts(gridWorld({ entityless: true }))).toMatchObject({ bricks: MAIN.length, entities: 0 });
+  });
+});
+
+describe('prefab placement', () => {
+  it('puts the turned outline with its low corner at the pose', () => {
+    const low = [10, 20, 0], size = [40, 20, 12], centre = [30, 30, 6];
+    for (const [turns, placed] of [[0, [70, 110, 18]], [1, [60, 120, 18]], [2, [70, 110, 18]], [3, [60, 120, 18]]] as const) {
+      expect(placePos(centre, turns, prefabOffset(low, size, turns, [1, 2, 0.24], 0.02))).toEqual(placed);
+    }
   });
 });
 

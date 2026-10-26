@@ -61,6 +61,17 @@ export function placePos(pos: readonly number[], turns: number, offset: readonly
   return apply3(zTurn(turns), pos).map((v, i) => v + (offset[i] ?? 0)) as Vec3;
 }
 
+/**
+ * The offset (save units) that puts the import's outline, turned `turns` quarter turns about Z,
+ * with its low corner at `pose` (viewer units, `unit` viewer units a save unit).
+ */
+export function prefabOffset(low: readonly number[], size: readonly number[], turns: number, pose: readonly number[], unit: number): Vec3 {
+  const R = zTurn(turns), corners = [[0, 0], [size[0]!, 0], [0, size[1]!], [size[0]!, size[1]!]].map(([x, y]) => apply3(R, [x!, y!, 0]));
+  const shift = [0, 1].map((i) => -Math.min(...corners.map((c) => c[i]!)));
+  const turnedLow = apply3(R, low);
+  return [0, 1, 2].map((i) => Math.round(pose[i]! / unit) + (shift[i] ?? 0) - Math.round(turnedLow[i]!)) as Vec3;
+}
+
 /** Grid-1 bricks of an import, turned and moved as they will be added. */
 export function placedBricks(bricks: readonly PlainBrick[], turns = 0, offset: readonly number[] = [0, 0, 0]): PlainBrick[] {
   const R = zTurn(turns);

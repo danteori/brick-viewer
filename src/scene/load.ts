@@ -178,6 +178,18 @@ export let lastLoad: LoadReport | null = null;
 const storeFiles = new WeakMap<SceneStore, FileMap>();
 export const filesOf = (s: SceneStore): FileMap | null => storeFiles.get(s) ?? null;
 
+interface LoadState { files: FileMap; complete: (() => Promise<FileMap>) | null; name: string; brz: Uint8Array | null; unsupported: SeqBrick[] }
+const loadStates = new WeakMap<SceneStore, LoadState>();
+S.hooks.afterTx.push((t) => {
+  if (t.kind !== 'scene') return;
+  const st = loadStates.get(S.scene);
+  if (!st) return;
+  loadedFiles = st.files; completeFiles = st.complete; loadedName = st.name; loadedBrz = st.brz; loadedUnsupported = st.unsupported;
+});
+
+/** How a load changes the view. `keepView`: keep the camera, the zoom and the focused place (an import into the open save). */
+export interface LoadOpts { label?: string; keepView?: boolean }
+
 /** Read a .brz and make it the scene, framed around its first brick. One undo step. */
 export function loadSave(buf: ArrayBuffer | Uint8Array, name: string): LoadReport {
   const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
@@ -188,9 +200,9 @@ export function loadSave(buf: ArrayBuffer | Uint8Array, name: string): LoadRepor
  * A save's file tree (a .brz, or a world at some revision) -> the scene. `brz`: the bytes of a
  * .brz holding the same tree, for the map. `gridNote`: one more note for the status line. `complete`: files is part of the save (it holds grid 1); this loads all of it.
  */
-export function loadFiles(files: FileMap, name: string, brz: Uint8Array | null = null, gridNote: string | null = null, complete: (() => Promise<FileMap>) | null = null): LoadReport {
+export function loadFiles(files: FileMap, name: string, brz: Uint8Array | null = null, gridNote: string | null = null, complete: (() => Promise<FileMap>) | null = null, opts: LoadOpts = {}): LoadReport {
   for (const f of S.hooks.beforeLoad) f();
-  return finishLoad({ files, ...storeFromFiles(files) }, name, brz, gridNote, complete);
+  return finishLoad({ files, ...storeFromFiles(files) }, name, brz, gridNote, complete, opts);
 }
 
 /**
@@ -232,28 +244,21 @@ export async function loadSaveAsync(buf: ArrayBuffer | Uint8Array, name: string)
 }
 
 /** loadFiles, in the parse worker when there is one and the files are big; null when superseded. */
-export async function loadFilesAsync(files: FileMap, name: string, brz: Uint8Array | null = null, gridNote: string | null = null, complete: (() => Promise<FileMap>) | null = null): Promise<LoadReport | null> {
+export async function loadFilesAsync(files: FileMap, name: string, brz: Uint8Array | null = null, gridNote: string | null = null, complete: (() => Promise<FileMap>) | null = null, opts: LoadOpts = {}): Promise<LoadReport | null> {
   let size = 0;
   for (const v of files.values()) size += v.length;
-  if (!parser || size < loadSettings.workerMinBytes) { loadGen++; return loadFiles(files, name, brz, gridNote, complete); }
+  if (!parser || size < loadSettings.workerMinBytes) { loadGen++; return loadFiles(files, name, brz, gridNote, complete, opts); }
   const p = await parseOff({ files }, name);
   if (!p) return null;
   for (const f of S.hooks.beforeLoad) f();
-  return finishLoad({ ...p, files }, name, brz, gridNote, complete);
+  return finishLoad({ ...p, files }, name, brz, gridNote, complete, opts);
 }
 
-/** The rest of a load, after its store is built (loadFiles / the async loads): the store becomes the scene. */
-function finishLoad(parsed: Parsed, name: string, brz: Uint8Array | null = null, gridNote: string | null = null, complete: (() => Promise<FileMap>) | null = null): LoadReport {
-  const { files, store, report, unsupported, order } = parsed;
-  const dyn = loadDynamicGrids(store, files);   // the moving grids, as rows of their own grids (W-03)
-  store.drain();
-  if (!store.count) throw new Error('no supported bricks in this save');
-  histEnd();
-  const prevScene = sceneSnap();
+/** The new scene's camera: the world origin, framed round the whole save from its first brick. */
+function frameNewScene(store: SceneStore): void {
   S.scene = store;
-  S.origin = [0, 0, 0];                        // a new scene: the camera's frame starts at the world origin
+  S.origin = [0, 0, 0];
   selectBrick(store.first());
-  // frame the whole save around the focused brick
   const { lo, hi } = S;
   const sl = [Infinity, Infinity, Infinity], sh = [-Infinity, -Infinity, -Infinity], bx = new Array<number>(6);
   for (const id of store.ids()) {
@@ -263,10 +268,39 @@ function finishLoad(parsed: Parsed, name: string, brz: Uint8Array | null = null,
   for (let i = 0; i < 3; i++) { sl[i] = +(sl[i]! * BRZ_UNIT).toFixed(3); sh[i] = +(sh[i]! * BRZ_UNIT).toFixed(3); }
   const c = [0, 1, 2].map((i) => (lo[i] + hi[i]) / 2), r = [0, 1, 2].map((i) => Math.max(c[i] - sl[i]!, sh[i]! - c[i]));
   S.zoomMul = Math.min(ZOOM_MAX, Math.max(1, fitHalf(c.map((v, i) => v - r[i]), c.map((v, i) => v + r[i])) / fitHalf(lo, hi)));
-  histPush({ kind: 'scene', label: 'load save', before: prevScene, after: sceneSnap() });
+}
+
+/** The row of `store` with the box and grid of the focused brick of `old`, or -1. */
+function sameBrick(store: SceneStore, old: SceneStore, sel: number): number {
+  if (sel < 0 || !old.alive(sel)) return -1;
+  const want = [...S.lo, ...S.hi].map((v) => Math.round(v / BRZ_UNIT)), grid = old.grid[sel], bx = new Array<number>(6);
+  for (const id of store.ids()) {
+    if (store.grid[id] !== grid) continue;
+    store.box(id, bx);
+    if (bx.every((v, i) => Math.round(v) === want[i])) return id;
+  }
+  return -1;
+}
+
+/** The rest of a load, after its store is built (loadFiles / the async loads): the store becomes the scene. */
+function finishLoad(parsed: Parsed, name: string, brz: Uint8Array | null = null, gridNote: string | null = null, complete: (() => Promise<FileMap>) | null = null, opts: LoadOpts = {}): LoadReport {
+  const { files, store, report, unsupported, order } = parsed;
+  const dyn = loadDynamicGrids(store, files);   // the moving grids, as rows of their own grids (W-03)
+  store.drain();
+  if (!store.count) throw new Error('no supported bricks in this save');
+  histEnd();
+  const prevScene = sceneSnap();
+  if (opts.keepView) {
+    const keep = { focus: sameBrick(store, prevScene.scene, prevScene.sel), origin: S.origin.slice() as V3, zoom: S.zoomMul };
+    S.scene = store;
+    selectBrick(keep.focus >= 0 ? keep.focus : store.first());
+    S.origin = keep.origin; S.zoomMul = keep.zoom;
+  } else frameNewScene(store);
+  histPush({ kind: 'scene', label: opts.label ?? 'load save', before: prevScene, after: sceneSnap() });
   lastLoad = { name, drawn: store.count, ...report };
   loadedFiles = files; completeFiles = complete; loadedName = name; loadedBrz = brz; loadedUnsupported = unsupported;
   storeFiles.set(store, files);
+  loadStates.set(store, { files, complete, name, brz, unsupported });
   const compErr = attachComponents(store, files, order);
   const { skipped, skippedTypes, sideways, extraGrids } = report;
   const notes = [skipped && `${skipped} unsupported skipped (${Object.entries(skippedTypes).map(([k, n]) => `${k.replace(/^(PB|BP|B)_(Default)?/, '')} ${n}`).join(', ')})`,

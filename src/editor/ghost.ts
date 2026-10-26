@@ -48,6 +48,14 @@ export interface Ghost {
   onCancel?: () => void;
   /** the point of the group held under the cursor, from its low corner (a drag-move); unset = the group's centre */
   anchor?: number[];
+  /** no per-brick overlap test while posing (an import: its drops are found once, when it is placed) */
+  noHits?: boolean;
+  /** always turn the items as one group, never one item's own shape */
+  whole?: boolean;
+  /** quarter turns about Z since the ghost started, counter-clockwise positive */
+  turns: number;
+  /** the status line when Esc cancels it */
+  cancelText?: string;
 }
 
 export const ed = {
@@ -93,14 +101,17 @@ export function itemName(t: Brick): string {
 }
 export const ghostName = (items: readonly Brick[]): string => (items.length === 1 ? itemName(items[0]) : `${items.length} bricks`);
 
-export interface PlaceOpts { drop?: boolean; ignore?: ReadonlySet<number>; onPlace?: (g: Ghost) => boolean; onCancel?: () => void; anchor?: number[] }
+export interface PlaceOpts {
+  drop?: boolean; ignore?: ReadonlySet<number>; onPlace?: (g: Ghost) => boolean; onCancel?: () => void; anchor?: number[];
+  noHits?: boolean; whole?: boolean; cancelText?: string;
+}
 
 export function startPlacing(items: Brick[], label: string, mode: 'drag' | 'click', from: HTMLElement | null, opts: PlaceOpts = {}): void {
   if (S.held) return;
   enterEdit();                                           // a brick in hand is editing
   endPlacing();
   ed.ghost = { items: cloneBrick(items), label, mode, from, dz: 0, pose: null, valid: false, reason: '', mouse: ed.lastMouse, over: ed.lastOver, visited: false, drop: !!opts.drop, skip: [],
-    ignore: opts.ignore, onPlace: opts.onPlace, onCancel: opts.onCancel, anchor: opts.anchor };
+    ignore: opts.ignore, onPlace: opts.onPlace, onCancel: opts.onCancel, anchor: opts.anchor, noHits: opts.noHits, whole: opts.whole, turns: 0, cancelText: opts.cancelText };
   document.body.classList.add('placing'); if (from) from.classList.add('on');
   initAudio();
   setStatus(`Placing ${ghostName(ed.ghost.items)}: ${mode === 'drag' ? 'release' : 'click'} in the scene to place, Esc cancels`);
@@ -197,6 +208,7 @@ export function poseGhost(): void {
   p[2] = r3(p[2] + G.dz * st[2]);
   G.pose = p;
   if (p[2] < gz - 1e-4) { G.reason = 'below the ground'; return; }
+  if (G.noHits) { G.valid = true; return; }
   // same-grid overlap: a paste drops the items that collide, any other placement is refused
   G.skip = G.items.map((t) => itemHits(p, t, G.ignore));
   if (G.drop ? G.skip.every(Boolean) : G.skip.some(Boolean)) { G.reason = 'overlaps a brick'; return; }

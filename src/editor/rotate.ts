@@ -89,8 +89,8 @@ export function rotateTap(dir: 1 | -1): void {
   const G = ed.ghost;
   if (G) {
     G.anchor = undefined;                // turned: hold it by its centre
-    if (G.items.length === 1 && turnGhostItem(f)) { initAudio(); playClick(); return; }
-    rotateItems(G.items, dir); initAudio(); playClick();          // a group turns about world Z
+    if (!G.whole && G.items.length === 1 && turnGhostItem(f)) { initAudio(); playClick(); return; }
+    rotateItems(G.items, dir); G.turns += dir; initAudio(); playClick();          // a group turns about world Z
     return;
   }
   if (rotateSelectedGrid(dir)) return;    // a whole dynamic grid selected: the grid turns (W-03)
@@ -126,7 +126,7 @@ export function reorientMove(p: [number, number]): void {
   const f = (o: number): number => reorientTo(o, d);
   const G = ed.ghost;
   if (G) {
-    if (G.items.length !== 1) { setStatus(`Reorient works on one brick; ${ghostName(G.items)} turn with R taps`); initAudio(); playError(); return; }
+    if (G.whole || G.items.length !== 1) { setStatus(`Reorient works on one brick; ${ghostName(G.items)} turn with R taps`); initAudio(); playError(); return; }
     if (turnGhostItem(f)) { initAudio(); playClick(); } else { setStatus(`Can't turn ${ghostName(G.items)} that way`); initAudio(); playError(); }
     return;
   }

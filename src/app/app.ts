@@ -4,6 +4,7 @@
 import { S } from './state.ts';
 import { loadFaceCull, loadFullUi, type FeatureFlags } from './features.ts';
 import { initWorlds } from './worlds.ts';
+import { initImporter } from './importer.ts';
 import { initWorldEnvironment } from './environment.ts';
 import { initPaintPanel } from '../ui/panels/paint.ts';
 import { initApplicatorPanel, tickApplicator } from '../ui/panels/applicator.ts';
@@ -114,6 +115,7 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
   initSoundPanel();
   initViewPanel();
   if (opts.features.brdbRead) initWorlds();
+  initImporter();
   initProps();
   initComponentsPanel();
   initSelectionPanel();

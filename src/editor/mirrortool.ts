@@ -40,6 +40,7 @@ function refuse(msg: string): false { setStatus(msg); initAudio(); playError(); 
 export function mirror(axis: MirrorAxis): boolean {
   if (S.held || S.move) return false;
   const inexact = new Set<string>(), G = ed.ghost;
+  if (G?.whole) return refuse('An import turns with R taps. It cannot be mirrored');
   if (G) {
     const w = gsize(G.items)[axis];
     G.items = mirrorGroup(G.items, axis, inexact).bricks;
