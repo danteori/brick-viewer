@@ -6,7 +6,7 @@ import { studPx } from '../render/camera.ts';
 import { ed, ghostItemsVersion, groundZ, gsize, itemName, poseGhost, type Ghost, type GhostView } from './ghost.ts';
 import { canStretch, copyCount, dragCounts, repeatCorners, repeatSpan, stretchBox, type DragMode } from './dragmath.ts';
 import { axisDragFinish, axisDragMove, newAxisDrag, type AxisDrag } from './axisdrag.ts';
-import { addBricks, keepingGhost } from './ops.ts';
+import { addBricks } from './ops.ts';
 import { setSelection } from './select.ts';
 import { noteBlock } from './resize.ts';
 import { initAudio, playClick, playError, playPaste } from '../ui/audio.ts';
@@ -153,7 +153,7 @@ function stretchView(d: Drag, k: readonly number[], strict: boolean): GhostView 
   const b = cloneBrick(t);
   b.lo = [0, 0, 0]; b.hi = box.hi.map((v, i) => r3(v - box.lo[i]!)) as V3;
   const grown = k.some(Boolean);
-  const blocked = box.lo[2] < groundZ() - 1e-4 || itemHits(box.lo, b, d.ghost.ignore);
+  const blocked = box.lo[2] < groundZ() - 1e-4 || itemHits(box.lo, b);
   if (blocked && grown && strict) { noteBlock('overlaps a brick'); return null; }
   d.capped = false; d.left = blocked ? 1 : 0;
   return { items: [b], pose: box.lo, skip: [false], valid: !blocked };
@@ -165,7 +165,7 @@ function repeatView(d: Drag, k: readonly number[], strict: boolean): GhostView |
   if (copyCount(span) > cap) { d.capped = true; if (strict) noteBlock(LIMIT_TEXT); return null; }
   const gz = groundZ(), items: Brick[] = [], skip: boolean[] = [];
   for (const c of repeatCorners(span, cell)) {
-    const hit = G.items.map((t) => c[2] + t.lo[2] < gz - 1e-4 || itemHits(c, t, G.ignore));
+    const hit = G.items.map((t) => c[2] + t.lo[2] < gz - 1e-4 || itemHits(c, t));
     const copyOut = !G.drop && hit.some(Boolean);
     G.items.forEach((t, j) => { items.push(shifted(t, c.map((v, i) => r3(v - span.lo[i]!)))); skip.push(copyOut || hit[j]!); });
   }
@@ -195,7 +195,7 @@ export function endDrag(): 'single' | 'placed' | 'refused' | 'none' {
   if (!counts(d).some(Boolean)) return 'single';
   const bricks = v.items.filter((_, j) => !v.skip[j]).map((t) => shifted(t, v.pose));
   if (!bricks.length || (d.stretch && !v.valid)) { setStatus(NONE_FIT_TEXT); initAudio(); playError(); return 'refused'; }
-  const ids = keepingGhost(() => addBricks(bricks, G.label));
+  const ids = addBricks(bricks, G.label);
   if (G.drop && ids.length > 1) setSelection(ids);
   ed.lastPlaceT = performance.now();
   initAudio(); if (G.drop) playPaste(); else playClick();

@@ -17,7 +17,7 @@ import { mirrorGroup, type MirrorAxis } from '../scene/mirror.ts';
 import { saveChunkOf } from '../scene/remap.ts';
 import { writeBrick } from '../scene/view.ts';
 import { BRZ_UNIT } from '../core/units.ts';
-import { ed, ghostItemsChanged, ghostName, gsize, itemName } from './ghost.ts';
+import { ed, ghostItemsChanged, ghostName, itemName } from './ghost.ts';
 import { effectiveIds, selectionBox } from './select.ts';
 import { componentBricks, groupItems } from './selectops.ts';
 import { focusKeepZoom } from './ops.ts';
@@ -42,9 +42,7 @@ export function mirror(axis: MirrorAxis): boolean {
   const inexact = new Set<string>(), G = ed.ghost;
   if (G?.whole) return refuse('An import turns with R taps. It cannot be mirrored');
   if (G) {
-    const w = gsize(G.items)[axis];
     G.items = mirrorGroup(G.items, axis, inexact).bricks;
-    if (G.anchor) G.anchor[axis] = r3(w - G.anchor[axis]!);
     ghostItemsChanged();
     initAudio(); playClick();
     setStatus(`Mirrored ${ghostName(G.items)} across ${NAME[axis]}` + inexactNote(inexact));

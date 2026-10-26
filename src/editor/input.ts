@@ -35,13 +35,12 @@ let rightPress: [number, number] | null = null;
 const DRAG_DEAD = 4;
 const near = (a: [number, number], e: MouseEvent): boolean => Math.hypot(e.clientX - a[0], e.clientY - a[1]) <= DRAG_DEAD;
 
-/** Places the ghost where the cursor is; a brick stays in hand, a move or an import goes away. */
+/** Places the ghost where the cursor is. It stays in hand until Esc or a right-click. */
 function placeHere(): void {
   const G = ed.ghost;
   if (!G) return;
-  const stays = canDrag(G);
-  if (placeGhost() && !stays) endPlacing();
-  if (stays) G.mode = 'click';
+  placeGhost();
+  G.mode = 'click';
 }
 
 /** A Shift+drag box select in progress (screen px), and its rectangle on the page. */
@@ -70,7 +69,7 @@ export function escape(): void {
   const step = escapeStep({ window: anyOpen(), inHand: !!ed.ghost || S.held, selected: S.selection.size > 0 || (isFree() && hasFocus()) });
   if (step === 'window') closeTop();
   else if (step === 'drop') {
-    if (ed.ghost) endPlacing(ed.ghost.cancelText ?? (ed.ghost.onPlace ? 'Move cancelled: the bricks are back' : 'Placement cancelled'));
+    if (ed.ghost) endPlacing(ed.ghost.cancelText ?? 'Placement cancelled');
     else onUp({ type: 'pointercancel' });
   } else if (step === 'deselect') { clearSelection(); if (isFree()) selectBrick(-1); setStatus('Selection cleared'); }
   else if (isFree() || !hasFocus()) openWindow('escmenu');
