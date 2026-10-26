@@ -55,7 +55,12 @@ export interface Ghost {
   turns: number;
   /** the status line when Esc cancels it */
   cancelText?: string;
+  /** the face the pose rests on: its axis (2 for the ground) and where it lies on that axis */
+  face?: { axis: number; at: number };
 }
+
+/** What the ghost pass draws: the items at a pose, which of them are dropped, and whether it's blocked. */
+export interface GhostView { items: Brick[]; pose: V3; skip: boolean[]; valid: boolean }
 
 export const ed = {
   ghost: null as Ghost | null,
@@ -64,6 +69,8 @@ export const ed = {
   lastPlaceT: -1e9,
   /** the scene's ground, remembered for an empty scene (absolute) */
   groundAbs: 0,
+  /** draws this in place of the posed ghost while it returns a view (a drag placement) */
+  preview: null as (() => GhostView | null) | null,
 };
 
 /** Items above this count are drawn instanced (a store of their own) and outlined as one box. */
@@ -73,6 +80,8 @@ let batch: { items: Brick[]; rev: number; set: ChunkSet } | null = null;
 let itemsRev = 0;
 /** The ghost's items were changed in place: redraw its batch. */
 export function ghostItemsChanged(): void { itemsRev++; }
+/** Counts in-place changes of the ghost's items (a turn, a mirror). */
+export const ghostItemsVersion = (): number => itemsRev;
 function ghostBatch(items: Brick[]): ChunkSet {
   if (batch && batch.items === items && batch.rev === itemsRev) return batch.set;
   batch?.set.dispose();
@@ -121,6 +130,7 @@ export function endPlacing(msg?: string, placed = false): void {
   if (!g) return;
   if (g.from) g.from.classList.remove('on');
   ed.ghost = null;
+  ed.preview = null;
   if (batch) { batch.set.dispose(); batch = null; }
   document.body.classList.remove('placing');
   if (!placed) g.onCancel?.();
@@ -170,7 +180,7 @@ export function cursorRay(mx: number, my: number): { vx: number; vy: number; S: 
 }
 
 /** the scene's ground: the lowest brick bottom (as the ground grid uses), remembered for an empty scene */
-function groundZ(): number {
+export function groundZ(): number {
   const z = Math.min(hasFocus() && !S.hidden.has(S.sel) ? S.dlo[2] : Infinity, inst.groundAbs);
   if (isFinite(z)) { ed.groundAbs = z; return z; }
   return ed.groundAbs;
@@ -179,7 +189,7 @@ function groundZ(): number {
 /** pose the ghost onto the face under the cursor, else the ground */
 export function poseGhost(): void {
   const G = ed.ghost!;
-  G.pose = null; G.valid = false; G.reason = ''; G.skip = [];
+  G.pose = null; G.valid = false; G.reason = ''; G.skip = []; G.face = undefined;
   if (!G.mouse || !G.over) return;
   const r = cursorRay(G.mouse[0], G.mouse[1]);
   if (!r) return;
@@ -205,6 +215,8 @@ export function poseGhost(): void {
   }
   p[2] = r3(p[2] + G.dz * st[2]);
   G.pose = p;
+  const a = hit && hit.ax >= 0 && S.scene.alive(hit.k) ? hit.ax : 2, under = a === 2 ? 1 : r.D[a] > 0 ? -1 : 1;
+  G.face = { axis: a, at: under > 0 ? p[a] : r3(p[a] + sz[a]) };
   if (p[2] < gz - 1e-4) { G.reason = 'below the ground'; return; }
   if (G.noHits) { G.valid = true; return; }
   // same-grid overlap: a paste drops the items that collide, any other placement is refused
@@ -220,24 +232,24 @@ export function poseGhost(): void {
 function drawGhost(): void {
   const G = ed.ghost;
   if (!G) return;
-  poseGhost();
-  if (!G.pose) return;
-  const { gl, u } = Gfx, p = G.pose;
-  if (G.items.length > BATCH_AT) { drawBigGhost(G); return; }
-  const boxes = G.items.map((t) => [[0, 1, 2].map((i) => p[i] + t.lo[i]), [0, 1, 2].map((i) => p[i] + t.hi[i])]);
+  const v = ed.preview?.() ?? posedView(G);
+  if (!v) return;
+  const { gl, u } = Gfx, p = v.pose;
+  if (v.items.length > BATCH_AT) { drawBigGhost(v); return; }
+  const boxes = v.items.map((t) => [[0, 1, 2].map((i) => p[i] + t.lo[i]), [0, 1, 2].map((i) => p[i] + t.hi[i])]);
   const body = (t: Brick, [l, h]: number[][]): void => drawBody(t, l, h);
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxIB);
   gl.uniform1f(u.uFadeR, 0); gl.uniform1f(u.uEdge, 0);
   gl.enable(gl.DEPTH_TEST);
   gl.colorMask(false, false, false, false); gl.depthMask(true); gl.depthFunc(gl.LESS);
-  G.items.forEach((t, j) => body(t, boxes[j]));
+  v.items.forEach((t, j) => body(t, boxes[j]));
   gl.colorMask(true, true, true, true); gl.depthMask(false); gl.depthFunc(gl.LEQUAL);
   gl.enable(gl.BLEND);
-  gl.blendColor(0, 0, 0, G.valid ? 0.6 : 0.35); gl.blendFunc(gl.CONSTANT_ALPHA, gl.ONE_MINUS_CONSTANT_ALPHA);
-  G.items.forEach((t, j) => body(t, boxes[j]));
+  gl.blendColor(0, 0, 0, v.valid ? 0.6 : 0.35); gl.blendFunc(gl.CONSTANT_ALPHA, gl.ONE_MINUS_CONSTANT_ALPHA);
+  v.items.forEach((t, j) => body(t, boxes[j]));
   gl.uniform1f(u.uEdge, 1); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-  const red = (j: number): boolean => !G.valid || !!G.skip[j];     // blocked, or a pasted brick that will be dropped
-  gl.uniform4f(u.uLine, 1, 0.12, 0.08, 0.5); G.items.forEach((t, j) => { if (red(j)) body(t, boxes[j]); });
+  const red = (j: number): boolean => !v.valid || !!v.skip[j];     // blocked, or a pasted brick that will be dropped
+  gl.uniform4f(u.uLine, 1, 0.12, 0.08, 0.5); v.items.forEach((t, j) => { if (red(j)) body(t, boxes[j]); });
   gl.disable(gl.DEPTH_TEST);
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxEB);
   boxes.forEach(([l, h], j) => {
@@ -250,9 +262,14 @@ function drawGhost(): void {
   setBox(S.dlo, S.dhi);
 }
 
+function posedView(G: Ghost): GhostView | null {
+  poseGhost();
+  return G.pose ? { items: G.items, pose: G.pose, skip: G.skip, valid: G.valid } : null;
+}
+
 /** drawGhost for a big group: the same passes, instanced, with one outline round the whole group. */
-function drawBigGhost(G: Ghost): void {
-  const { gl, u } = Gfx, p = G.pose!, set = ghostBatch(G.items), off = set.opts.offset!;
+function drawBigGhost(G: GhostView): void {
+  const { gl, u } = Gfx, p = G.pose, set = ghostBatch(G.items), off = set.opts.offset!;
   for (let i = 0; i < 3; i++) off[i] = p[i]! / BRZ_UNIT;
   set.sync();
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxIB);

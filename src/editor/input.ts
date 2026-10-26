@@ -18,6 +18,7 @@ import { initAudio, playClick, playSelect } from '../ui/audio.ts';
 import { escapeStep, isFree } from '../app/mode.ts';
 import { anyOpen, closeTop, openWindow } from '../ui/windows.ts';
 import { onUp, selectBrick } from './resize.ts';
+import { beginDrag, cancelDrag, canDrag, dragHud, dragging, endDrag, toggleDragMode } from './dragplace.ts';
 
 export const isTyping = (a: EventTarget | null): boolean => {
   const e = a as HTMLElement | null;
@@ -26,6 +27,10 @@ export const isTyping = (a: EventTarget | null): boolean => {
 };
 
 let rShift = false;
+
+/** Where a drag placement was pressed (screen px): a release within DRAG_DEAD px is a plain click. */
+let press: [number, number] | null = null;
+const DRAG_DEAD = 4;
 
 /** A Shift+drag box select in progress (screen px), and its rectangle on the page. */
 let box: { x0: number; y0: number; x1: number; y1: number; remove: boolean; dragging: boolean; id: number } | null = null;
@@ -78,7 +83,7 @@ export function initEditorInput(canvas: HTMLCanvasElement): void {
   S.hooks.hud.push(() => {
     const G = ed.ghost;
     return G
-      ? `<b>placing ${ghostName(G.items)}</b>${G.pose && !G.valid ? ` <b style="color:#ff7a66">(blocked: ${G.reason})</b>` : ''} · ` +
+      ? `<b>placing ${ghostName(G.items)}</b>${G.pose && !G.valid ? ` <b style="color:#ff7a66">(blocked: ${G.reason})</b>` : ''} · ${dragHud()} · ` +
         `${G.mode === 'drag' ? 'release' : 'click'} to place · R or Ctrl+scroll rotates (Shift+R back), hold R and drag toward an axis to point the top that way · ` +
         `PgUp / PgDn or Shift+scroll raise / lower one ${gsteps(G.items)[2] === MICRO ? 'micro' : 'plate'}${G.dz ? ` (<b>${G.dz > 0 ? '+' : ''}${G.dz}</b>)` : ''} · Esc or right-click cancels`
       : 'drag a brick from Bricks into the scene (or click it, then click to place) · Ctrl+C copies the focused brick · ' +
@@ -98,10 +103,25 @@ export function initEditorInput(canvas: HTMLCanvasElement): void {
     if (!G || e.target !== canvas || e.button === 1) return;     // the middle button still orbits
     e.stopImmediatePropagation(); e.preventDefault();
     if (e.button === 2) { endPlacing('Placement cancelled'); return; }
-    if (e.button === 0 && G.mode === 'click' && placeGhost()) endPlacing();
+    if (e.button !== 0 || G.mode !== 'click') return;
+    if (canDrag(G) && beginDrag(G)) {
+      press = [e.clientX, e.clientY];
+      try { canvas.setPointerCapture(e.pointerId); } catch { /* not capturable */ }
+      return;
+    }
+    if (placeGhost()) endPlacing();
   }, true);
   addEventListener('pointerup', (e) => {
     const G = ed.ghost;
+    if (G && e.button === 0 && dragging()) {
+      const p0 = press!, still = Math.hypot(e.clientX - p0[0], e.clientY - p0[1]) <= DRAG_DEAD;
+      press = null;
+      if (still) cancelDrag();
+      const r = still ? 'single' : endDrag();
+      if (r === 'single') { G.mouse = p0; G.over = true; if (placeGhost()) endPlacing(); }
+      else if (r === 'placed') endPlacing(undefined, true);
+      return;
+    }
     if (!G || G.mode !== 'drag' || e.button !== 0) return;
     G.mouse = [e.clientX, e.clientY]; G.over = e.target === canvas;
     if (G.over) { placeGhost(); endPlacing(); return; }           // refused: placeGhost said why
@@ -146,6 +166,7 @@ export function initEditorInput(canvas: HTMLCanvasElement): void {
     }
     if (ed.ghost) {
       if (k === 'PageUp' || k === 'PageDown') { e.preventDefault(); nudgeGhost(k === 'PageUp' ? 1 : -1); }
+      if ((k === 'j' || k === 'J') && !e.repeat) { e.preventDefault(); toggleDragMode(); }
       return;
     }
     if (k === 'Delete') { e.preventDefault(); deleteSelection(); }
@@ -186,5 +207,6 @@ export function initEditorInput(canvas: HTMLCanvasElement): void {
   addEventListener('keyup', (e) => {
     if ((e.key === 'r' || e.key === 'R') && reorienting() && endReorient()) rotateTap(rShift ? -1 : 1);
   });
-  addEventListener('blur', () => { endReorient(); if (ed.ghost && ed.ghost.mode === 'drag') endPlacing(); });
+  addEventListener('pointercancel', () => { if (dragging()) { cancelDrag(); press = null; } }, true);
+  addEventListener('blur', () => { endReorient(); cancelDrag(); press = null; if (ed.ghost && ed.ghost.mode === 'drag') endPlacing(); });
 }
