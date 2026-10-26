@@ -115,6 +115,7 @@ test('opens a .brdb world with its revisions', async ({ page }) => {
   const brz = referenceSaves()[0];
   if (brz) {
     await page.locator('#pick').setInputFiles(join(REFS, brz));
+    await page.locator('#imp-new').click();
     await expect(page.locator('#revbox')).toHaveAttribute('hidden');
   }
   expect(errors).toEqual([]);
