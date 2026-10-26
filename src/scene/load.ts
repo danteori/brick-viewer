@@ -9,6 +9,7 @@ import { BrickShapes } from '../render/meshes/shapes.js';
 import { readBrz, type FileMap } from '../format/brz.ts';
 import { extractBricks, type PlainBrick } from '../format/world.ts';
 import { BRZ_UNIT } from '../core/units.ts';
+import { mainBuild } from './framing.ts';
 import { linearByteToSrgb } from '../core/colour.ts';
 import { rampDir, sideCode, type Brick, type SaveExtras, type V3 } from './brick.ts';
 import { roundHalf } from '../render/meshes/registry.ts';
@@ -254,18 +255,15 @@ export async function loadFilesAsync(files: FileMap, name: string, brz: Uint8Arr
   return finishLoad({ ...p, files }, name, brz, gridNote, complete, opts);
 }
 
-/** The new scene's camera: the world origin, framed round the whole save from its first brick. */
+/** The new scene's camera: the world origin, framed round the main build (the biggest cluster of bricks). */
 function frameNewScene(store: SceneStore): void {
   S.scene = store;
   S.origin = [0, 0, 0];
-  selectBrick(store.first());
+  const main = mainBuild(store);
+  selectBrick(main ? main.focus : store.first());
+  if (!main) return;
   const { lo, hi } = S;
-  const sl = [Infinity, Infinity, Infinity], sh = [-Infinity, -Infinity, -Infinity], bx = new Array<number>(6);
-  for (const id of store.ids()) {
-    store.box(id, bx);
-    for (let i = 0; i < 3; i++) { sl[i] = Math.min(sl[i]!, bx[i]!); sh[i] = Math.max(sh[i]!, bx[i + 3]!); }
-  }
-  for (let i = 0; i < 3; i++) { sl[i] = +(sl[i]! * BRZ_UNIT).toFixed(3); sh[i] = +(sh[i]! * BRZ_UNIT).toFixed(3); }
+  const sl = main.lo.map((v) => +(v * BRZ_UNIT).toFixed(3)), sh = main.hi.map((v) => +(v * BRZ_UNIT).toFixed(3));
   const c = [0, 1, 2].map((i) => (lo[i] + hi[i]) / 2), r = [0, 1, 2].map((i) => Math.max(c[i] - sl[i]!, sh[i]! - c[i]));
   S.zoomMul = Math.min(ZOOM_MAX, Math.max(1, fitHalf(c.map((v, i) => v - r[i]), c.map((v, i) => v + r[i])) / fitHalf(lo, hi)));
 }
