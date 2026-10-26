@@ -398,3 +398,5 @@ body.placing canvas { cursor:copy !important; }
 #props #ctxdone:hover { background:#6CBB4A; }
 #escmenu #viewbox button[aria-pressed="true"] { background:var(--br-select); }
 #escmenu #xraybox label { gap:8px; }
+#props.ctx.placing > :not(#menu):not(#mode) { display:none; }
+body :not(svg):not(svg *) { font-family:var(--br-font) !important; }

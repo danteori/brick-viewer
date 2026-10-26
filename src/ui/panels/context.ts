@@ -88,9 +88,9 @@ function showFlags(): void {
 
 const frozen = (): boolean => S.held || props.matches(':hover') || props.contains(document.activeElement);
 
-function place(): void {
+function place(docked: boolean): void {
   if (frozen()) return;
-  const w = props.offsetWidth, h = props.offsetHeight, vw = innerWidth, vh = innerHeight, r = focusRect;
+  const w = props.offsetWidth, h = props.offsetHeight, vw = innerWidth, vh = innerHeight, r = docked ? null : focusRect;
   let x = vw - w - MARGIN, y = MARGIN;
   if (r) {
     const right = r[2] + GAP, left = r[0] - GAP - w;
@@ -112,7 +112,7 @@ export function initContextPanel(): void {
   done = el('button', { type: 'button', id: 'ctxdone' }, placeholder('DONE'));
   done.addEventListener('click', () => { dismissed = true; props.hidden = true; done.blur(); });
   props.append(done);
-  for (const [id, open] of [['ptoggle', false], ['seltoggle', false], ['comptoggle', true]] as const) {
+  for (const [id, open] of [['seltoggle', false], ['comptoggle', true]] as const) {
     const t = $<HTMLButtonElement>(id);
     if ((t.getAttribute('aria-expanded') === 'true') !== open) t.click();
   }
@@ -124,9 +124,10 @@ export function tickContextPanel(): void {
   if (!isFree()) { showFlags(); return; }
   const key = `${S.sel}|${S.selection.size}`;
   if (key !== openKey || S.scene !== lastScene) { openKey = key; lastScene = S.scene; dismissed = false; }
-  const show = (hasFocus() || S.selection.size > 0) && !dismissed && !ed.ghost;
+  const placing = !!ed.ghost, show = placing || ((hasFocus() || S.selection.size > 0) && !dismissed);
   if (props.hidden === show) props.hidden = !show;
+  props.classList.toggle('placing', placing);
   if (!show) return;
-  showFlags();
-  place();
+  if (!placing) showFlags();
+  place(placing);
 }

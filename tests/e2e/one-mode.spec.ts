@@ -94,6 +94,7 @@ test('Esc deselects first, then opens the Menu, then closes it', async ({ page }
 test('a click selects a brick and leaves the camera; a double-click centres on it', async ({ page }) => {
   await twoBricks(page);
   const other = (await sel(page)) === 0 ? 1 : 0;
+  await page.locator('#ctxdone').click();
   const c0 = await cam(page), s0 = await centreOf(page, 0);
   const p = await nearTopOf(page, other);
   await page.mouse.move(p[0], p[1]); await frames(page, 4);
