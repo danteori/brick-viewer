@@ -1,8 +1,9 @@
 import { S } from '../app/state.ts';
 import { forgetUnknownShapes, onUnknownShape } from '../render/meshes/registry.ts';
+import { placeholder } from './placeholder.ts';
 
-const NOTICE_TEXT = '[PLACEHOLDER: unknown shapes notice]';
-const CLOSE_LABEL = '[PLACEHOLDER: close]';
+const NOTICE_TEXT = placeholder('Unknown shapes notice');
+const CLOSE_LABEL = placeholder('Close');
 
 let box: HTMLElement | null = null;
 let list: HTMLElement | null = null;

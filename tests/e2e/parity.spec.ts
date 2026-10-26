@@ -13,6 +13,8 @@
 //   there (material "BMC_Plastic", top "studs", tile false, intensity 5 on the clipboard) where
 //   legacy's hand-made bricks (the startup brick, catalogue drops) leave them out. canon() drops
 //   those defaults on both sides, in the brick list and on the clipboard.
+// - U-25 Bricks window: taking a brick from it works like a middle-click copy. It fills the
+//   clipboard with that brick and the place reports "Pasted ..."; legacy leaves the clipboard.
 // - U-25 menu: the paste-mode buttons are in the Esc menu. The menu closes after the click, so the
 //   page body keeps the focus where legacy keeps it on the button.
 
@@ -168,18 +170,25 @@ async function run(page: Page): Promise<{ step: string; snap: unknown }[]> {
   await click(page, await beside(page, 0.6, 0));
   await snap('paste');
 
-  // catalogue: drag a Ramp next to it
-  const openCatalogue = async (): Promise<void> => { if (await page.locator('#catwin').count()) await page.keyboard.press('b'); };
+  // catalogue: put a Ramp next to it (the app: click it, then click to place; legacy: drag it)
+  const isApp = (await page.locator('#catwin').count()) > 0;
+  const openCatalogue = async (): Promise<void> => { if (isApp) await page.keyboard.press('b'); };
   await openCatalogue();
   const item = page.locator('.bitem', { hasText: /^Ramp$/ });
   await item.scrollIntoViewIfNeeded();
-  const box = (await item.boundingBox())!;
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await page.mouse.down();
   const dest = await beside(page, 0, -0.5);
-  await page.mouse.move(dest[0], dest[1], { steps: 10 });
-  await frames(page);
-  await page.mouse.up();
+  if (isApp) {
+    await item.click();
+    await frames(page);
+    await click(page, dest);
+  } else {
+    const box = (await item.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(dest[0], dest[1], { steps: 10 });
+    await frames(page);
+    await page.mouse.up();
+  }
   await snap('place ramp');
 
   // catalogue: click Microbrick (press and release on it: placing by click), turn it with R, click to place.
@@ -247,7 +256,16 @@ async function run(page: Page): Promise<{ step: string; snap: unknown }[]> {
   return out;
 }
 
-interface Snap { bricks: { lo: number[]; hi: number[]; grid?: string }[]; sel: number; status: string; active?: string }
+interface Snap { bricks: { lo: number[]; hi: number[]; grid?: string }[]; sel: number; status: string; active?: string; clip?: unknown[] | null }
+
+const CATALOGUE_STEPS = new Set(['place ramp', 'place microbrick']);
+let catalogueClip: unknown[] | null = null, catalogueStatus = '';
+
+/** The placed brick moved to the origin: what the app's clipboard holds after a pick from the Bricks window. */
+function clipOf(b: Snap['bricks'][number]): unknown[] {
+  const o = b.lo.slice();
+  return [{ ...structuredClone(b), lo: b.lo.map((v, i) => +(v - o[i]!).toFixed(3)), hi: b.hi.map((v, i) => +(v - o[i]!).toFixed(3)) }];
+}
 
 /** A snapshot with default brick fields dropped (see the Phase 2 note at the top). */
 function canon(snap: unknown): unknown {
@@ -264,7 +282,11 @@ function canon(snap: unknown): unknown {
 /** The app's expected snapshot after `step`, from legacy's (prev: legacy's snapshot one step before). */
 function expectedApp(step: string, legacy: unknown, prev: unknown): unknown {
   const s = structuredClone(legacy) as Snap;
+  if (step === 'start') { catalogueClip = null; catalogueStatus = ''; }
   if (step === 'paste') s.status = s.status.replace(/^Placed /, 'Pasted ');
+  if (CATALOGUE_STEPS.has(step)) { catalogueClip = clipOf(s.bricks[s.sel]!); catalogueStatus = s.status; }
+  if (catalogueStatus && s.status === catalogueStatus) s.status = s.status.replace(/^Placed /, 'Pasted ');
+  if (catalogueClip) s.clip = structuredClone(catalogueClip);
   if (s.active === 'BUTTON') s.active = 'BODY';
   if (step === 'grow into neighbour') {
     // the +Y face grows in studs until it touches the nearest same-grid brick ahead of it

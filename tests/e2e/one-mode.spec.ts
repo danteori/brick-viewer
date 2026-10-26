@@ -118,14 +118,20 @@ test('a click selects a brick and leaves the camera; a double-click centres on i
   expect((await cam(page)).half).toBeCloseTo(c1.half, 6);
 });
 
-test('Space moves the camera up and a held Shift moves it down, with a brick selected', async ({ page }) => {
+test('the camera keys are off while a brick is selected; after Esc, Space moves up and a held Shift moves down', async ({ page }) => {
   await open(page);
   await page.mouse.move(5, 400);
+  expect(await sel(page)).toBeGreaterThanOrEqual(0);
+  const c0 = await cam(page);
+  await page.keyboard.down(' '); await page.waitForTimeout(400); await page.keyboard.up(' ');
+  await page.keyboard.down('w'); await page.waitForTimeout(300); await page.keyboard.up('w');
+  expect(await cam(page)).toEqual(c0);
+  await page.keyboard.press('Escape');
+  expect(await sel(page)).toBeLessThan(0);
   const y0 = (await cam(page)).y;
   await page.keyboard.down(' '); await page.waitForTimeout(400); await page.keyboard.up(' ');
   const y1 = (await cam(page)).y;
   expect(y1).toBeGreaterThan(y0);
   await page.keyboard.down('Shift'); await page.waitForTimeout(700); await page.keyboard.up('Shift');
   expect((await cam(page)).y).toBeLessThan(y1);
-  expect(await sel(page)).toBeGreaterThanOrEqual(0);
 });

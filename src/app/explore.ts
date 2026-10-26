@@ -1,4 +1,4 @@
-import { S } from './state.ts';
+import { S, hasFocus } from './state.ts';
 import { camDrag, isFree } from './mode.ts';
 import { frameFocus, toView, viewDir } from '../render/camera.ts';
 import { centrePoint, orbitAbout, panBy, panView, rebaseOrigin, zoomAt } from '../render/freecam.ts';
@@ -27,6 +27,9 @@ let press: { x: number; y: number; id: number } | null = null;
 let drag: { kind: 'orbit' | 'pan'; x: number; y: number; id: number; pivot: V3 } | null = null;
 let glide: V3 | null = null;
 let lastT = 0, buttons = 0;
+
+/** A brick, a selection or a ghost is being edited: the camera keys are off, so they don't clash with Shift+click. */
+export const editing = (): boolean => hasFocus() || S.selection.size > 0 || !!ed.ghost;
 
 /** The brick under this screen point, or -1. */
 function brickAt(x: number, y: number): number {
@@ -122,11 +125,11 @@ export function initExplore(canvas: HTMLCanvasElement): void {
 
   addEventListener('keydown', (e) => {
     if (e.key === 'Shift') {
-      if (!e.repeat) shift = isFree() && !isTyping(e.target) ? { t: performance.now(), alone: true } : null;
+      if (!e.repeat) shift = isFree() && !editing() && !isTyping(e.target) ? { t: performance.now(), alone: true } : null;
       return;
     }
     if (shift) shift.alone = false;
-    if (!isFree() || e.ctrlKey || e.metaKey || e.altKey || isTyping(e.target)) return;
+    if (!isFree() || editing() || e.ctrlKey || e.metaKey || e.altKey || isTyping(e.target)) return;
     const k = e.key.toLowerCase();
     if (!MOVE_KEYS.has(k)) return;
     e.preventDefault(); e.stopImmediatePropagation();
@@ -147,6 +150,7 @@ export function exploreTick(t: number): void {
   const dt = Math.min(0.1, Math.max(0, (t - lastT) / 1000));
   lastT = t;
   if (!isFree()) return;
+  if (editing()) { keys.clear(); shift = null; }
   const dx = (keys.has('d') ? 1 : 0) - (keys.has('a') ? 1 : 0), dy = (keys.has('w') ? 1 : 0) - (keys.has('s') ? 1 : 0);
   const dz = (keys.has(' ') ? 1 : 0) - (shiftDown(t) ? 1 : 0);
   const n = Math.hypot(dx, dy);
