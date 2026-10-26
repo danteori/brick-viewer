@@ -74,6 +74,7 @@ test('save .brz downloads the scene and it opens again', async ({ page }) => {
   const bytes = readFileSync((await dl.path())!);
   expect(bytes.subarray(0, 3).toString('latin1')).toBe('BRZ');
   await page.locator('#pick').setInputFiles({ name: 'again.brz', mimeType: 'application/octet-stream', buffer: bytes });
+  await page.locator('#imp-new').click();
   await expect(status(page)).toContainText('again.brz: 3 bricks');
 });
 
