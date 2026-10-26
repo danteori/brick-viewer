@@ -17,7 +17,7 @@ import { S } from '../../src/app/state.ts';
 import { partFiles, scenePlain, writeScene } from '../../src/scene/save.ts';
 import { writeDynamicGrids } from '../../src/scene/gridsave.ts';
 import {
-  eulerOfQuat, gridSetOf, loadDynamicGrids, placeGrid, quatOfEuler, rowsOfGrid, shiftedXf, toLocal, toWorld, turnedXf, xfOf, IDENT, type GridXf,
+  eulerOfQuat, gridSetOf, jointedGrids, linkGrids, loadDynamicGrids, placeGrid, placeJointed, quatOfEuler, rowsOfGrid, shiftedXf, toLocal, toWorld, turnedXf, xfOf, IDENT, type GridXf,
 } from '../../src/scene/dyngrids.ts';
 import { GRIDS, type SceneStore } from '../../src/scene/store.ts';
 import { rotate } from '../../src/scene/grids.ts';
@@ -93,6 +93,51 @@ describe('dynamic grids: loading', () => {
     near(rotate(quatOfEuler(90, 0, 0), [1, 0, 0]), [0, 1, 0]);
     near(rotate(quatOfEuler(0, 90, 0), [1, 0, 0]), [0, 0, 1]);
     near(rotate(quatOfEuler(0, 0, 90), [0, 1, 0]), [0, 0, -1]);
+  });
+});
+
+describe('jointed grids', () => {
+  /** gridWorld with the first main-grid brick made grid 3 (at 100, 0, 0, not turned), jointed to grid 2. */
+  function jointed(): SceneStore {
+    const s = open(gridWorld()), set = gridSetOf(s)!, id = rowsOfGrid(s, 1)[0]!;
+    s.grid[id] = GRIDS.id('3');
+    set.grids.set(3, xfOf([100, 0, 0], [0, 0, 0, 1]));
+    set.links = linkGrids([{ grid: 2, refs: [3] }], set.grids);
+    return s;
+  }
+  const at = (s: SceneStore, id: number): number[] => [s.px[id]!, s.py[id]!, s.pz[id]!];
+
+  it('links dynamic grids both ways, never grid 1, an unknown grid or itself', () => {
+    const grids = new Map([[2, 0], [3, 0], [4, 0]]);
+    const links = linkGrids([{ grid: 2, refs: [3, 1, 9, 2] }, { grid: 1, refs: [4] }, { grid: 4, refs: [3] }], grids);
+    expect([...links].map(([g, l]) => [g, [...l]])).toEqual([[2, [3]], [3, [2, 4]], [4, [3]]]);
+  });
+
+  it('a jointed group is found from any of its grids', () => {
+    const s = jointed();
+    expect(jointedGrids(s, 2)).toEqual([2, 3]);
+    expect(jointedGrids(s, 3)).toEqual([3, 2]);
+  });
+
+  it('turning a grid turns its jointed grid with it about the same point', () => {
+    const s = jointed(), set = gridSetOf(s)!, x2 = set.grids.get(2)!, x3 = set.grids.get(3)!;
+    const r2 = rowsOfGrid(s, 2)[0]!, r3 = rowsOfGrid(s, 3)[0]!, main = rowsOfGrid(s, 1).map((id) => at(s, id));
+    const before = at(s, r3).map((v, i) => v - x2.origin[i]!), local3 = toLocal(x3, at(s, r3), s.orient[r3]!);
+    const local2 = toLocal(x2, at(s, r2), s.orient[r2]!);
+    placeJointed(s, 2, x2, turnedXf(x2, 1));
+    const n2 = set.grids.get(2)!, n3 = set.grids.get(3)!;
+    expect(at(s, r3).map((v, i) => v - n2.origin[i]!)).toEqual([-before[1]!, before[0]!, before[2]!]);
+    expect(toLocal(n3, at(s, r3), s.orient[r3]!)).toEqual(local3);
+    expect(toLocal(n2, at(s, r2), s.orient[r2]!)).toEqual(local2);
+    expect(n3.R).toEqual([[0, -1, 0], [1, 0, 0], [0, 0, 1]]);
+    expect(rowsOfGrid(s, 1).map((id) => at(s, id))).toEqual(main);
+  });
+
+  it('placing a grid moves its jointed grid by the same offset', () => {
+    const s = jointed(), set = gridSetOf(s)!, x2 = set.grids.get(2)!, x3 = set.grids.get(3)!, r3 = rowsOfGrid(s, 3)[0]!, p3 = at(s, r3);
+    placeJointed(s, 2, x2, shiftedXf(shiftedXf(x2, 0, 40), 2, -8));
+    expect(set.grids.get(3)!.origin).toEqual([x3.origin[0] + 40, 0, -8]);
+    expect(at(s, r3)).toEqual([p3[0]! + 40, p3[1], p3[2]! - 8]);
   });
 });
 

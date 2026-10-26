@@ -16,7 +16,9 @@ import type { FileMap } from '../format/brz.ts';
 import { extractBricks } from '../format/world.ts';
 import { fileMapView } from '../format/saveview.ts';
 import { entityLayoutProblem } from '../format/entitywrite.ts';
-import { buildWorldModel, type Quat, type Vec3 } from './grids.ts';
+import { buildWorldModel, rotate, type Quat, type Vec3 } from './grids.ts';
+import { parseChunkPath, saveContext } from './components.ts';
+import { decodeSoa } from '../format/schema.ts';
 import { orientOfMatrix, quatColumns, snapRotation } from './worldgrids.ts';
 import { GRIDS, type SceneStore } from './store.ts';
 import { putPlain, supportedAsset } from './view.ts';
@@ -56,6 +58,8 @@ export interface GridSet {
   next: number;
   /** why this save can't take new grids, or null */
   createProblem: string | null;
+  /** dynamic grids joined by joints (both ways): a moved or turned grid takes them along */
+  links: Map<number, Set<number>>;
 }
 
 const sets = new WeakMap<SceneStore, GridSet>();
@@ -75,6 +79,7 @@ export function quatMul(a: Quat, b: Quat): Quat {
   const [ax, ay, az, aw] = a, [bx, by, bz, bw] = b;
   return [aw * bx + ax * bw + ay * bz - az * by, aw * by - ax * bz + ay * bw + az * bx, aw * bz + ax * by - ay * bx + az * bw, aw * bw - ax * bx - ay * by - az * bz];
 }
+export const quatConj = (q: Quat): Quat => [-q[0], -q[1], -q[2], q[3]];
 export function quatNorm(q: Quat): Quat {
   const n = Math.hypot(...q) || 1;
   return q.map((v) => v / n) as Quat;
@@ -223,7 +228,7 @@ export function loadDynamicGrids(s: SceneStore, files: FileMap): DynLoad {
   const out: DynLoad = { grids: 0, snapped: 0, skipped: 0, failed: 0, others: 0 };
   let problem: string | null;
   try { problem = entityLayoutProblem(files); } catch (err) { problem = (err as Error).message; }
-  const set: GridSet = { grids: new Map(), loaded: new Map(), unsupported: new Map(), next: 2, createProblem: problem };
+  const set: GridSet = { grids: new Map(), loaded: new Map(), unsupported: new Map(), next: 2, createProblem: problem, links: new Map() };
   setGridSet(s, set);
   if (![...files.keys()].some((p) => /^World\/0\/(Bricks\/Grids\/(?!1\/)|Entities\/ChunkIndex\.mps)/.test(p))) return out;
   let model: ReturnType<typeof buildWorldModel>;
@@ -248,5 +253,57 @@ export function loadDynamicGrids(s: SceneStore, files: FileMap): DynLoad {
     out.grids++;
     if (!exactTurn(xf)) out.snapped++;
   }
+  try { set.links = linkGrids(jointRefs(files), set.grids); } catch (err) { console.warn('joints not read', err); }
   return out;
+}
+
+/** Per Components chunk: its grid and the persistent indices of the grids its joints hold (JointEntityReferences). */
+function jointRefs(files: FileMap): { grid: number; refs: number[] }[] {
+  const out: { grid: number; refs: number[] }[] = [];
+  let ctx: ReturnType<typeof saveContext> | null = null;
+  for (const [path, bytes] of files) {
+    const at = parseChunkPath(path);
+    if (!at || at.kind !== 'Components') continue;
+    ctx ??= saveContext(files);
+    const refs = decodeSoa(bytes, ctx.schemaFor(path), ctx.global).root.JointEntityReferences as number[] | undefined;
+    if (refs?.length) out.push({ grid: at.grid, refs });
+  }
+  return out;
+}
+
+/** The joint links between dynamic grids, both ways (grid 1 and grids not in `grids` don't take part: they can't move). */
+export function linkGrids(joints: readonly { grid: number; refs: readonly number[] }[], grids: ReadonlyMap<number, unknown>): Map<number, Set<number>> {
+  const links = new Map<number, Set<number>>();
+  const add = (a: number, b: number): void => { let l = links.get(a); if (!l) links.set(a, (l = new Set())); l.add(b); };
+  for (const { grid, refs } of joints) for (const r of refs) {
+    if (r === grid || !grids.has(grid) || !grids.has(r)) continue;
+    add(grid, r); add(r, grid);
+  }
+  return links;
+}
+
+/** Grid g and every dynamic grid joined to it, directly or through others (g first). */
+export function jointedGrids(s: SceneStore, g: number): number[] {
+  const set = gridSetOf(s), out = [g], seen = new Set(out);
+  for (let i = 0; i < out.length; i++) for (const n of set?.links.get(out[i]!) ?? []) if (!seen.has(n) && set!.grids.has(n)) { seen.add(n); out.push(n); }
+  return out;
+}
+
+/** Live rows of grids `gs`, in list order. */
+export const rowsOfGrids = (s: SceneStore, gs: readonly number[]): number[] => gs.length === 1 ? rowsOfGrid(s, gs[0]!) : gs.flatMap((g) => rowsOfGrid(s, g)).sort((a, b) => s.order[a]! - s.order[b]!);
+
+/**
+ * Moves grid g from `from` to `to` and takes the grids jointed to it along by the same rigid move,
+ * so every joint keeps its parts where they were relative to each other. The caller holds the undo step open.
+ */
+export function placeJointed(s: SceneStore, g: number, from: GridXf, to: GridXf): void {
+  const set = gridSetOf(s);
+  if (!set) throw new Error('no dynamic grids in this scene');
+  const turn = quatMul(to.quat, quatConj(from.quat)), at = locationOf(from), dest = locationOf(to);
+  for (const d of jointedGrids(s, g)) {
+    if (d === g) { placeGrid(s, g, from, to); continue; }
+    const x = set.grids.get(d)!, rel = locationOf(x).map((v, i) => v - at[i]!) as Vec3;
+    const moved = rotate(turn, rel).map((v, i) => Math.round((v + dest[i]!) * 1e9) / 1e9 + 0);
+    placeGrid(s, d, x, xfOf(moved, quatMul(turn, x.quat)));
+  }
 }

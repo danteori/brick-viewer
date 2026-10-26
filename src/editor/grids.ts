@@ -10,6 +10,7 @@
 //   panel     Brick Properties > Grid (ui/panels/grid.ts): select the grid, make a new grid from the
 //             selection, move the selection into another grid, type the grid's location and rotation
 //
+// Grids joined by joints (JointEntityReferences) move and turn as one group, so the joints keep their parts in place.
 // Every change is one undo step: the rows' records plus the grids' transforms (history.ts).
 // Collision (collision.ts): bricks of different grids never block each other, so moving or turning
 // a whole grid is never refused; bricks moved INTO a grid must not overlap that grid's bricks.
@@ -20,7 +21,7 @@ import { histEnd, txBegin, txEnd } from '../scene/history.ts';
 import { GRIDS } from '../scene/store.ts';
 import { rowSolid, sceneHit } from '../scene/collision.ts';
 import {
-  eulerOfQuat, exactTurn, gridCounts, gridOfRow, gridSetOf, IDENT, isDynamicRow, placeGrid, quatOfEuler, rowsOfGrid, sameXf, shiftedXf, turnedXf, xfOf,
+  eulerOfQuat, exactTurn, gridCounts, gridOfRow, gridSetOf, IDENT, isDynamicRow, jointedGrids, placeJointed, quatOfEuler, rowsOfGrid, rowsOfGrids, sameXf, shiftedXf, turnedXf, xfOf,
   type GridXf,
 } from '../scene/dyngrids.ts';
 import type { Vec3 } from '../scene/grids.ts';
@@ -74,6 +75,9 @@ export function gridClick(prev: number): void {
   setStatus(`Grid ${g} selected (${plural(n)}): the Move tool (2) drags it, R turns it a quarter turn; Esc, then click, edits single bricks`);
 }
 
+/** Status text for the grids jointed to the moved one (group[0]). */
+const withJointed = (group: readonly number[]): string => group.length > 1 ? ` (with jointed ${group.length === 2 ? 'grid' : 'grids'} ${group.slice(1).join(', ')})` : '';
+
 /** Dynamic grids of which every brick is in `ids` (they move as a whole: their transforms follow). */
 export function wholeGrids(ids: readonly number[]): number[] {
   const s = S.scene, set = gridSetOf(s);
@@ -114,10 +118,10 @@ function gridEdit(label: string, ids: readonly number[], edit: () => void, selAf
 export function rotateSelectedGrid(dir: 1 | -1): boolean {
   const g = selectedGrid(), s = S.scene, set = gridSetOf(s);
   if (!g || !set) return false;
-  const x = set.grids.get(g)!, rows = rowsOfGrid(s, g);
-  gridEdit('turn grid', rows, () => placeGrid(s, g, x, turnedXf(x, dir), rows));
+  const x = set.grids.get(g)!, group = jointedGrids(s, g);
+  gridEdit('turn grid', rowsOfGrids(s, group), () => placeJointed(s, g, x, turnedXf(x, dir)));
   initAudio(); playClick();
-  setStatus(`Turned grid ${g} a quarter turn ${dir > 0 ? 'clockwise' : 'anticlockwise'} (seen from above)`);
+  setStatus(`Turned grid ${g}${withJointed(group)} a quarter turn ${dir > 0 ? 'clockwise' : 'anticlockwise'} (seen from above)`);
   return true;
 }
 
@@ -193,10 +197,10 @@ export function setGridTransform(g: number, location: Vec3, euler: [number, numb
   const shown = eulerOfQuat(x.quat), sameTurn = euler.every((v, i) => Math.abs(v - shown[i]!) < 1e-4);
   const to = sameTurn ? { ...xfOf(location, x.quat, x.R), quat: x.quat } : xfOf(location, quatOfEuler(euler[0], euler[1], euler[2]));
   if (sameXf(to, x)) { setStatus(`Grid ${g}: nothing changed`); return true; }
-  const rows = rowsOfGrid(s, g);
-  gridEdit('grid transform', rows, () => placeGrid(s, g, x, to, rows));
+  const group = jointedGrids(s, g);
+  gridEdit('grid transform', rowsOfGrids(s, group), () => placeJointed(s, g, x, to));
   initAudio(); playClick();
-  setStatus(`Grid ${g} placed at ${location.join(', ')}` + (exactTurn(to) ? '' : ' (drawn at the nearest quarter turn)'));
+  setStatus(`Grid ${g}${withJointed(group)} placed at ${location.join(', ')}` + (exactTurn(to) ? '' : ' (drawn at the nearest quarter turn)'));
   return true;
 }
 

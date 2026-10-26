@@ -8,7 +8,7 @@
 // at the last free offset; the moved bricks never block themselves. A brick that carries
 // components or wires may not leave its 2048-unit save chunk (scene/remap.ts), which stops the move
 // the same way. The whole drag, right-click commits included, is one undo step. When the moved
-// bricks are a whole dynamic grid, its transform moves with them (W-03).
+// bricks are a whole dynamic grid, its transform moves with them (W-03), and so do the grids jointed to it.
 
 import { S, type EditTx } from '../app/state.ts';
 import { BRZ_UNIT } from '../core/units.ts';
@@ -19,6 +19,7 @@ import { brickView } from '../scene/view.ts';
 import { saveChunkOf } from '../scene/remap.ts';
 import { componentBricks } from './selectops.ts';
 import { shiftGrids, wholeGrids } from './grids.ts';
+import { jointedGrids, rowsOfGrids } from '../scene/dyngrids.ts';
 
 export interface MoveState {
   ids: number[];
@@ -34,10 +35,12 @@ export interface MoveState {
   grids: number[];
 }
 
-/** The bricks a Move drag takes: the selection when there is one, else the focused brick. */
+/** The bricks a Move drag takes: the selection when there is one, else the focused brick; a whole grid takes the grids jointed to it along. */
 export function moveIds(): number[] {
-  if (S.selection.size) return S.scene.ordered().filter((id) => S.selection.has(id));
-  return S.scene.alive(S.sel) ? [S.sel] : [];
+  if (!S.selection.size) return S.scene.alive(S.sel) ? [S.sel] : [];
+  const ids = S.scene.ordered().filter((id) => S.selection.has(id)), whole = wholeGrids(ids);
+  const along = [...new Set(whole.flatMap((g) => jointedGrids(S.scene, g)))].filter((g) => !whole.includes(g));
+  return along.length ? [...ids, ...rowsOfGrids(S.scene, along)].sort((a, b) => S.scene.order[a]! - S.scene.order[b]!) : ids;
 }
 
 /** Starts a Move drag (its undo step opens here). */
