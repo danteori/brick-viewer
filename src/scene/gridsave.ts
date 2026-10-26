@@ -73,7 +73,7 @@ export function writeDynamicGrids(template: FileMap, files: FileMap, s: SceneSto
     if (!xf) continue;
     if (!was) {
       const first = rowsOfGrid(s, g)[0];
-      added.push({ persistentIndex: g, location: locationOf(xf), rotation: [...xf.quat] as Quat, owner: first !== undefined ? s.owner[first]! : 0 });
+      added.push({ persistentIndex: g, location: locationOf(xf), rotation: [...xf.quat] as Quat, owner: first !== undefined ? s.owner[first]! : 0, locked: false });
     } else if (!sameXf(xf, was.xf)) moved.set(g, { location: locationOf(xf), rotation: [...xf.quat] as Quat });
   }
   const e = editEntities(out, { moved, removed, added });

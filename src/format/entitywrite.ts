@@ -15,7 +15,7 @@
 // The layout of a new grid's row is what the game writes for a parked grid (studied on game-written
 // worlds of the public release): every entity in chunk 0_0_0, PrefabSpawnInstanceIndices 0,
 // owner and original owner the same, velocities 0, all eight colour slots 255, life span 0, and
-// PhysicsLockedFlags set (frozen) so it stays where it was put. Columns this writer doesn't know get
+// PhysicsLockedFlags set (frozen) unless the caller asks for a grid that simulates, as the game's New grid does. Columns this writer doesn't know get
 // the zero value of their schema type, so newer layouts still write.
 
 import type { FileMap } from './brz.ts';

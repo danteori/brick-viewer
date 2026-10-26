@@ -135,7 +135,7 @@ describe('dynamic grids: saving', () => {
     const ci = decodeMps(out.get(W + `Bricks/Grids/${g}/ChunkIndex.mps`)!, parseSchema(out.get(W + 'Bricks/ChunkIndexShared.schema')!));
     expect(ci).toMatchObject({ Chunk3DIndices: [{ X: -1, Y: -1, Z: -1 }], ChunkOffsets: [{ X: 1024, Y: 1024, Z: 1024 }], NumBricks: [2] });
     const e = entity(out, g)!;
-    expect(e).toMatchObject({ type: 'Entity_DynamicBrickGrid', location: [20, 0, 6], rotation: [0, 0, 0, 1], physicsLocked: true, physicsSleeping: false, owner: 0, originalOwner: 0, prefabSpawnInstance: 0 });
+    expect(e).toMatchObject({ type: 'Entity_DynamicBrickGrid', location: [20, 0, 6], rotation: [0, 0, 0, 1], physicsLocked: false, physicsSleeping: false, owner: 0, originalOwner: 0, prefabSpawnInstance: 0 });
     expect(e.data).toMatchObject({ EntityTag: 'door', MassScale: 2 });                 // settings copied from the save's other grid
     expect(e.colors![0]).toEqual([255, 255, 255, 255]);
     const ei = decodeMps(out.get(W + 'Entities/ChunkIndex.mps')!, parseSchema(out.get(W + 'Entities/ChunkIndex.schema')!));

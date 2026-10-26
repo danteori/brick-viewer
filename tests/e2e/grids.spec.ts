@@ -183,7 +183,7 @@ test('full: New grid from a selection, Move to grid and a typed place, saved in 
   const t = readEntities(fileMapView(files));
   expect(t.entities.map((e) => e.persistentIndex).sort()).toEqual([2, 3]);
   expect(t.byIndex.get(3)!.location).toEqual([loc[0]! + 100, loc[1], loc[2]]);
-  expect(t.byIndex.get(3)!.physicsLocked).toBe(true);
+  expect(t.byIndex.get(3)!.physicsLocked).toBe(false);
   expect(extractBricks(files, { grid: '3' }).bricks).toHaveLength(2);
   expect(extractBricks(files, { grid: '2' }).bricks).toHaveLength(3);
   expect(extractBricks(files).bricks).toHaveLength(0);

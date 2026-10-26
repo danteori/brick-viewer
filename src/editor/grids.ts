@@ -150,7 +150,7 @@ export function newGridFromSelection(): boolean {
     for (const id of ids) { s.grid[id] = gi; s.srcOrder[id] = -1; s.touch(id); }
   }, ids.slice());
   initAudio(); playSelect();
-  setStatus(`New grid ${g} from ${plural(ids.length)} (frozen in place in the game); it's selected: the Move tool drags it, R turns it`);
+  setStatus(`New grid ${g} from ${plural(ids.length)}; it's selected: the Move tool drags it, R turns it`);
   return true;
 }
 
