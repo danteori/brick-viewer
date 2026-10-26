@@ -93,7 +93,7 @@ test('full: add as a prefab, turned, with its moving grid', async ({ page }) => 
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(String(e)));
   await openBase(page, '/?test');
-  await page.evaluate(() => { const t = (window as unknown as W).__brickTest; t.setView({ k: 0, baseZoom: t.snapshot().zoom * 6 }); });
+  await page.evaluate(() => { const t = (window as unknown as W).__brickTest; t.setView({ k: 0, baseZoom: t.snapshot().zoom * 3 }); });
   await settle(page);
   const before = await count(page);
   await pick(page, 'grid.brz', withGrid);

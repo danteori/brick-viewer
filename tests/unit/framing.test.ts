@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SceneStore } from '../../src/scene/store.ts';
-import { mainBuild } from '../../src/scene/framing.ts';
+import { loadFraming, mainBuild } from '../../src/scene/framing.ts';
 
 function store(centres: [number, number, number][]): SceneStore {
   const s = new SceneStore();
@@ -28,5 +28,16 @@ describe('main build framing', () => {
   });
   it('is null for an empty store', () => {
     expect(mainBuild(new SceneStore())).toBeNull();
+    expect(loadFraming(new SceneStore())).toBeNull();
+  });
+  it('frames the whole save when the parts are near each other', () => {
+    const s = store([[0, 0, 6], [20, 0, 6], [600, -300, 30]]);
+    const f = loadFraming(s)!;
+    expect(f.focus).toBe(0);
+    expect(f.hi[0]).toBeGreaterThan(600);
+  });
+  it('frames the main build when distant bricks are far bigger than it', () => {
+    const s = store([[0, 0, 6], [20, 0, 6], [40, 0, 6], [900000, 0, 6]]);
+    expect(loadFraming(s)!.hi[0]).toBeLessThan(100);
   });
 });

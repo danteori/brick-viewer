@@ -9,7 +9,7 @@ import { BrickShapes } from '../render/meshes/shapes.js';
 import { readBrz, type FileMap } from '../format/brz.ts';
 import { extractBricks, type PlainBrick } from '../format/world.ts';
 import { BRZ_UNIT } from '../core/units.ts';
-import { mainBuild } from './framing.ts';
+import { loadFraming } from './framing.ts';
 import { linearByteToSrgb } from '../core/colour.ts';
 import { rampDir, sideCode, type Brick, type SaveExtras, type V3 } from './brick.ts';
 import { roundHalf } from '../render/meshes/registry.ts';
@@ -255,11 +255,11 @@ export async function loadFilesAsync(files: FileMap, name: string, brz: Uint8Arr
   return finishLoad({ ...p, files }, name, brz, gridNote, complete, opts);
 }
 
-/** The new scene's camera: the world origin, framed round the main build (the biggest cluster of bricks). */
+/** The new scene's camera: the world origin, framed round the save, or round its main build when distant bricks would make the view too far. */
 function frameNewScene(store: SceneStore): void {
   S.scene = store;
   S.origin = [0, 0, 0];
-  const main = mainBuild(store);
+  const main = loadFraming(store);
   selectBrick(main ? main.focus : store.first());
   if (!main) return;
   const { lo, hi } = S;

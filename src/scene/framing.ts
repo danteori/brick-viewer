@@ -3,6 +3,8 @@ import type { SceneStore } from './store.ts';
 const CELL = 200;
 const SPAN = 65536;
 const STRIDE = 2 * SPAN;
+const FAR_RATIO = 4;
+const FAR_MARGIN = 10000;
 
 export interface MainBuild { focus: number; lo: number[]; hi: number[] }
 
@@ -46,6 +48,17 @@ function largestCluster(cells: Map<number, number>): Set<number> {
   return best;
 }
 
+function wholeBox(store: SceneStore): { lo: number[]; hi: number[] } {
+  const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity], bx = new Array<number>(6);
+  for (const id of store.ids()) {
+    store.box(id, bx);
+    for (let i = 0; i < 3; i++) { lo[i] = Math.min(lo[i]!, bx[i]!); hi[i] = Math.max(hi[i]!, bx[i + 3]!); }
+  }
+  return { lo, hi };
+}
+
+const span = (b: { lo: number[]; hi: number[] }): number => Math.max(...[0, 1, 2].map((i) => b.hi[i]! - b.lo[i]!));
+
 /** The biggest connected cluster of bricks (by brick centres) and its focus: the first brick if it is in the cluster, else the brick nearest the middle. */
 export function mainBuild(store: SceneStore): MainBuild | null {
   const { cells, cellOfId } = cellCounts(store);
@@ -69,4 +82,13 @@ export function mainBuild(store: SceneStore): MainBuild | null {
     if (d < bestD) { bestD = d; focus = id; }
   }
   return { focus, lo, hi };
+}
+
+/** What the load view frames: the whole save, or only the main build when distant bricks would make the whole save far bigger than it. */
+export function loadFraming(store: SceneStore): MainBuild | null {
+  if (!store.count) return null;
+  const whole = wholeBox(store), wholeSpan = span(whole);
+  const main = mainBuild(store)!, mainSpan = span(main);
+  if (wholeSpan <= Math.max(FAR_RATIO * mainSpan, mainSpan + FAR_MARGIN)) return { focus: store.first(), ...whole };
+  return main;
 }
