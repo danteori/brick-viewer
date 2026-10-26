@@ -64,7 +64,13 @@ async function open(page: Page, path: string, zoomOut = true): Promise<void> {
   await settle(page);
   if (!zoomOut) return;
   // zoom out so the grid (parked 100 studs away) is on screen, clear of the panels
-  await page.evaluate(() => { const t = (window as unknown as W).__brickTest; t.setView({ k: 0, baseZoom: t.snapshot().zoom * 1.6 }); });
+  await page.evaluate(() => {
+    const t = (window as unknown as W).__brickTest, { lo, hi } = t.focusBox(), c = lo.map((v, i) => (v + hi[i]!) / 2);
+    let reach = 0;
+    for (const [, l, h] of t.byId()) for (let i = 0; i < 3; i++) reach = Math.max(reach, c[i]! - l[i]!, h[i]! - c[i]!);
+    const own = Math.max(...hi.map((v, i) => (v - lo[i]!) / 2));
+    t.setView({ k: 0, baseZoom: 1.6 * Math.max(t.snapshot().zoom, reach / own) });
+  });
   await settle(page);
 }
 async function flatWorld(bytes: Uint8Array): Promise<FileMap> {

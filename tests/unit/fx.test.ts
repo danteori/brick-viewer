@@ -91,4 +91,15 @@ describe('helpers and governor', () => {
     expect(fx.drop).toBe(0);
     fx.want = { ...fx.want, on: false }; adaptTick(t + 10, false);
   });
+  it('steps down on a run of very slow frames but ignores one stall', () => {
+    fx.want = { ...fx.want, on: true, adaptive: true, shadows: 3, ssao: 3 }; fx.supported = true; fx.drop = 0;
+    let t = 100000;
+    for (let i = 0; i < 20; i++) adaptTick((t += 16), false);
+    adaptTick((t += 2000), false);
+    for (let i = 0; i < 20; i++) adaptTick((t += 16), false);
+    expect(fx.drop).toBe(0);
+    for (let i = 0; i < 10; i++) adaptTick((t += 800), false);
+    expect(fx.drop).toBeGreaterThan(0);
+    fx.want = { ...fx.want, on: false }; adaptTick(t + 10, false);
+  });
 });
