@@ -11,12 +11,17 @@ import { placeholder } from '../placeholder.ts';
 import { refreshFocus } from './paint.ts';
 import { tickSizeUi } from './size.ts';
 
-const LABELS: Record<string, string> = {
-  visible: placeholder('Visible'), players: placeholder('Player Collision'),
-  player1: placeholder('Player Collision 1'), player2: placeholder('Player Collision 2'),
-  player3: placeholder('Player Collision 3'), player4: placeholder('Player Collision 4'),
-  physics: placeholder('Physics Collision'), interaction: placeholder('Interaction Collision'),
-  projectile: placeholder('Projectile Collision'),
+const PLAYER_TIP = 'Enable collision with players in channel {n}.';
+const LABELS: Record<string, [string, string]> = {
+  visible: ['Visible', 'Whether the brick is visible.'],
+  all: ['All Collision', 'Combined toggle for collision. When disabled, all collision channels are disabled.'],
+  player1: ['Player Collision', PLAYER_TIP.replace('{n}', '1')],
+  player2: ['Player Collision 2', PLAYER_TIP.replace('{n}', '2')],
+  player3: ['Player Collision 3', PLAYER_TIP.replace('{n}', '3')],
+  player4: ['Player Collision 4', PLAYER_TIP.replace('{n}', '4')],
+  physics: ['Physics Collision', 'Enable collision with physics objects.'],
+  interaction: ['Interaction Collision', 'Enable collision with interaction raycasts.'],
+  weapon: ['Weapon Collision', 'Enable collision with weapons and projectiles.'],
 };
 
 let props: HTMLElement, flagBody: HTMLElement;
@@ -37,9 +42,11 @@ function buildFlags(): void {
   flagBody = el('div', { id: 'flagbody' });
   switches = FLAG_PROPS.map(({ key, fields }) => {
     const row = el('div', { class: 'flagrow' });
-    const sw = el('button', { type: 'button', role: 'checkbox', class: 'flagsw', 'data-flag': key, 'aria-checked': 'true', 'aria-label': LABELS[key]! });
+    const [label, tip] = LABELS[key]!;
+    row.title = tip;
+    const sw = el('button', { type: 'button', role: 'checkbox', class: 'flagsw', 'data-flag': key, 'aria-checked': 'true', 'aria-label': label });
     sw.append(el('span', { class: 'knob' }));
-    row.append(el('span', {}, LABELS[key]), sw);
+    row.append(el('span', {}, label), sw);
     sw.addEventListener('click', () => {
       if (S.held || ed.ghost) return;
       applyFlags(fields, flagState(S.scene, effectiveIds(), flagMask(S.scene, fields)) !== 'on');
