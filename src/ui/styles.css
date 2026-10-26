@@ -256,6 +256,20 @@ body.placing canvas { cursor:copy !important; }
 #ask button { padding:6px 12px; border:1px solid rgba(255,255,255,.18); border-radius:7px; background:#2b2c30; color:#eee; cursor:pointer; font:600 12px/1.2 system-ui, sans-serif; }
 #ask button.ok { background:#e8590c; border-color:#e8590c; color:#fff; }
 #ask button:focus-visible { outline:2px solid #fff; outline-offset:1px; }
+#importdlg { position:fixed; z-index:21; left:50%; top:calc(16px + env(safe-area-inset-top, 0px)); transform:translateX(-50%); width:min(30em, calc(100vw - 32px));
+             max-height:calc(100vh - 32px); overflow:auto; padding:12px 14px; border-radius:10px; background:rgba(29,30,33,.97); border:1px solid #e8590c; box-shadow:0 6px 24px rgba(0,0,0,.45); }
+#importdlg h2 { margin:0 0 10px; font:600 14px/1.3 system-ui, sans-serif; overflow-wrap:anywhere; }
+#importdlg .imp-row { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:4px 0; }
+#importdlg .imp-row label { display:grid; grid-template-columns:auto 1fr; column-gap:6px; align-items:center; }
+#importdlg .imp-row small { grid-column:2; opacity:.65; }
+#importdlg .imp-row input:disabled + span { opacity:.45; }
+#importdlg .imp-place { margin:10px 0 0; padding:6px 8px; border:1px solid rgba(255,255,255,.14); border-radius:7px; display:flex; flex-direction:column; gap:4px; }
+#importdlg .imp-place:disabled { opacity:.45; }
+#importdlg .imp-buttons { display:flex; flex-wrap:wrap; gap:6px; justify-content:flex-end; margin-top:12px; }
+#importdlg button { padding:6px 12px; border:1px solid rgba(255,255,255,.18); border-radius:7px; background:#2b2c30; color:#eee; cursor:pointer; font:600 12px/1.2 system-ui, sans-serif; }
+#importdlg button.ok { background:#e8590c; border-color:#e8590c; color:#fff; }
+#importdlg button:disabled { opacity:.45; cursor:default; }
+#importdlg button:focus-visible { outline:2px solid #fff; outline-offset:1px; }
 
 /* Components (Brick Properties) and the wire view (C-02 / C-03) */
 #props.wide { width:300px; }

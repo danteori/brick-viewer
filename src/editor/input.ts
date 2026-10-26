@@ -130,7 +130,7 @@ export function initEditorInput(canvas: HTMLCanvasElement): void {
       return;
     }
     if (ed.ghost) {
-      if (k === 'Escape') { e.preventDefault(); endPlacing(ed.ghost.onPlace ? 'Move cancelled: the bricks are back' : 'Placement cancelled'); }
+      if (k === 'Escape') { e.preventDefault(); endPlacing(ed.ghost.cancelText ?? (ed.ghost.onPlace ? 'Move cancelled: the bricks are back' : 'Placement cancelled')); }
       else if (k === 'PageUp' || k === 'PageDown') { e.preventDefault(); nudgeGhost(k === 'PageUp' ? 1 : -1); }
       return;
     }
