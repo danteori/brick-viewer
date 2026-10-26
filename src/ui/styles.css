@@ -61,6 +61,14 @@ body[data-tool="paint"]:not([data-mode="explore"]) #c { cursor:crosshair !import
 #file button:hover { border-color:#e8590c; }
 #file button:focus-visible { outline:2px solid #fff; outline-offset:1px; }
 #status { max-width:15em; font:11px/1.35 system-ui, sans-serif; color:#9a9ca3; }
+#notice { position:fixed; top:12px; left:50%; transform:translateX(-50%); z-index:20; max-width:min(32em, calc(100vw - 32px));
+        padding:10px 34px 10px 12px; border-radius:10px; background:rgba(60,22,22,.94); border:1px solid #e0302f; color:#f3dede;
+        box-shadow:0 6px 24px rgba(0,0,0,.35); font:12px/1.4 system-ui, sans-serif; }
+#notice p { margin:0; }
+#notice .names { margin-top:4px; color:#fff; font-family:ui-monospace, monospace; overflow-wrap:anywhere; }
+#notice button { position:absolute; top:6px; right:6px; width:22px; height:22px; border:0; border-radius:6px; background:transparent;
+        color:#f3dede; cursor:pointer; font:600 14px/1 system-ui, sans-serif; }
+#notice button:hover { background:rgba(255,255,255,.1); }
 body.drop::after { content:'Drop to open'; position:fixed; inset:10px; display:grid; place-items:center; border:2px dashed #e8590c;
         border-radius:14px; background:rgba(232,89,12,.08); color:#fff; font:600 18px system-ui, sans-serif; pointer-events:none; }
 #menu { display:grid; gap:6px;
