@@ -72,7 +72,7 @@ describe('merging an import', () => {
   it('adds a new owner row for an unknown user and counts its bricks there', () => {
     const r = mergeImport(gridWorld(), withOwner(gridWorld({ entityless: true }), { A: 9, B: 9, C: 9, D: 9 }, 'other'), { bricks: 'add' });
     const o = owners(r.files);
-    expect(o.UserNames).toEqual(['tester', 'other']);
+    expect(o.UserNames).toEqual([...owners(gridWorld()).UserNames as string[], 'other']);
     expect(o.BrickCounts).toEqual([MAIN.length + DYN.length, MAIN.length]);
     expect(grid1(r.files).slice(MAIN.length).every((b) => b.owner === 1)).toBe(true);
   });
