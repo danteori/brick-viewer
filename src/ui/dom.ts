@@ -20,15 +20,6 @@ const MARKUP = `
     <button type="button" data-mode="tile" aria-pressed="false" title="Smooth Tile: flat top, no top bevel, stud underside">Smooth Tile</button>
     <button type="button" data-mode="micro" aria-pressed="false">Microbrick</button>
   </div>
-  <div id="viewbox" role="group" aria-label="View">View
-    <button type="button" id="underside" aria-pressed="false" title="Flip to the iso corner below the brick, or back above (U)">Underside (U)</button>
-    <button type="button" id="xray" aria-pressed="false" title="X-ray: hide the bricks between the focused brick and the camera (X)">X-ray (X)</button>
-    <button type="button" id="figure" aria-pressed="false" title="Player figure: a player-sized mannequin (4 bricks tall) beside the focused brick, for scale. Not a brick: never saved, picked or collided with (P)">Figure (P)</button>
-  </div>
-  <div id="xraybox" hidden>
-    <label title="Width of the X-ray tube around the focused brick: bricks reaching into it in front of the brick are hidden">Hole <input id="xraysize" type="range" min="0" max="100" step="1" aria-label="X-ray hole size"></label>
-    <label title="Dead zone: how far above the focused brick's top nothing is cut, so furniture in the room stays (bricks)">Keep <input id="xraykeep" type="range" min="0" max="20" step="1" aria-label="X-ray dead zone above the focus, bricks"></label>
-  </div>
   <div id="file">
     <div id="status">drop or paste (Ctrl+V) a .brz</div>
   </div>
@@ -53,6 +44,15 @@ const MARKUP = `
       <div id="pastemode" role="group" aria-label="What Ctrl+V does" title="What Ctrl+V does. Dropping a file or the Open button always opens a save.">Ctrl+V
         <button type="button" data-paste="upload" aria-pressed="true" title="Ctrl+V opens a .brz copied in the file manager">Upload</button>
         <button type="button" data-paste="brick" aria-pressed="false" title="Ctrl+V places the brick copied with Ctrl+C">Paste brick</button>
+      </div>
+      <div id="viewbox" role="group" aria-label="View">View
+        <button type="button" id="underside" aria-pressed="false" title="Flip to the iso corner below the brick, or back above (U)">Underside (U)</button>
+        <button type="button" id="xray" aria-pressed="false" title="X-ray: hide the bricks between the focused brick and the camera (X)">X-ray (X)</button>
+        <button type="button" id="figure" aria-pressed="false" title="Player figure: a player-sized mannequin (4 bricks tall) beside the focused brick, for scale. Not a brick: never saved, picked or collided with (P)">Figure (P)</button>
+      </div>
+      <div id="xraybox" hidden>
+        <label title="Width of the X-ray tube around the focused brick: bricks reaching into it in front of the brick are hidden">Hole <input id="xraysize" type="range" min="0" max="100" step="1" aria-label="X-ray hole size"></label>
+        <label title="Dead zone: how far above the focused brick's top nothing is cut, so furniture in the room stays (bricks)">Keep <input id="xraykeep" type="range" min="0" max="20" step="1" aria-label="X-ray dead zone above the focus, bricks"></label>
       </div>
     </div>
   </div>

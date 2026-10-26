@@ -95,7 +95,7 @@ function render(): void {
   const row = h('div', { class: 'cadd' });
   const sel = h('select', { 'aria-label': 'Component type to add', 'data-k': 'add-type' });
   for (const t of types) sel.append(new Option(shortType(t), t));
-  const add = h('button', { type: 'button', class: 'cbtn', 'data-k': 'add', title: 'Add a component of this type, with the values most of its kind in this save have' }, 'Add');
+  const add = h('button', { type: 'button', class: 'cbtn', 'data-k': 'add', 'aria-label': 'Add', title: 'Add a component of this type, with the values most of its kind in this save have' }, '+');
   if (!types.length) { sel.append(new Option('(no other types in this save)', '')); sel.disabled = true; add.disabled = true; }
   add.addEventListener('click', () => {
     if (!sel.value) return;

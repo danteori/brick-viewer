@@ -3,6 +3,7 @@
 
 import { expect, test, type Page } from '@playwright/test';
 import { synthSave } from '../unit/synthsave.ts';
+import { inMenu } from './windows.ts';
 
 type P2 = [number, number];
 interface Box { lo: number[]; hi: number[] }
@@ -142,7 +143,7 @@ test('X-ray: a click through the hole focuses an interior brick; the hole slider
   expect(await pick()).not.toBe(k);                           // X-ray off: the roof is in the way
   await page.keyboard.press('x');
   await expect(page.locator('#xray')).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.locator('#xraybox')).toBeVisible();
+  await inMenu(page, () => expect(page.locator('#xraybox')).toBeVisible());
   await slide(page, 'xraykeep', 3);                  // the old default: the house's roof is inside the 5-brick default
   await settle(page);
   expect(await pick()).toBe(k);                               // the roof in the way is hidden: through to the block inside
@@ -177,7 +178,7 @@ test('X-ray: a click through the hole focuses an interior brick; the hole slider
   await settle(page);
   expect(await pickTop(near)).toBe(near);
   expect(await pick()).toBe(k);
-  await page.locator('#xray').click();                        // the button toggles it off again
+  await inMenu(page, () => page.locator('#xray').click());   // the button toggles it off again
   await expect(page.locator('#xray')).toHaveAttribute('aria-pressed', 'false');
   await expect(page.locator('#xraybox')).toBeHidden();
   await settle(page);

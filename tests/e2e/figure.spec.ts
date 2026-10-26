@@ -3,6 +3,7 @@
 // Startup brick only, no private data.
 
 import { expect, test, type Page } from '@playwright/test';
+import { inMenu } from './windows.ts';
 
 type P2 = [number, number];
 interface Box { lo: number[]; hi: number[] }
@@ -55,7 +56,7 @@ test('P shows the figure beside the focused brick, 48 units tall on its base lev
   expect(after.sel).toBe(before.sel);
   expect(await api(page, () => (window as unknown as W).__brickTest.selection())).toEqual([]);
 
-  await page.locator('#figure').click();                              // the View button toggles it too
+  await inMenu(page, () => page.locator('#figure').click());          // the View button toggles it too
   await settle(page);
   await expect(page.locator('#figure')).toHaveAttribute('aria-pressed', 'false');
   expect(await api(page, () => (window as unknown as W).__brickTest.figureBoxes())).toEqual([]);

@@ -41,6 +41,7 @@ import { initProps, tickProps } from '../ui/panels/props.ts';
 import { initSelectionPanel, tickSelection } from '../ui/panels/selection.ts';
 import { initGridPanel, tickGrid } from '../ui/panels/grid.ts';
 import { initComponentsPanel, tickComponents } from '../ui/panels/components.ts';
+import { initContextPanel, tickContextPanel } from '../ui/panels/context.ts';
 import { drawWires, initWires } from '../ui/overlay/wires.ts';
 import { initCataloguePanel } from '../ui/panels/catalogue.ts';
 import { drawDims, initDims } from '../ui/overlay/dims.ts';
@@ -134,6 +135,7 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
   initWorldEnvironment();
   initPaintPanel();
   initApplicatorPanel();
+  initContextPanel();
   // full build: environment panel, .brdb worlds and the map (a separate chunk, never in lite)
   if (loadFullUi) waitForOpeners(loadFullUi().then((m) => m.mountFullUi()).catch((err) => console.error('full UI failed to load', err)));
 
@@ -162,6 +164,7 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
       tickSelection();
       tickGrid();
       tickApplicator();
+      tickContextPanel();
     }
     requestAnimationFrame(frame);
   };

@@ -16,6 +16,9 @@ const DIM_OFF = 18;                                      // px between the edge 
 let dimsEl: SVGSVGElement, ov: SVGSVGElement, nameEl: HTMLElement, canvas: HTMLCanvasElement;
 let boxCenterPx: [number, number] = [0, 0], shownDims = '';
 
+/** The focused brick's box on screen (CSS px: left, top, right, bottom), or null when nothing is shown. */
+export let focusRect: [number, number, number, number] | null = null;
+
 export function initDims(c: HTMLCanvasElement): void {
   canvas = c;
   dimsEl = document.getElementById('dims') as unknown as SVGSVGElement;
@@ -79,6 +82,7 @@ export function drawDims(sx: number, sy: number): void {
   const cw = canvas.clientWidth, ch = canvas.clientHeight, { cam } = S;
   const none = !hasFocus() || S.hidden.has(S.sel);
   document.body.classList.toggle('empty', none);   // empty scene (or the focus is being moved): no dimension labels / name (CSS)
+  focusRect = null;
   if (none) { updateHover(canvas, sx, sy); if (shownDims) dimsEl.innerHTML = shownDims = ''; return; }
   const P = (X: number, Y: number, Z: number): P2 => { const v = toView(X, Y, Z); return [((v[0] - cam.x) * sx + 1) * cw / 2, (1 - (v[1] - cam.y) * sy) * ch / 2]; };
   const [l, u] = proposedBox();                         // dimensions show the size with the ghost applied
@@ -106,8 +110,12 @@ export function drawDims(sx: number, sy: number): void {
 
   // name label: centred above the brick's highest on-screen point
   const pu = (i: number): number => Math.round((u[i] - l[i]) / S.STEPS[i]);
-  let top = 1e9;
-  for (let c = 0; c < 8; c++) top = Math.min(top, P(c & 1 ? u[0] : l[0], c & 2 ? u[1] : l[1], c & 4 ? u[2] : l[2])[1]);
+  let top = 1e9, bottom = -1e9, left = 1e9, right = -1e9;
+  for (let c = 0; c < 8; c++) {
+    const [x, y] = P(c & 1 ? u[0] : l[0], c & 2 ? u[1] : l[1], c & 4 ? u[2] : l[2]);
+    top = Math.min(top, y); bottom = Math.max(bottom, y); left = Math.min(left, x); right = Math.max(right, x);
+  }
+  if (finite(top, bottom, left, right)) focusRect = [left, top, right, bottom];
   const label = displayName(S.focus!, pu(0), pu(1), pu(2));
   if (nameEl.textContent !== label) nameEl.textContent = label;
   nameEl.style.left = boxCenterPx[0] + 'px'; nameEl.style.top = (top - 14) + 'px';

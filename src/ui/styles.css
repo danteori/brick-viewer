@@ -375,3 +375,26 @@ body.placing canvas { cursor:copy !important; }
 #catwin .bitem { padding:6px 8px; border-radius:var(--br-r-sm); background:var(--br-navy-3); color:var(--br-text); font-family:var(--br-font); }
 #catwin .bitem:hover { border-color:transparent; background:var(--br-btn-hover); color:#fff; }
 #catwin .bitem.on { border-color:var(--br-select); background:rgba(0,155,238,.35); }
+
+#props #flagtoggle { display:flex; align-items:center; justify-content:space-between; gap:10px; width:100%; padding:6px 0 4px; font-weight:600; }
+#props #flagtoggle .chev { margin-left:auto; }
+#flagbody { display:grid; gap:4px; padding:2px 0 6px; }
+#props .flagrow { display:flex; align-items:center; justify-content:space-between; gap:10px; font-size:12px; }
+#props .flagsw { position:relative; flex:none; width:44px; height:22px; padding:0; border-radius:11px; background:#455A7E; cursor:pointer; }
+#props .flagsw .knob { position:absolute; top:2px; left:2px; width:18px; height:18px; border-radius:50%; background:#E02D2D; transition:left .12s, background .12s; }
+#props .flagsw[aria-checked="true"] .knob { left:24px; background:#5DA93D; }
+#props .flagsw[aria-checked="mixed"] .knob { left:13px; background:var(--br-muted); }
+#props .flagsw:disabled { opacity:.4; cursor:default; }
+#props.ctx { right:auto; left:0; top:0; z-index:2; display:flex; flex-direction:column; gap:2px; padding:10px 12px; border:0;
+        border-radius:var(--br-r-md); background:var(--br-navy-5); color:var(--br-text); font-family:var(--br-font); box-shadow:0 12px 40px rgba(0,0,0,.5); }
+#props.ctx[hidden] { display:none; }
+#props.ctx #ptoggle, #props.ctx #flagtoggle, #props.ctx #comptoggle, #props.ctx #seltoggle, #props.ctx #gridtoggle, #props.ctx #painttoggle,
+#props.ctx #apptoggle { color:var(--br-title); font-weight:700; text-transform:uppercase; letter-spacing:.03em; }
+#props.ctx #tool, #props.ctx #mode, #props.ctx #menu { margin:0 0 4px; border:0; border-radius:var(--br-r-sm); background:var(--br-navy-3); box-shadow:none; }
+#props.ctx #tool button[aria-pressed="true"], #props.ctx #mode button[aria-pressed="true"] { background:var(--br-select); }
+#props.ctx .flagsw:focus-visible, #props.ctx button:focus-visible { outline:2px solid var(--br-select); }
+#props #ctxdone { margin-top:8px; padding:9px 12px; border-radius:var(--br-r-sm); background:#5DA93D; color:#fff; text-align:center;
+        font-weight:700; letter-spacing:.06em; text-transform:uppercase; }
+#props #ctxdone:hover { background:#6CBB4A; }
+#escmenu #viewbox button[aria-pressed="true"] { background:var(--br-select); }
+#escmenu #xraybox label { gap:8px; }
