@@ -18,7 +18,7 @@ import { initAudio, playClick, playSelect } from '../ui/audio.ts';
 import { escapeStep, isFree } from '../app/mode.ts';
 import { anyOpen, closeTop, openWindow } from '../ui/windows.ts';
 import { onUp, selectBrick } from './resize.ts';
-import { beginDrag, cancelDrag, canDrag, dragHud, dragging, endDrag, toggleDragMode } from './dragplace.ts';
+import { beginDrag, cancelDrag, canDrag, dragHud, dragging, endDrag, finishDragAxis, toggleDragMode } from './dragplace.ts';
 
 export const isTyping = (a: EventTarget | null): boolean => {
   const e = a as HTMLElement | null;
@@ -30,7 +30,18 @@ let rShift = false;
 
 /** Where a drag placement was pressed (screen px): a release within DRAG_DEAD px is a plain click. */
 let press: [number, number] | null = null;
+/** Where the right button went down with a ghost out: a release within DRAG_DEAD px puts the ghost away. */
+let rightPress: [number, number] | null = null;
 const DRAG_DEAD = 4;
+const near = (a: [number, number], e: MouseEvent): boolean => Math.hypot(e.clientX - a[0], e.clientY - a[1]) <= DRAG_DEAD;
+
+/** Places the ghost where the cursor is. It stays in hand until Esc or a right-click. */
+function placeHere(): void {
+  const G = ed.ghost;
+  if (!G) return;
+  placeGhost();
+  G.mode = 'click';
+}
 
 /** A Shift+drag box select in progress (screen px), and its rectangle on the page. */
 let box: { x0: number; y0: number; x1: number; y1: number; remove: boolean; dragging: boolean; id: number } | null = null;
@@ -58,7 +69,7 @@ export function escape(): void {
   const step = escapeStep({ window: anyOpen(), inHand: !!ed.ghost || S.held, selected: S.selection.size > 0 || (isFree() && hasFocus()) });
   if (step === 'window') closeTop();
   else if (step === 'drop') {
-    if (ed.ghost) endPlacing(ed.ghost.cancelText ?? (ed.ghost.onPlace ? 'Move cancelled: the bricks are back' : 'Placement cancelled'));
+    if (ed.ghost) endPlacing(ed.ghost.cancelText ?? 'Placement cancelled');
     else onUp({ type: 'pointercancel' });
   } else if (step === 'deselect') { clearSelection(); if (isFree()) selectBrick(-1); setStatus('Selection cleared'); }
   else if (isFree() || !hasFocus()) openWindow('escmenu');
@@ -102,29 +113,38 @@ export function initEditorInput(canvas: HTMLCanvasElement): void {
     const G = ed.ghost;
     if (!G || e.target !== canvas || e.button === 1) return;     // the middle button still orbits
     e.stopImmediatePropagation(); e.preventDefault();
-    if (e.button === 2) { endPlacing('Placement cancelled'); return; }
+    if (e.button === 2) { if (!dragging()) rightPress = [e.clientX, e.clientY]; return; }
     if (e.button !== 0 || G.mode !== 'click') return;
-    if (canDrag(G) && beginDrag(G)) {
+    if (canDrag(G) && beginDrag(G, [e.clientX, e.clientY])) {
       press = [e.clientX, e.clientY];
       try { canvas.setPointerCapture(e.pointerId); } catch { /* not capturable */ }
       return;
     }
-    if (placeGhost()) endPlacing();
+    placeHere();
+  }, true);
+  addEventListener('mousedown', (e) => {
+    if (e.button !== 2 || !dragging()) return;
+    e.stopImmediatePropagation(); e.preventDefault();
+    finishDragAxis();
   }, true);
   addEventListener('pointerup', (e) => {
     const G = ed.ghost;
+    if (e.button === 2 && rightPress) {
+      const click = near(rightPress, e);
+      rightPress = null;
+      if (G && click && !dragging()) { e.stopImmediatePropagation(); endPlacing('Placement cancelled'); }
+      return;
+    }
     if (G && e.button === 0 && dragging()) {
-      const p0 = press!, still = Math.hypot(e.clientX - p0[0], e.clientY - p0[1]) <= DRAG_DEAD;
+      const p0 = press!, still = near(p0, e);
       press = null;
       if (still) cancelDrag();
-      const r = still ? 'single' : endDrag();
-      if (r === 'single') { G.mouse = p0; G.over = true; if (placeGhost()) endPlacing(); }
-      else if (r === 'placed') endPlacing(undefined, true);
+      if ((still ? 'single' : endDrag()) === 'single') { G.mouse = p0; G.over = true; placeHere(); }
       return;
     }
     if (!G || G.mode !== 'drag' || e.button !== 0) return;
     G.mouse = [e.clientX, e.clientY]; G.over = e.target === canvas;
-    if (G.over) { placeGhost(); endPlacing(); return; }           // refused: placeGhost said why
+    if (G.over) { placeHere(); return; }           // refused: placeGhost said why
     const t = e.target as Element | null;
     const onItem = t?.closest && t.closest('.bitem') === G.from;
     if (!G.visited && onItem) { G.mode = 'click'; setStatus(`Placing ${ghostName(G.items)}: click in the scene to place, Esc cancels`); return; }
@@ -207,6 +227,6 @@ export function initEditorInput(canvas: HTMLCanvasElement): void {
   addEventListener('keyup', (e) => {
     if ((e.key === 'r' || e.key === 'R') && reorienting() && endReorient()) rotateTap(rShift ? -1 : 1);
   });
-  addEventListener('pointercancel', () => { if (dragging()) { cancelDrag(); press = null; } }, true);
-  addEventListener('blur', () => { endReorient(); cancelDrag(); press = null; if (ed.ghost && ed.ghost.mode === 'drag') endPlacing(); });
+  addEventListener('pointercancel', () => { rightPress = null; if (dragging()) { cancelDrag(); press = null; } }, true);
+  addEventListener('blur', () => { endReorient(); cancelDrag(); press = null; rightPress = null; if (ed.ghost && ed.ghost.mode === 'drag') endPlacing(); });
 }

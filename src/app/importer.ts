@@ -9,9 +9,11 @@ import { loadDynamicGrids } from '../scene/dyngrids.ts';
 import { sceneFiles } from '../scene/save.ts';
 import { GRIDS } from '../scene/store.ts';
 import { brickView } from '../scene/view.ts';
-import { endPlacing, startPlacing, type Ghost } from '../editor/ghost.ts';
+import { ed, startPlacing, type Ghost } from '../editor/ghost.ts';
+import { exclusive } from '../core/exclusive.ts';
+import { placeholder } from '../ui/placeholder.ts';
 import { openers } from '../ui/panels/file.ts';
-import { initAudio, playClick } from '../ui/audio.ts';
+import { initAudio, playClick, playError } from '../ui/audio.ts';
 import { setStatus } from '../ui/status.ts';
 import { readWorldFile } from './worlds.ts';
 import { FEATURES } from './features.ts';
@@ -130,6 +132,14 @@ function relativeTo(b: Brick, low: V3): Brick {
   return b;
 }
 
+const BUSY_TEXT = placeholder('Wait: the last copy is still being imported');
+
+/** Merges one copy of the import at a time; the ghost stays in hand through the merge's load. */
+const mergeCopy = exclusive(async (name: string, add: FileMap, parts: MergeChoice, turns: number, offset: readonly number[]) => {
+  ed.keepOnLoad = true;
+  try { await mergeAt(name, add, parts, turns, offset); } catch (err) { setStatus(`Couldn't import ${name}: ${(err as Error).message}`); console.error(err); } finally { ed.keepOnLoad = false; }
+});
+
 function placeAsPrefab(name: string, add: FileMap, parts: MergeChoice): void {
   const g = importGhost(add, parts);
   const note = g.items.length < g.total ? ` (showing ${g.items.length} of ${g.total} bricks)` : '';
@@ -137,9 +147,9 @@ function placeAsPrefab(name: string, add: FileMap, parts: MergeChoice): void {
     drop: true, noHits: g.items.length > HITS_MAX, whole: true, cancelText: 'Import cancelled',
     onPlace: (G: Ghost) => {
       const pose = G.pose!, turns = ((G.turns % 4) + 4) % 4, offset = prefabOffset(g.low, g.size, turns, pose, BRZ_UNIT);
-      endPlacing(undefined, true);
-      mergeAt(name, add, parts, turns, offset).catch((err) => { setStatus(`Couldn't import ${name}: ${(err as Error).message}`); console.error(err); });
-      return true;
+      if (mergeCopy(name, add, parts, turns, offset)) return true;
+      setStatus(BUSY_TEXT); initAudio(); playError();
+      return false;
     },
   });
   setStatus(`Placing ${name}${note}: click in the scene to place, R turns it, PgUp / PgDn raise / lower, Esc cancels`);

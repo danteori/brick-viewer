@@ -14,7 +14,7 @@ interface Api {
   ids(): number[];
   byId(): [number, number[], number[], number[]][];
   grids(): { id: number; ids: number[] }[] | null;
-  snapshot(): { zoom: number };
+  snapshot(): { zoom: number; ghost: boolean };
   setView(a: { k: number; zoom?: number; baseZoom: number }): void;
 }
 type W = { __brickTest: Api };
@@ -111,6 +111,9 @@ test('full: add as a prefab, turned, with its moving grid', async ({ page }) => 
   expect(await count(page)).toBe(2 * before);
   expect(await page.evaluate(() => (window as unknown as W).__brickTest.grids()?.length)).toBe(2);
   await expect(status(page)).not.toContainText('left out');
+  expect(await page.evaluate(() => (window as unknown as W).__brickTest.snapshot().ghost)).toBe(true);
+  await page.keyboard.press('Escape'); await settle(page);
+  expect(await page.evaluate(() => (window as unknown as W).__brickTest.snapshot().ghost)).toBe(false);
   const saved = await savedBrz(page);
   expect(extractBricks(saved).bricks).toHaveLength(2 * MAIN.length);
   expect(readEntities(fileMapView(saved)).entities).toHaveLength(2);

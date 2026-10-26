@@ -34,7 +34,7 @@ export function initOps(): void {
     else if (t.selBefore || t.selAfter) setSelection((side === 'before' ? t.selBefore : t.selAfter) ?? []);
     else pruneSelection();
   });
-  S.hooks.beforeLoad.push(() => { endPlacing(); setSelection([]); });
+  S.hooks.beforeLoad.push(() => { if (!ed.keepOnLoad) endPlacing(); setSelection([]); });
 }
 
 /** Component types a paste could not carry over (last addBricks; not types of this save, say). */

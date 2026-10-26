@@ -39,14 +39,8 @@ export interface Ghost {
    */
   drop: boolean;
   skip: boolean[];
-  /** scene rows that don't block this ghost (a move: the bricks being moved) */
-  ignore?: ReadonlySet<number>;
-  /** placing it does this instead of adding the items (a move); returns whether it was placed */
+  /** placing it does this instead of adding the items (an import); returns whether it was placed */
   onPlace?: (g: Ghost) => boolean;
-  /** called when the ghost goes away without being placed (a move puts the originals back) */
-  onCancel?: () => void;
-  /** the point of the group held under the cursor, from its low corner (a drag-move); unset = the group's centre */
-  anchor?: number[];
   /** no per-brick overlap test while posing (an import: its drops are found once, when it is placed) */
   noHits?: boolean;
   /** always turn the items as one group, never one item's own shape */
@@ -55,8 +49,6 @@ export interface Ghost {
   turns: number;
   /** the status line when Esc cancels it */
   cancelText?: string;
-  /** the face the pose rests on: its axis (2 for the ground) and where it lies on that axis */
-  face?: { axis: number; at: number };
 }
 
 /** What the ghost pass draws: the items at a pose, which of them are dropped, and whether it's blocked. */
@@ -69,6 +61,8 @@ export const ed = {
   lastPlaceT: -1e9,
   /** the scene's ground, remembered for an empty scene (absolute) */
   groundAbs: 0,
+  /** a load in progress (an import merge) keeps the ghost in hand */
+  keepOnLoad: false,
   /** draws this in place of the posed ghost while it returns a view (a drag placement) */
   preview: null as (() => GhostView | null) | null,
 };
@@ -97,7 +91,7 @@ export function initGhost(c: HTMLCanvasElement): void {
   canvas = c;
   S.hooks.placing = () => !!ed.ghost;
   S.hooks.draw.push(drawGhost);
-  S.hooks.beforeLoad.push(() => endPlacing());
+  S.hooks.beforeLoad.push(() => { if (!ed.keepOnLoad) endPlacing(); });
 }
 
 export const gsize = (items: readonly Brick[]): V3 => [0, 1, 2].map((i) => maxOf(items, (t) => t.hi[i]!)) as V3;
@@ -110,22 +104,21 @@ export function itemName(t: Brick): string {
 export const ghostName = (items: readonly Brick[]): string => (items.length === 1 ? itemName(items[0]) : `${items.length} bricks`);
 
 export interface PlaceOpts {
-  drop?: boolean; ignore?: ReadonlySet<number>; onPlace?: (g: Ghost) => boolean; onCancel?: () => void; anchor?: number[];
-  noHits?: boolean; whole?: boolean; cancelText?: string;
+  drop?: boolean; onPlace?: (g: Ghost) => boolean; noHits?: boolean; whole?: boolean; cancelText?: string;
 }
 
 export function startPlacing(items: Brick[], label: string, mode: 'drag' | 'click', from: HTMLElement | null, opts: PlaceOpts = {}): void {
   if (S.held) return;
   endPlacing();
   ed.ghost = { items: cloneBrick(items), label, mode, from, dz: 0, pose: null, valid: false, reason: '', mouse: ed.lastMouse, over: ed.lastOver, visited: false, drop: !!opts.drop, skip: [],
-    ignore: opts.ignore, onPlace: opts.onPlace, onCancel: opts.onCancel, anchor: opts.anchor, noHits: opts.noHits, whole: opts.whole, turns: 0, cancelText: opts.cancelText };
+    onPlace: opts.onPlace, noHits: opts.noHits, whole: opts.whole, turns: 0, cancelText: opts.cancelText };
   document.body.classList.add('placing'); if (from) from.classList.add('on');
   initAudio();
   setStatus(`Placing ${ghostName(ed.ghost.items)}: ${mode === 'drag' ? 'release' : 'click'} in the scene to place, Esc cancels`);
 }
 
-/** Ends the ghost. `placed`: it was placed (otherwise a move puts its bricks back). */
-export function endPlacing(msg?: string, placed = false): void {
+/** Puts the ghost away. */
+export function endPlacing(msg?: string): void {
   const g = ed.ghost;
   if (!g) return;
   if (g.from) g.from.classList.remove('on');
@@ -133,7 +126,6 @@ export function endPlacing(msg?: string, placed = false): void {
   ed.preview = null;
   if (batch) { batch.set.dispose(); batch = null; }
   document.body.classList.remove('placing');
-  if (!placed) g.onCancel?.();
   if (msg) setStatus(msg);
 }
 
@@ -189,7 +181,7 @@ export function groundZ(): number {
 /** pose the ghost onto the face under the cursor, else the ground */
 export function poseGhost(): void {
   const G = ed.ghost!;
-  G.pose = null; G.valid = false; G.reason = ''; G.skip = []; G.face = undefined;
+  G.pose = null; G.valid = false; G.reason = ''; G.skip = [];
   if (!G.mouse || !G.over) return;
   const r = cursorRay(G.mouse[0], G.mouse[1]);
   if (!r) return;
@@ -201,7 +193,7 @@ export function poseGhost(): void {
     const own = hit.k === S.sel, bx = own ? null : S.scene.box(hit.k);
     const bl = own ? S.dlo : [0, 1, 2].map((i) => r3(bx![i]! * BRZ_UNIT)), bh = own ? S.dhi : [0, 1, 2].map((i) => r3(bx![i + 3]! * BRZ_UNIT));
     const P = r.S.map((v, i) => v + r.D[i] * hit.s), a = hit.ax, outward = r.D[a] > 0 ? -1 : 1;
-    const off = (i: number): number => (G.anchor ? G.anchor[i]! : sz[i] / 2);
+    const off = (i: number): number => sz[i] / 2;
     for (let i = 0; i < 3; i++) p[i] = i === a ? (outward > 0 ? bh[i] : r3(bl[i] - sz[i])) : snap(P[i] - off(i), bl[i], st[i]);
   } else {
     // the ground plane, snapped to the drawn ground grid (it lines up with the focused brick's far corner)
@@ -210,17 +202,15 @@ export function poseGhost(): void {
     if (t < 0) return;
     const P = r.S.map((v, i) => v + r.D[i] * t);
     const ref = hasFocus() && !S.hidden.has(S.sel) ? [farOf(0, S.dlo, S.dhi), farOf(1, S.dlo, S.dhi)] : [0, 0];
-    const off = (i: number): number => (G.anchor ? G.anchor[i]! : sz[i] / 2);
+    const off = (i: number): number => sz[i] / 2;
     p[0] = snap(P[0] - off(0), ref[0], st[0]); p[1] = snap(P[1] - off(1), ref[1], st[1]); p[2] = r3(gz);
   }
   p[2] = r3(p[2] + G.dz * st[2]);
   G.pose = p;
-  const a = hit && hit.ax >= 0 && S.scene.alive(hit.k) ? hit.ax : 2, under = a === 2 ? 1 : r.D[a] > 0 ? -1 : 1;
-  G.face = { axis: a, at: under > 0 ? p[a] : r3(p[a] + sz[a]) };
   if (p[2] < gz - 1e-4) { G.reason = 'below the ground'; return; }
   if (G.noHits) { G.valid = true; return; }
   // same-grid overlap: a paste drops the items that collide, any other placement is refused
-  G.skip = G.items.map((t) => itemHits(p, t, G.ignore));
+  G.skip = G.items.map((t) => itemHits(p, t));
   if (G.drop ? G.skip.every(Boolean) : G.skip.some(Boolean)) { G.reason = 'overlaps a brick'; return; }
   G.valid = true;
 }
