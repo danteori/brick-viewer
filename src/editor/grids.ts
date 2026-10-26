@@ -117,7 +117,7 @@ export function rotateSelectedGrid(dir: 1 | -1): boolean {
   const x = set.grids.get(g)!, rows = rowsOfGrid(s, g);
   gridEdit('turn grid', rows, () => placeGrid(s, g, x, turnedXf(x, dir), rows));
   initAudio(); playClick();
-  setStatus(`Turned grid ${g} a quarter turn ${dir > 0 ? 'anticlockwise' : 'clockwise'} (seen from above)`);
+  setStatus(`Turned grid ${g} a quarter turn ${dir > 0 ? 'clockwise' : 'anticlockwise'} (seen from above)`);
   return true;
 }
 

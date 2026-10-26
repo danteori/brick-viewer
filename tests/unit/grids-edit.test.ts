@@ -20,6 +20,7 @@ import {
   eulerOfQuat, gridSetOf, loadDynamicGrids, placeGrid, quatOfEuler, rowsOfGrid, shiftedXf, toLocal, toWorld, turnedXf, xfOf, IDENT, type GridXf,
 } from '../../src/scene/dyngrids.ts';
 import { GRIDS, type SceneStore } from '../../src/scene/store.ts';
+import { rotate } from '../../src/scene/grids.ts';
 import { DYN, DYN_LOCATION, ENTITIES_BARE, ENTITIES_FULL, gridWorld, MAIN } from './gridworld.ts';
 
 const W = 'World/0/';
@@ -77,6 +78,21 @@ describe('dynamic grids: loading', () => {
       const q1 = quatOfEuler(...e), q2 = quatOfEuler(...back), dot = Math.abs(q1.reduce((a, v, i) => a + v * q2[i]!, 0));
       expect(dot).toBeCloseTo(1, 9);
     }
+  });
+
+  it('euler angles follow Unreal FRotator signs', () => {
+    const ue = (p: number, y: number, r: number): number[] => {
+      const h = Math.PI / 360, [SP, CP, SY, CY, SR, CR] = [p, p, y, y, r, r].map((v, i) => (i % 2 ? Math.cos : Math.sin)(v * h));
+      return [CR * SP * SY - SR * CP * CY, -CR * SP * CY - SR * CP * SY, CR * CP * SY - SR * SP * CY, CR * CP * CY + SR * SP * SY];
+    };
+    for (const [y, p, r] of [[90, 0, 0], [0, 90, 0], [0, 0, 90], [45, 30, -60], [-120, -15, 170]]) {
+      const q = quatOfEuler(y!, p!, r!), u = ue(p!, y!, r!);
+      expect(Math.abs(q.reduce((a, v, i) => a + v * u[i]!, 0))).toBeCloseTo(1, 9);
+    }
+    const near = (v: number[], to: number[]): void => v.forEach((c, i) => expect(c).toBeCloseTo(to[i]!, 9));
+    near(rotate(quatOfEuler(90, 0, 0), [1, 0, 0]), [0, 1, 0]);
+    near(rotate(quatOfEuler(0, 90, 0), [1, 0, 0]), [0, 0, 1]);
+    near(rotate(quatOfEuler(0, 0, 90), [0, 1, 0]), [0, 0, -1]);
   });
 });
 

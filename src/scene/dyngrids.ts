@@ -83,12 +83,11 @@ export function quatNorm(q: Quat): Quat {
 export const axisQuat = (axis: Vec3, deg: number): Quat => { const h = deg * Math.PI / 360, s = Math.sin(h); return [axis[0] * s, axis[1] * s, axis[2] * s, Math.cos(h)]; };
 
 /**
- * Yaw (about Z), pitch (about Y), roll (about X) in degrees -> quaternion: q = yaw * pitch * roll,
- * right-handed about the save's axes (the convention grids.ts rotate() uses). The game's own
- * rotator signs aren't known (backlog W-04 question).
+ * Yaw, pitch, roll in degrees -> quaternion, as Unreal's FRotator: +yaw turns +X to +Y (clockwise seen
+ * from above), +pitch raises +X to +Z, +roll lowers +Y to -Z; q = yaw * pitch * roll.
  */
 export function quatOfEuler(yaw: number, pitch: number, roll: number): Quat {
-  return quatNorm(quatMul(quatMul(axisQuat([0, 0, 1], yaw), axisQuat([0, 1, 0], pitch)), axisQuat([1, 0, 0], roll)));
+  return quatNorm(quatMul(quatMul(axisQuat([0, 0, 1], yaw), axisQuat([0, 1, 0], -pitch)), axisQuat([1, 0, 0], -roll)));
 }
 /** Inverse of quatOfEuler (degrees, yaw and roll in (-180, 180], pitch in [-90, 90]). */
 export function eulerOfQuat(q: Quat): [yaw: number, pitch: number, roll: number] {
@@ -96,7 +95,7 @@ export function eulerOfQuat(q: Quat): [yaw: number, pitch: number, roll: number]
   const sp = Math.max(-1, Math.min(1, 2 * (w * y - z * x)));
   const yaw = Math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z)), roll = Math.atan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y));
   const r = (v: number): number => { const a = Math.round(v * d * 1e4) / 1e4; return a === -180 ? 180 : a + 0; };
-  return [r(yaw), r(Math.asin(sp)), r(roll)];
+  return [r(yaw), r(-Math.asin(sp)), r(-roll)];
 }
 
 /** The transform of an entity at `location` turned by `quat`. */
