@@ -3,14 +3,16 @@ import { F_HAS_FLAGS, FLAG_NAMES, type SceneStore } from './store.ts';
 /** On for every row, off for every row, a mix, or none of the fields are in the save. */
 export type FlagState = 'on' | 'off' | 'mixed' | 'none';
 
+const PLAYERS = ['CollisionFlags_Player', 'CollisionFlags_Player1', 'CollisionFlags_Player2', 'CollisionFlags_Player3'];
+
 /** The applicator's properties and the save fields each one sets together. */
 export const FLAG_PROPS: readonly { key: string; fields: readonly string[] }[] = [
   { key: 'visible', fields: ['VisibilityFlags'] },
-  { key: 'collision', fields: ['CollisionFlags_Weapon', 'CollisionFlags_Interaction', 'CollisionFlags_Physics'] },
-  { key: 'player1', fields: ['CollisionFlags_Player'] },
-  { key: 'player2', fields: ['CollisionFlags_Player1'] },
-  { key: 'player3', fields: ['CollisionFlags_Player2'] },
-  { key: 'player4', fields: ['CollisionFlags_Player3'] },
+  { key: 'players', fields: PLAYERS },
+  ...PLAYERS.map((f, i) => ({ key: `player${i + 1}`, fields: [f] })),
+  { key: 'physics', fields: ['CollisionFlags_Physics'] },
+  { key: 'interaction', fields: ['CollisionFlags_Interaction'] },
+  { key: 'projectile', fields: ['CollisionFlags_Weapon'] },
 ];
 
 /** The bits of `fields` that the store's save has (unknown names are left out, never added to the table). */

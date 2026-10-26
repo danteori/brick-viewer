@@ -94,7 +94,6 @@ test('Esc deselects first, then opens the Menu, then closes it', async ({ page }
 test('a click selects a brick and leaves the camera; a double-click centres on it', async ({ page }) => {
   await twoBricks(page);
   const other = (await sel(page)) === 0 ? 1 : 0;
-  await page.locator('#ctxdone').click();
   const c0 = await cam(page), s0 = await centreOf(page, 0);
   const p = await nearTopOf(page, other);
   await page.mouse.move(p[0], p[1]); await frames(page, 4);
@@ -137,30 +136,20 @@ test('the camera keys are off while a brick is selected; after Esc, Space moves 
   expect((await cam(page)).y).toBeLessThan(y1);
 });
 
-test('the context panel opens beside the selected brick, DONE closes it, Esc hides it with the selection', async ({ page }) => {
+test('the context panel docks at the right edge with a selection and hides without one', async ({ page }) => {
   await open(page);
   const panel = page.locator('#props');
   await expect(panel).toBeVisible();
-  await expect(page.locator('#flagbody .flagsw')).toHaveCount(6);
+  await expect(page.locator('#flagbody .flagsw')).toHaveCount(9);
   await expect(page.locator('#props #tool')).toBeVisible();
+  await expect(page.locator('#ctxdone')).toHaveCount(0);
   await expect(page.locator('#side #viewbox')).toHaveCount(0);
   await frames(page, 4);
   const r = await panel.boundingBox();
-  const corners = await page.evaluate(() => {
-    const t = (window as unknown as W).__brickTest, { lo, hi } = t.focusBox();
-    const out: P2[] = [];
-    for (let c = 0; c < 8; c++) out.push(t.project(c & 1 ? hi[0] : lo[0], c & 2 ? hi[1] : lo[1], c & 4 ? hi[2] : lo[2]));
-    return out;
-  });
   const vp = page.viewportSize()!;
-  expect(r!.x).toBeGreaterThanOrEqual(0); expect(r!.x + r!.width).toBeLessThanOrEqual(vp.width);
-  expect(r!.y).toBeGreaterThanOrEqual(0); expect(r!.y + r!.height).toBeLessThanOrEqual(vp.height);
-  const bl = Math.min(...corners.map((p) => p[0])), br = Math.max(...corners.map((p) => p[0]));
-  expect(r!.x >= br || r!.x + r!.width <= bl).toBe(true);
-
-  await page.locator('#ctxdone').click();
-  await expect(panel).toBeHidden();
-  expect(await sel(page)).toBeGreaterThanOrEqual(0);
+  expect(r!.x + r!.width).toBeLessThanOrEqual(vp.width);
+  expect(vp.width - (r!.x + r!.width)).toBeLessThan(40);
+  expect(r!.y).toBeGreaterThanOrEqual(0);
 
   await page.keyboard.press('Escape');
   expect(await sel(page)).toBe(-1);

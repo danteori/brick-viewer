@@ -1,28 +1,27 @@
 import { S, hasFocus } from '../../app/state.ts';
 import { isFree } from '../../app/mode.ts';
 import { ed } from '../../editor/ghost.ts';
+import { ghostBrick } from '../../editor/ghostsize.ts';
 import { effectiveIds } from '../../editor/select.ts';
 import { FLAG_PROPS, flagMask, flagState, writeFlags } from '../../scene/brickflags.ts';
 import { histEnd, txBegin, txEnd } from '../../scene/history.ts';
-import type { SceneStore } from '../../scene/store.ts';
-import { focusRect } from '../overlay/dims.ts';
 import { initAudio, playClick } from '../audio.ts';
 import { $ } from '../dom.ts';
 import { placeholder } from '../placeholder.ts';
 import { refreshFocus } from './paint.ts';
-
-const GAP = 56, MARGIN = 12;
+import { tickSizeUi } from './size.ts';
 
 const LABELS: Record<string, string> = {
-  visible: placeholder('Visible'), collision: placeholder('Collision'),
+  visible: placeholder('Visible'), players: placeholder('Player Collision'),
   player1: placeholder('Player Collision 1'), player2: placeholder('Player Collision 2'),
   player3: placeholder('Player Collision 3'), player4: placeholder('Player Collision 4'),
+  physics: placeholder('Physics Collision'), interaction: placeholder('Interaction Collision'),
+  projectile: placeholder('Projectile Collision'),
 };
 
-let props: HTMLElement, flagBody: HTMLElement, done: HTMLButtonElement;
+let props: HTMLElement, flagBody: HTMLElement;
 let switches: { key: string; fields: readonly string[]; el: HTMLButtonElement }[] = [];
-let dismissed = false, openKey = '', shownFlags = '';
-let lastScene: SceneStore | null = null;
+let shownFlags = '';
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string, string>, text = ''): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -86,32 +85,12 @@ function showFlags(): void {
   }
 }
 
-const frozen = (): boolean => S.held || props.matches(':hover') || props.contains(document.activeElement);
-
-function place(docked: boolean): void {
-  if (frozen()) return;
-  const w = props.offsetWidth, h = props.offsetHeight, vw = innerWidth, vh = innerHeight, r = docked ? null : focusRect;
-  let x = vw - w - MARGIN, y = MARGIN;
-  if (r) {
-    const right = r[2] + GAP, left = r[0] - GAP - w;
-    x = right + w <= vw - MARGIN ? right : left >= MARGIN ? left : vw - r[2] >= r[0] ? right : left;
-    y = (r[1] + r[3]) / 2 - h / 2;
-  }
-  x = Math.round(Math.max(MARGIN, Math.min(x, vw - w - MARGIN)));
-  y = Math.round(Math.max(MARGIN, Math.min(y, vh - h - MARGIN)));
-  if (props.style.left !== `${x}px`) props.style.left = `${x}px`;
-  if (props.style.top !== `${y}px`) props.style.top = `${y}px`;
-}
-
 export function initContextPanel(): void {
   props = $('props');
   buildFlags();
   if (!isFree()) return;
   props.classList.add('ctx');
   props.prepend($('tool'), $('menu'), $('mode'));
-  done = el('button', { type: 'button', id: 'ctxdone' }, placeholder('DONE'));
-  done.addEventListener('click', () => { dismissed = true; props.hidden = true; done.blur(); });
-  props.append(done);
   for (const [id, open] of [['seltoggle', false], ['comptoggle', true]] as const) {
     const t = $<HTMLButtonElement>(id);
     if ((t.getAttribute('aria-expanded') === 'true') !== open) t.click();
@@ -119,15 +98,12 @@ export function initContextPanel(): void {
   props.hidden = true;
 }
 
-/** Per frame, after the overlays: the flag switches, and in the free camera the panel's visibility and place. */
+/** Per frame: the size fields, the flag switches, and in the free camera whether the panel shows. */
 export function tickContextPanel(): void {
+  tickSizeUi();
   if (!isFree()) { showFlags(); return; }
-  const key = `${S.sel}|${S.selection.size}`;
-  if (key !== openKey || S.scene !== lastScene) { openKey = key; lastScene = S.scene; dismissed = false; }
-  const placing = !!ed.ghost, show = placing || ((hasFocus() || S.selection.size > 0) && !dismissed);
+  const placing = !!ghostBrick(), show = placing || (!ed.ghost && (hasFocus() || S.selection.size > 0));
   if (props.hidden === show) props.hidden = !show;
   props.classList.toggle('placing', placing);
-  if (!show) return;
-  if (!placing) showFlags();
-  place(placing);
+  if (show && !placing) showFlags();
 }

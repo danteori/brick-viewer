@@ -10,22 +10,20 @@ import { BrickShapes } from '../render/meshes/shapes.js';
 import { fixedSize, sizeRule, topStyle, type Brick } from '../scene/brick.ts';
 
 /** what one grid step along axis i is: 'plate' (bricks + plates labels), 'stud', 'micro' or 'unit' */
-export const stepKind = (i: number): string => {
-  const s = S.STEPS[i];
-  return Math.abs(s - PLATE) < 1e-6 && !S.micro ? 'plate' : Math.abs(s - STEP) < 1e-6 ? 'stud'
-    : Math.abs(s - MICRO) < 1e-6 ? 'micro' : 'unit';
-};
+export const kindOf = (s: number, micro: boolean): string =>
+  Math.abs(s - PLATE) < 1e-6 && !micro ? 'plate' : Math.abs(s - STEP) < 1e-6 ? 'stud' : Math.abs(s - MICRO) < 1e-6 ? 'micro' : 'unit';
+export const stepKind = (i: number): string => kindOf(S.STEPS[i]!, S.micro);
 
 /** Brickadia-style height label: whole bricks, then leftover plates as "f": 3 -> "1", 5 -> "1+2f", 2 -> "2f". */
-export function fmtUnits(i: number, n: number): string {
-  if (stepKind(i) !== 'plate') return `${n}`;
+export function fmtUnits(i: number, n: number, kind = stepKind(i)): string {
+  if (kind !== 'plate') return `${n}`;
   const b = Math.floor(n / 3), r = n % 3;
   return r === 0 ? `${b}` : b === 0 ? `${r}f` : `${b}+${r}f`;
 }
 
 /** typed size -> units; a plate axis accepts "2" (bricks), "2f" (plates), "1+2f" or "1+2" */
-export function parseUnits(i: number, s: string): number {
-  if (stepKind(i) !== 'plate') return parseInt(s, 10);
+export function parseUnits(i: number, s: string, kind = stepKind(i)): number {
+  if (kind !== 'plate') return parseInt(s, 10);
   const m = /^(?:(\d+)\+)?(\d+)(f?)$/i.exec(s.trim());
   if (!m) return NaN;
   const a = +(m[1] || 0), b = +m[2];

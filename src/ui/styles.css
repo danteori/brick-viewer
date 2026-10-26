@@ -385,7 +385,7 @@ body.placing canvas { cursor:copy !important; }
 #props .flagsw[aria-checked="true"] .knob { left:24px; background:#5DA93D; }
 #props .flagsw[aria-checked="mixed"] .knob { left:13px; background:var(--br-muted); }
 #props .flagsw:disabled { opacity:.4; cursor:default; }
-#props.ctx { right:auto; left:0; top:0; z-index:2; display:flex; flex-direction:column; gap:2px; padding:10px 12px; border:0;
+#props.ctx { z-index:2; display:flex; flex-direction:column; gap:2px; padding:10px 12px; border:0;
         border-radius:var(--br-r-md); background:var(--br-navy-5); color:var(--br-text); font-family:var(--br-font); box-shadow:0 12px 40px rgba(0,0,0,.5); }
 #props.ctx[hidden] { display:none; }
 #props.ctx #ptoggle, #props.ctx #flagtoggle, #props.ctx #comptoggle, #props.ctx #seltoggle, #props.ctx #gridtoggle, #props.ctx #painttoggle,
@@ -393,9 +393,6 @@ body.placing canvas { cursor:copy !important; }
 #props.ctx #tool, #props.ctx #mode, #props.ctx #menu { margin:0 0 4px; border:0; border-radius:var(--br-r-sm); background:var(--br-navy-3); box-shadow:none; }
 #props.ctx #tool button[aria-pressed="true"], #props.ctx #mode button[aria-pressed="true"] { background:var(--br-select); }
 #props.ctx .flagsw:focus-visible, #props.ctx button:focus-visible { outline:2px solid var(--br-select); }
-#props #ctxdone { margin-top:8px; padding:9px 12px; border-radius:var(--br-r-sm); background:#5DA93D; color:#fff; text-align:center;
-        font-weight:700; letter-spacing:.06em; text-transform:uppercase; }
-#props #ctxdone:hover { background:#6CBB4A; }
 #escmenu #viewbox button[aria-pressed="true"] { background:var(--br-select); }
 #escmenu #xraybox label { gap:8px; }
 #props.ctx.placing > :not(#menu):not(#mode) { display:none; }
