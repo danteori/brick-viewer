@@ -1,8 +1,9 @@
 // Fixed-mesh bricks (C-01): the B_* decor / gadget / joint / gate bricks and the stretched designs
 // (PB_Frog, BP_ZoneProjector, the sliders) load, draw one mesh each and save back without a size.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { BrickShapes } from '../../src/render/meshes/shapes.js';
-import { faceRects } from '../../src/render/meshes/registry.ts';
+import { BOX_MESH, faceRects, meshOf } from '../../src/render/meshes/registry.ts';
+import { Kind } from '../../src/scene/store.ts';
 import { viewerBrick } from '../../src/scene/load.ts';
 import { plainBrick } from '../../src/scene/save.ts';
 import { fixedSize, isFixedAsset, sizeRule } from '../../src/scene/brick.ts';
@@ -76,6 +77,21 @@ describe('fixed meshes', () => {
     }
     expect(isFixedAsset('B_Not_A_Brick')).toBe(false);
     expect(supportedAsset('B_Not_A_Brick', false)).toBe(false);
+  });
+
+  it('the renderer knows an unlisted gate that this thread never loaded', () => {
+    const asset = 'B_1x1_EntityGate_SetVelocity';
+    expect(Object.prototype.hasOwnProperty.call(BrickShapes.FIXED_SHAPES, asset)).toBe(false);
+    expect(BrickShapes.isFixed(asset)).toBe(true);
+    expect(BrickShapes.fixedMesh(asset, [5, 5, 2]).worldHalf).toEqual([5, 5, 2]);
+  });
+
+  it('an unknown shape draws as a plain box and warns once', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(() => meshOf(Kind.Special, 'PB_Not_A_Shape', 5, 5, 6)).not.toThrow();
+    expect(meshOf(Kind.Special, 'PB_Not_A_Shape', 5, 5, 6)).toBe(BOX_MESH);
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
   });
 
   it('names a fixed brick by its asset', () => {

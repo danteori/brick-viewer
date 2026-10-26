@@ -85,7 +85,8 @@ export function fxEffective(): FxEff {
   };
 }
 
-let slowFor = 0, fastFor = 0, last = 0, upWait = 4000, upAt = -1e9;
+let slowFor = 0, fastFor = 0, last = 0, upWait = 4000, upAt = -1e9, stalls = 0;
+const STALL_MS = 250, STALLS_IN_A_ROW = 3;
 /**
  * The adaptive governor, once a frame: frame time above ~45 ms for 1.5 s steps one level down
  * (SSAO first, then shadow resolution, then shadows), below ~22 ms for 4 s steps one back up. A
@@ -95,8 +96,9 @@ let slowFor = 0, fastFor = 0, last = 0, upWait = 4000, upAt = -1e9;
 export function adaptTick(now: number, testMode: boolean, capMs = 0): void {
   const dt = last ? now - last : 16;
   last = now;
-  if (dt > 250) return;                       // a stall (load, tab switch): not the renderer's pace
-  fx.ms += (dt - fx.ms) * 0.1;
+  if (dt > STALL_MS && ++stalls < STALLS_IN_A_ROW) return;
+  if (dt <= STALL_MS) stalls = 0;
+  fx.ms += (Math.min(dt, 1000) - fx.ms) * 0.1;
   if (!fx.want.on || !fx.want.adaptive || testMode) { fx.drop = 0; slowFor = fastFor = 0; return; }
   // a frame-rate cap sets the pace itself: only time beyond it counts as slow
   const slow = Math.max(45, capMs * 1.35), fast = Math.max(22, capMs * 1.1);

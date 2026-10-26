@@ -131,6 +131,19 @@ async function openSqlJs(f: File): Promise<OpenWorld> {
   };
 }
 
+/** Every file of a world's live tree (an import into the open save). */
+export async function readWorldFile(f: File): Promise<FileMap> {
+  const read = async (w: OpenWorld): Promise<FileMap> => {
+    try { const st = await w.state(null); return st.complete ? await st.complete() : st.files; }
+    finally { w.close(); }
+  };
+  try { return await read(await openLazy(f)); }
+  catch (err) {
+    if (!loadBrdbBackend) throw err;
+    return await read(await openSqlJs(f));
+  }
+}
+
 let world: OpenWorld | null = null;
 let worldName = '';
 let loading = false;

@@ -43,6 +43,8 @@ export interface BrickShapesApi {
   isFixed(name: string): boolean;
   /** a fixed B_* brick's half-extents in units, null for the stretched (sized) designs */
   fixedHalf(name: string): V3 | null;
+  /** a fixed B_* brick's table entry; a logic gate the table does not list gets the common gate plate */
+  fixedShape(name: string): { half: V3; shape: unknown[] } | null;
   FIXED_SHAPES: Record<string, { half: V3; shape: unknown[] }>;
   STRETCHED: Record<string, unknown>;
   brickOrient(o: number): Mat3;

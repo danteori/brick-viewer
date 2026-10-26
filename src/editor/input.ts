@@ -53,7 +53,7 @@ export function escape(): void {
   const step = escapeStep({ window: anyOpen(), inHand: !!ed.ghost || S.held, selected: S.selection.size > 0 || (isFree() && hasFocus()) });
   if (step === 'window') closeTop();
   else if (step === 'drop') {
-    if (ed.ghost) endPlacing(ed.ghost.onPlace ? 'Move cancelled: the bricks are back' : 'Placement cancelled');
+    if (ed.ghost) endPlacing(ed.ghost.cancelText ?? (ed.ghost.onPlace ? 'Move cancelled: the bricks are back' : 'Placement cancelled'));
     else onUp({ type: 'pointercancel' });
   } else if (step === 'deselect') { clearSelection(); if (isFree()) selectBrick(-1); setStatus('Selection cleared'); }
   else if (isFree() || !hasFocus()) openWindow('escmenu');

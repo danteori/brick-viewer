@@ -177,6 +177,25 @@ function cachedShape(key: string, make: () => ShapeMesh, extras: boolean): Mesh 
  */
 export function meshOf(kind: Kind, asset: string, hx: number, hy: number, hz: number): Mesh {
   if (kind === Kind.Box) return BOX_MESH;
+  try { return shapedMesh(kind, asset, hx, hy, hz); } catch (err) {
+    if (!unknownShapes.has(asset)) {
+      unknownShapes.add(asset); console.warn(`no mesh for ${asset}: drawn as a plain box`, err);
+      for (const f of unknownListeners) f(asset);
+    }
+    return BOX_MESH;
+  }
+}
+
+const unknownShapes = new Set<string>();
+const unknownListeners: ((asset: string) => void)[] = [];
+
+/** Calls f once for each asset that has no mesh and draws as a plain box. */
+export function onUnknownShape(f: (asset: string) => void): void { unknownListeners.push(f); }
+
+/** A new save: report its unknown shapes again. */
+export function forgetUnknownShapes(): void { unknownShapes.clear(); }
+
+function shapedMesh(kind: Kind, asset: string, hx: number, hy: number, hz: number): Mesh {
   const size: [number, number, number] = [2 * hx * BRZ_UNIT, 2 * hy * BRZ_UNIT, 2 * hz * BRZ_UNIT], k = `${hx},${hy},${hz}`;
   switch (kind) {
     case Kind.Ramp: {

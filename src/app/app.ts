@@ -4,6 +4,7 @@
 import { S } from './state.ts';
 import { loadFaceCull, loadFullUi, type FeatureFlags } from './features.ts';
 import { initWorlds } from './worlds.ts';
+import { initImporter } from './importer.ts';
 import { initWorldEnvironment } from './environment.ts';
 import { initPaintPanel } from '../ui/panels/paint.ts';
 import { initApplicatorPanel, tickApplicator } from '../ui/panels/applicator.ts';
@@ -31,6 +32,7 @@ import { initEditorInput } from '../editor/input.ts';
 import { initTools } from '../editor/tools.ts';
 import { initMirror } from '../editor/mirrortool.ts';
 import { $, mountDom } from '../ui/dom.ts';
+import { initNotice } from '../ui/notice.ts';
 import { initStatus } from '../ui/status.ts';
 import { initSizePanel } from '../ui/panels/size.ts';
 import { initFilePanel, waitForOpeners } from '../ui/panels/file.ts';
@@ -75,6 +77,7 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
   initGrid();
   gl.enable(gl.DEPTH_TEST);
   initStatus($('status'));
+  initNotice();
   initHud($('hud'));
   initCamera(canvas);
   initSizePanel();
@@ -116,6 +119,7 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
   initSoundPanel();
   initViewPanel();
   if (opts.features.brdbRead) initWorlds();
+  initImporter();
   initProps();
   initComponentsPanel();
   initSelectionPanel();
