@@ -5,8 +5,9 @@
 // ghost) until committed by release or right-click. The drag is locked to the pending axis while it
 // has a change; returning to the committed size unlocks it. Grabbing a face starts locked to its axis.
 
-import { S, hasFocus, type AxisDir } from '../app/state.ts';
-import { MAX, MICROB, BRICK, THRESH, TOL } from '../core/units.ts';
+import { S, hasFocus } from '../app/state.ts';
+import { MAX, MICROB, BRICK } from '../core/units.ts';
+import { axisDragFinish, axisDragMove } from './axisdrag.ts';
 import { brickType, cloneBrick, fixedSize, lockedType, sizeRule, type V3 } from '../scene/brick.ts';
 import { brickView, writeBrick } from '../scene/view.ts';
 import { focusChangeHits, freeGrowth } from '../scene/collision.ts';
@@ -218,8 +219,7 @@ export function keepZoom(keep: number): void {
   S.zoomMul = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, keep / fitHalf(S.lo, S.hi)));
 }
 
-// --- Pointer input. A step fires once the cursor is SNAP of the way to the next grid line.
-export const SNAP = 0.6;
+export { SNAP } from './axisdrag.ts';
 /** The free camera snaps to the iso corner once the drag moves, not on a plain click. */
 let snapOnMove = false;
 const SNAP_PX = 3;
@@ -265,34 +265,7 @@ export function onMove(e: PointerEvent): void {
   if (!(e.buttons & 1)) { onUp({ type: 'pointerup' }); return; }   // left released while right still held
   const p: [number, number] = [e.clientX, e.clientY]; S.cursor = p;
   if (snapOnMove && Math.hypot(p[0] - S.anchor[0], p[1] - S.anchor[1]) > SNAP_PX) { snapOnMove = false; snapToIso(); }
-  for (let guard = 0; guard < 200; guard++) {
-    const anchor: [number, number] = S.anchor!;
-    const dx = p[0] - anchor[0], dy = p[1] - anchor[1], d = Math.hypot(dx, dy);
-    S.active = null;
-    if (S.lockAxis >= 0) {
-      const pos = S.dirs.find((q) => q.i === S.lockAxis && q.d > 0)!;
-      S.active = dx * pos.v[0] + dy * pos.v[1] >= 0 ? pos : S.dirs.find((q) => q.i === S.lockAxis && q.d < 0)!;
-    } else if (d > Math.min(6, SNAP * studPx(0))) {
-      let best = S.dirs[0], bestAng = 1e9;
-      for (const q of S.dirs) {
-        const ang = Math.acos(Math.max(-1, Math.min(1, (dx * q.v[0] + dy * q.v[1]) / d)));
-        if (ang < bestAng) { bestAng = ang; best = q; }
-      }
-      // motion toward the banned axis is thrown away so it can't skew the next pick
-      if (best.i === S.bannedAxis) { S.anchor = p; break; }
-      if (bestAng <= TOL) S.active = best;
-    }
-    const active: AxisDir | null = S.active;
-    const sp = Math.max(4, studPx(active ? active.i : 0));
-    if (active && dx * active.v[0] + dy * active.v[1] >= sp * SNAP) {
-      step(active); S.dragDir = active; S.steppedThisDrag = true;   // step() sets/clears the lock
-      const along = dx * active.v[0] + dy * active.v[1] - sp;       // cursor offset from the new grid line
-      S.anchor = [p[0] - active.v[0] * along, p[1] - active.v[1] * along];
-      continue;
-    }
-    if (S.lockAxis < 0 && !active && d >= Math.max(THRESH, sp) * 2.5) S.anchor = p;   // drifted: re-anchor
-    break;
-  }
+  axisDragMove(S, p, S.dirs, studPx, step);
   drawGuide();
 }
 
@@ -311,9 +284,7 @@ export function edgeTick(t: number): void {
 /** Right-click while dragging: commit the ghost; that axis can't be picked next. */
 export function onRightDown(): void {
   if (!S.held || S.pendAxis < 0) return;
-  S.bannedAxis = commit(); S.active = null;
-  if (S.cursor) S.anchor = S.cursor.slice() as [number, number];
-  S.steppedThisDrag = false;
+  axisDragFinish(S, commit(), S.cursor);
   playClick(); drawGuide();
 }
 

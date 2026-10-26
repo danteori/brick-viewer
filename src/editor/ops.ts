@@ -26,7 +26,7 @@ export function focusKeepZoom(id: number, keep = S.cam.half): void {
 
 export function initOps(): void {
   let keep = 0;
-  S.hooks.beforeTx.push(() => { endPlacing(); keep = S.cam.half; });
+  S.hooks.beforeTx.push(() => { if (!keepGhost) endPlacing(); keep = S.cam.half; });
   S.hooks.afterTx.push((t, side) => {
     if (listTx.has(t) && S.scene.alive(S.sel)) keepZoom(keep);
     if (t.kind === 'scene') setSelection([]);                              // another scene: its own ids
@@ -35,6 +35,14 @@ export function initOps(): void {
     else pruneSelection();
   });
   S.hooks.beforeLoad.push(() => { endPlacing(); setSelection([]); });
+}
+
+let keepGhost = false;
+
+/** Runs a placement: its edit doesn't put the ghost away, so the brick stays in hand. */
+export function keepingGhost<T>(place: () => T): T {
+  keepGhost = true;
+  try { return place(); } finally { keepGhost = false; }
 }
 
 /** Component types a paste could not carry over (last addBricks; not types of this save, say). */
@@ -77,7 +85,7 @@ export function placeGhost(): boolean {
     b.lo = t.lo.map((v, i) => r3(v + p[i]!)) as V3; b.hi = t.hi.map((v, i) => r3(v + p[i]!)) as V3;
     return b;
   });
-  const ids = addBricks(bricks, G.label);
+  const ids = keepingGhost(() => addBricks(bricks, G.label));
   if (G.drop && ids.length > 1) setSelection(ids);            // a pasted group stays selected
   ed.lastPlaceT = performance.now();
   initAudio(); if (G.drop) playPaste(); else playClick();

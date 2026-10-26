@@ -4,24 +4,12 @@ import type { V3 } from '../scene/brick.ts';
 /** U-29: a drag stretches one brick (resize) or tiles copies of the ghost (repeat). Values are viewer units. */
 export type DragMode = 'resize' | 'repeat';
 
-/** The two axes a drag runs on when the ghost sits on a face along `axis` (2: the ground or a top). */
-export const planeAxes = (axis: number): number[] => [0, 1, 2].filter((i) => i !== axis);
-
-const EPS = 1e-6;
-
-/** Whole cells from `from` to `to` (signed): 0 while `to` is inside the first cell. */
-const cellIndex = (from: number, to: number, cell: number): number => Math.floor((to - from) / cell + EPS);
-
-/** Lowers the larger counts until their product is at most `cap`. */
-export function capCounts(n: V3, cap: number): V3 {
-  const out = n.slice() as V3;
-  while (out[0] * out[1] * out[2] > cap) {
-    const i = [0, 1, 2].reduce((a, b) => (out[b] > out[a] ? b : a), 0);
-    if (out[i] <= 1) break;
-    out[i]--;
-  }
-  return out;
-}
+/**
+ * The signed steps of a drag on each axis: the finished axes plus the one in progress. A positive
+ * count grows the high side, a negative count the low side.
+ */
+export const dragCounts = (done: readonly number[], axis: number, pending: number): V3 =>
+  [0, 1, 2].map((i) => done[i]! + (i === axis ? pending : 0)) as V3;
 
 export interface RepeatSpan {
   /** the low corner of the whole tiling */
@@ -30,18 +18,15 @@ export interface RepeatSpan {
   n: V3;
 }
 
-/**
- * Drag repeat: copies of a ghost of size `cell` with its low corner at `start`, tiled toward `point`
- * on the given axes (a row on one, a grid on two). The other axis keeps one copy. `cap` limits the
- * number of copies; the tiling stays anchored on the start copy.
- */
-export function repeatSpan(start: readonly number[], cell: readonly number[], point: readonly number[], axes: readonly number[], cap = Infinity): RepeatSpan {
-  const k = [0, 0, 0];
-  for (const i of axes) k[i] = cellIndex(start[i]!, point[i]!, cell[i]!);
-  const n = capCounts(k.map((v) => Math.abs(v) + 1) as V3, cap);
-  const lo = [0, 1, 2].map((i) => r3(start[i]! + (k[i]! < 0 ? -(n[i] - 1) * cell[i]! : 0))) as V3;
+/** Drag repeat: |k| more copies of a ghost of size `cell` on each axis, from the start copy at `start`. */
+export function repeatSpan(start: readonly number[], cell: readonly number[], k: readonly number[]): RepeatSpan {
+  const n = k.map((v) => Math.abs(v) + 1) as V3;
+  const lo = [0, 1, 2].map((i) => r3(start[i]! + Math.min(0, k[i]!) * cell[i]!)) as V3;
   return { lo, n };
 }
+
+/** The number of copies in a tiling. */
+export const copyCount = (s: RepeatSpan): number => s.n[0] * s.n[1] * s.n[2];
 
 /** The low corner of every copy of a tiling, row by row (X fastest, then Y, then Z). */
 export function repeatCorners(span: RepeatSpan, cell: readonly number[]): V3[] {
@@ -61,24 +46,24 @@ export interface StretchRule {
   max: number;
 }
 
+const EPS = 1e-6;
+
 /**
- * Drag resize: the brick box [lo, hi] grown, in whole size steps, until it covers `point` on the
- * given axes. It never shrinks below the start box, fixed axes keep their size, and no axis grows
- * past `rule.max` (rounded down to a whole step).
+ * Drag resize: the brick box [lo, hi] grown by |k| size steps on each axis. Null when a fixed axis
+ * would change or an axis would grow past `rule.max`. It never shrinks below the start box.
  */
-export function resizeBox(lo: readonly number[], hi: readonly number[], point: readonly number[], axes: readonly number[], rule: StretchRule): { lo: V3; hi: V3 } {
+export function stretchBox(lo: readonly number[], hi: readonly number[], k: readonly number[], rule: StretchRule): { lo: V3; hi: V3 } | null {
   const l = lo.slice() as V3, h = hi.slice() as V3;
-  for (const i of axes) {
-    if (rule.fix[i]) continue;
-    const st = rule.steps[i]!, size = h[i] - l[i];
-    const room = Math.max(0, Math.floor((rule.max - size) / st + EPS));
-    const past = (d: number): number => Math.min(room, Math.max(0, Math.ceil(d / st - EPS)));
-    if (point[i]! > h[i]) h[i] = r3(h[i] + past(point[i]! - h[i]) * st);
-    else if (point[i]! < l[i]) l[i] = r3(l[i] - past(l[i] - point[i]!) * st);
+  for (let i = 0; i < 3; i++) {
+    const n = k[i]!;
+    if (!n) continue;
+    const grow = Math.abs(n) * rule.steps[i]!;
+    if (rule.fix[i] || h[i] - l[i] + grow > rule.max + EPS) return null;
+    if (n > 0) h[i] = r3(h[i] + grow); else l[i] = r3(l[i] - grow);
   }
   return { lo: l, hi: h };
 }
 
-/** Can a drag resize stretch this ghost on these axes? (One brick, not a fixed size, one free axis.) */
-export const canStretch = (count: number, fixedSize: boolean, fix: readonly boolean[], axes: readonly number[]): boolean =>
-  count === 1 && !fixedSize && axes.some((i) => !fix[i]);
+/** Can a drag resize stretch this ghost? (One brick, not a fixed size, one free axis.) */
+export const canStretch = (count: number, fixedSize: boolean, fix: readonly boolean[]): boolean =>
+  count === 1 && !fixedSize && fix.some((f) => !f);

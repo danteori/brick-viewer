@@ -55,8 +55,6 @@ export interface Ghost {
   turns: number;
   /** the status line when Esc cancels it */
   cancelText?: string;
-  /** the face the pose rests on: its axis (2 for the ground) and where it lies on that axis */
-  face?: { axis: number; at: number };
 }
 
 /** What the ghost pass draws: the items at a pose, which of them are dropped, and whether it's blocked. */
@@ -189,7 +187,7 @@ export function groundZ(): number {
 /** pose the ghost onto the face under the cursor, else the ground */
 export function poseGhost(): void {
   const G = ed.ghost!;
-  G.pose = null; G.valid = false; G.reason = ''; G.skip = []; G.face = undefined;
+  G.pose = null; G.valid = false; G.reason = ''; G.skip = [];
   if (!G.mouse || !G.over) return;
   const r = cursorRay(G.mouse[0], G.mouse[1]);
   if (!r) return;
@@ -215,8 +213,6 @@ export function poseGhost(): void {
   }
   p[2] = r3(p[2] + G.dz * st[2]);
   G.pose = p;
-  const a = hit && hit.ax >= 0 && S.scene.alive(hit.k) ? hit.ax : 2, under = a === 2 ? 1 : r.D[a] > 0 ? -1 : 1;
-  G.face = { axis: a, at: under > 0 ? p[a] : r3(p[a] + sz[a]) };
   if (p[2] < gz - 1e-4) { G.reason = 'below the ground'; return; }
   if (G.noHits) { G.valid = true; return; }
   // same-grid overlap: a paste drops the items that collide, any other placement is refused
