@@ -39,6 +39,7 @@ export default defineConfig(({ mode }) => {
   const lite = mode === 'lite';
   return {
     base: './',
+    publicDir: lite ? false : 'public',
     define: { __LITE__: JSON.stringify(lite) },
     server: { port: 5173, strictPort: true },
     build: lite

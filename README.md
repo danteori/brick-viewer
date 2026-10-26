@@ -4,7 +4,8 @@ A browser viewer and editor for `.brz` brick-building save files. It reads saves
 your browser; nothing is uploaded.
 
 > **Not affiliated with or endorsed by Brickadia.** This is an independent fan project. It
-> contains no Brickadia logos, artwork, sounds or other game assets. Brick shapes are
+> contains no Brickadia logos, artwork or sounds. It ships one font from the game, Glacial
+> Indifference (SIL OFL 1.1); see [docs/ASSETS.md](docs/ASSETS.md). Brick shapes are
 > approximated from public specs and screenshots.
 
 **Status:** the TypeScript/WebGL2 app has reached parity with the single-file viewer (camera,
@@ -140,6 +141,15 @@ The Menu (Esc) and Bricks (B) windows use a Brickadia-community look. The styles
 - [omegga](https://github.com/brickadia-community/omegga) (ISC): the dark navy colour ladder,
   the muted text colour, the corner radii and the side-menu button shape.
 
+## Fonts
+
+- **Glacial Indifference** by Alfredo Marco Pradil, Copyright (c) 2015, with Reserved Font Name
+  "Glacial Indifference". SIL Open Font License 1.1 (text in
+  [public/fonts/OFL.txt](public/fonts/OFL.txt)). The Menu (Esc) and Bricks (B) windows use it, like
+  the game. The files come unchanged from the game; [docs/ASSETS.md](docs/ASSETS.md) gives the
+  source. Only the full build loads it; the lite build uses system fonts.
+
 ## Licence
 
 MIT; see [LICENSE](LICENSE). Bundled third-party code keeps its own licence (fzstd, sql.js: MIT).
+The fonts keep their own licence (SIL OFL 1.1).
