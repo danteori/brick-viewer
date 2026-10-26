@@ -78,6 +78,13 @@ describe('fixed meshes', () => {
     expect(supportedAsset('B_Not_A_Brick', false)).toBe(false);
   });
 
+  it('the renderer knows an unlisted gate that this thread never loaded', () => {
+    const asset = 'B_1x1_EntityGate_SetVelocity';
+    expect(Object.prototype.hasOwnProperty.call(BrickShapes.FIXED_SHAPES, asset)).toBe(false);
+    expect(BrickShapes.isFixed(asset)).toBe(true);
+    expect(BrickShapes.fixedMesh(asset, [5, 5, 2]).worldHalf).toEqual([5, 5, 2]);
+  });
+
   it('names a fixed brick by its asset', () => {
     const b = viewerBrick({ asset: 'B_1x1_Gate_Expr_LogicalAND', size: null, pos: [0, 0, 2], orient: 16, color: [0, 0, 0, 5], material: 'BMC_Plastic' }, false);
     if ('skip' in b) throw new Error('skipped');

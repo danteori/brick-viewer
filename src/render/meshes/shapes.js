@@ -1234,12 +1234,18 @@ function primFaces(L, P) {
   }
   throw new Error('unknown primitive ' + kind);
 }
-function isFixed(name) { return Object.prototype.hasOwnProperty.call(FIXED_SHAPES, name) || Object.prototype.hasOwnProperty.call(STRETCHED, name); }
-function fixedHalf(name) { return FIXED_SHAPES[name] ? FIXED_SHAPES[name].half.slice() : null; }
+const GATE_ASSET = /^B_1x1_(?:Entity)?Gate_\w+$|^B_1x1_[A-Z]+_Gate$/;
+function fixedShape(name) {
+  if (Object.prototype.hasOwnProperty.call(FIXED_SHAPES, name)) return FIXED_SHAPES[name];
+  if (!GATE_ASSET.test(name)) return null;
+  return (FIXED_SHAPES[name] = FIXED_SHAPES.B_1x1_Gate_Expr_LogicalAND);
+}
+function isFixed(name) { return !!fixedShape(name) || Object.prototype.hasOwnProperty.call(STRETCHED, name); }
+function fixedHalf(name) { const F = fixedShape(name); return F ? F.half.slice() : null; }
 // asset: a FIXED_SHAPES name (its own box; half is ignored) or a STRETCHED name (half = the saved size).
 // Returns the mesh in the unit box of its world bounds, like specialMesh, plus `approximate: true`.
 function fixedMesh(asset, half, o = 16) {
-  const F = FIXED_SHAPES[asset], h = F ? F.half.slice() : half.slice();
+  const F = fixedShape(asset), h = F ? F.half.slice() : half.slice();
   const prims = F ? F.shape : STRETCHED[asset] && STRETCHED[asset](h);
   if (!prims) throw new Error('unknown fixed shape ' + asset);
   const L = new LocalBuilder();
@@ -1331,7 +1337,7 @@ const api = {
   microMesh, isMicro, brickOrient, microRoundSegments,
   SPECIAL_TYPES, RAMP_CREST, RAMP_LIP, ARCH_LEG, ARCH_CROWN, CAP_SEGMENTS, PLATE_SEGMENTS,
   specialMesh, isSpecial, localMesh, LocalBuilder,
-  FIXED_SHAPES, STRETCHED, OCT_CUT, fixedMesh, isFixed, fixedHalf,
+  FIXED_SHAPES, STRETCHED, OCT_CUT, fixedMesh, isFixed, fixedHalf, fixedShape,
 };
 return api;
 })();
