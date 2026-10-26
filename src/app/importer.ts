@@ -18,6 +18,8 @@ import { FEATURES } from './features.ts';
 
 /** Above this many bricks the prefab ghost shows a sample of them inside the import's outline. */
 export const PREVIEW_MAX = 5000;
+/** Up to this many bricks the prefab ghost shows in red the bricks that collide and will be left out. */
+export const HITS_MAX = 1500;
 
 export type Placement = 'saved' | 'prefab';
 
@@ -132,7 +134,7 @@ function placeAsPrefab(name: string, add: FileMap, parts: MergeChoice): void {
   const g = importGhost(add, parts);
   const note = g.items.length < g.total ? ` (showing ${g.items.length} of ${g.total} bricks)` : '';
   startPlacing(g.items, `import ${name}`, 'click', null, {
-    noHits: true, whole: true, cancelText: 'Import cancelled',
+    drop: true, noHits: g.items.length > HITS_MAX, whole: true, cancelText: 'Import cancelled',
     onPlace: (G: Ghost) => {
       const pose = G.pose!, turns = ((G.turns % 4) + 4) % 4, offset = prefabOffset(g.low, g.size, turns, pose, BRZ_UNIT);
       endPlacing(undefined, true);
@@ -170,7 +172,7 @@ export function askImport(name: string, parts: ImportParts): Promise<Answer> {
       row.className = 'imp-row';
       const lab = document.createElement('label');
       const cb = document.createElement('input');
-      cb.type = 'checkbox'; cb.id = `imp-${r.key}`; cb.disabled = !has; cb.checked = has && r.modes;
+      cb.type = 'checkbox'; cb.id = `imp-${r.key}`; cb.disabled = !has; cb.checked = has;
       const txt = document.createElement('span');
       txt.textContent = r.label;
       const sub = document.createElement('small');

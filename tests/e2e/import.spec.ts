@@ -5,6 +5,7 @@ import { readEntities } from '../../src/format/entities.ts';
 import { fileMapView } from '../../src/format/saveview.ts';
 import { extractBricks, rebuildFromLoaded } from '../../src/format/world.ts';
 import { gridWorld, MAIN } from '../unit/gridworld.ts';
+import { inMenu } from './windows.ts';
 
 type P2 = [number, number];
 interface Api {
@@ -47,9 +48,8 @@ async function pick(page: Page, name: string, buffer: Buffer): Promise<void> {
   await expect(page.locator('#importdlg')).toBeVisible();
 }
 async function savedBrz(page: Page): Promise<FileMap> {
-  const dl = page.waitForEvent('download');
-  await page.locator('#savebrz').click();
-  return readBrz(new Uint8Array(readFileSync((await (await dl).path())!)));
+  const [dl] = await inMenu(page, () => Promise.all([page.waitForEvent('download'), page.locator('#savebrz').click()]));
+  return readBrz(new Uint8Array(readFileSync((await dl.path())!)));
 }
 const mainZ = (f: FileMap): number[] => extractBricks(f).bricks.map((b) => b.pos[2]).sort((a, b) => a - b);
 
