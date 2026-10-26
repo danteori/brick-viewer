@@ -1,4 +1,5 @@
 import '../ui/styles.css';
+import '../ui/fonts.css';
 import { createApp } from './app.ts';
 import { FEATURES } from './features.ts';
 import { bloom } from '../render/bloom.ts';
