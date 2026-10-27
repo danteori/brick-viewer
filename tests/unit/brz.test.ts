@@ -53,3 +53,15 @@ describe('brz container', () => {
     expect(() => readBrzArchive(brz, { verify: true })).toThrow(/hash/);
   });
 });
+
+describe('brz partial read', () => {
+  it('reads only the wanted files', () => {
+    const files = new Map([
+      ['Meta/Screenshot.jpg', Uint8Array.of(9, 8, 7)],
+      ['World/0/GlobalData.mps', Uint8Array.from({ length: 300 }, (_, i) => i)],
+    ]);
+    const a = readBrzArchive(writeBrz(files), { only: ['Meta/Screenshot.jpg'] });
+    expect([...a.files.keys()]).toEqual(['Meta/Screenshot.jpg']);
+    expect(a.files.get('Meta/Screenshot.jpg')).toEqual(Uint8Array.of(9, 8, 7));
+  });
+});

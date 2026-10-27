@@ -20,6 +20,8 @@ export interface GateDef {
   eval?: (p: PortReader) => Record<string, Value>;
   /** Exec input ports. */
   execIn?: readonly string[];
+  /** Exec output ports. */
+  execOut?: readonly string[];
   /** Exec gates: runs on a pulse and returns the exec outputs to pulse. */
   exec?: (p: PortReader, port: string) => string[];
 }
@@ -350,6 +352,7 @@ const BRANCH: GateDef = {
   inputs: ['bCond'],
   outputs: [],
   execIn: ['Exec'],
+  execOut: ['ExecOutA', 'ExecOutB'],
   exec: (p) => [truthy(p('bCond')) ? 'ExecOutA' : 'ExecOutB'],
 };
 

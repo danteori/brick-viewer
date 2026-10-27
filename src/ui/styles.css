@@ -406,3 +406,4 @@ body :not(svg):not(svg *) { font-family:var(--br-font) !important; }
 #logictext .logictext { position:absolute; transform:translate(-50%,-50%); padding:2px 6px; border-radius:5px; max-width:160px; overflow:hidden; text-overflow:ellipsis;
   white-space:nowrap; background:rgba(15,16,18,.82); border:1px solid rgba(255,255,255,.2); color:#fff; font:600 12px/1.2 ui-monospace, Consolas, monospace; }
 body.interacting #c { cursor:pointer; }
+#loadpreview { position:fixed; inset:0; width:100%; height:100%; object-fit:cover; pointer-events:none; background:#1d1e21; }

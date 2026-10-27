@@ -19,6 +19,7 @@ import { FLAG_NAMES, SceneStore } from './store.ts';
 import { fixedHalfOf, isFixedAsset, isStretchedAsset, putPlain, supportedAsset } from './view.ts';
 import { fastStore } from './fastload.ts';
 import { fitHalf, ZOOM_MAX } from '../render/camera.ts';
+import { currentPreview, hidePreview, hidePreviewAfterFrame, showPreview } from '../ui/preview.ts';
 import { setProgress, setStatus } from '../ui/status.ts';
 import { attachComponents, loadOrderOf, type LoadOrder } from './compmodel.ts';
 import type { Parsed, Progress } from './parsecore.ts';
@@ -234,14 +235,31 @@ async function parseOff(input: { bytes?: Uint8Array; files?: FileMap }, name: st
   } finally { if (gen === loadGen) setProgress(null); }
 }
 
+/** Runs a load that showed the save's picture: the picture goes after the first frame, or at once when the load fails or is superseded. */
+async function shownUntilDrawn(load: () => Promise<LoadReport | null>): Promise<LoadReport | null> {
+  const mine = currentPreview();
+  try {
+    const r = await load();
+    if (r) hidePreviewAfterFrame(mine);
+    else hidePreview(mine);
+    return r;
+  } catch (err) {
+    hidePreview(mine);
+    throw err;
+  }
+}
+
 /** loadSave, in the parse worker when there is one and the save is big (the UI keeps running meanwhile); null when superseded. */
 export async function loadSaveAsync(buf: ArrayBuffer | Uint8Array, name: string): Promise<LoadReport | null> {
   const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
   if (!parser || bytes.length < loadSettings.workerMinBytes) { loadGen++; return loadSave(bytes, name); }
-  const p = await parseOff({ bytes: bytes.slice() }, name);
-  if (!p) return null;
-  for (const f of S.hooks.beforeLoad) f();
-  return finishLoad(p, name, bytes);
+  showPreview(bytes);
+  return shownUntilDrawn(async () => {
+    const p = await parseOff({ bytes: bytes.slice() }, name);
+    if (!p) return null;
+    for (const f of S.hooks.beforeLoad) f();
+    return finishLoad(p, name, bytes);
+  });
 }
 
 /** loadFiles, in the parse worker when there is one and the files are big; null when superseded. */
@@ -249,10 +267,13 @@ export async function loadFilesAsync(files: FileMap, name: string, brz: Uint8Arr
   let size = 0;
   for (const v of files.values()) size += v.length;
   if (!parser || size < loadSettings.workerMinBytes) { loadGen++; return loadFiles(files, name, brz, gridNote, complete, opts); }
-  const p = await parseOff({ files }, name);
-  if (!p) return null;
-  for (const f of S.hooks.beforeLoad) f();
-  return finishLoad({ ...p, files }, name, brz, gridNote, complete, opts);
+  if (!opts.keepView) showPreview(files);
+  return shownUntilDrawn(async () => {
+    const p = await parseOff({ files }, name);
+    if (!p) return null;
+    for (const f of S.hooks.beforeLoad) f();
+    return finishLoad({ ...p, files }, name, brz, gridNote, complete, opts);
+  });
 }
 
 /** The new scene's camera: the world origin, framed round the save, or round its main build when distant bricks would make the view too far. */

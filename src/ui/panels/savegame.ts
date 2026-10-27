@@ -12,7 +12,7 @@
 
 import { S } from '../../app/state.ts';
 import { ensureLoadedFiles, loadedName } from '../../scene/load.ts';
-import { download, partFiles, sceneBrz } from '../../scene/save.ts';
+import { blockedText, download, partFiles, sceneBrz } from '../../scene/save.ts';
 import { writeBrz } from '../../format/brz.ts';
 import { effectiveIds } from '../../editor/select.ts';
 import { initAudio, playClick } from '../audio.ts';
@@ -123,12 +123,13 @@ async function saveToGameClick(repick: boolean): Promise<void> {
     }
     if (repick) { setStatus(`Save to game writes into "${dir.name}" from now on`); initAudio(); playClick(); return; }
     const sel = S.selection.size > 0, ids = effectiveIds();
-    let r: { bytes: Uint8Array; warnings: string[] } | null;
+    let r: { bytes: Uint8Array; warnings: string[]; errors?: string[] } | null;
     if (sel) r = await selectionBytes(ids);
     else {
       await ensureLoadedFiles();
       r = sceneBrz();
       if (!r) { setStatus('Open a save first: Save to game writes your build into the save you opened'); return; }
+      if (r.errors?.length) { setStatus(blockedText(r.errors)); return; }
     }
     if (!r) return;
     const name = stampedName(loadedName.replace(/\.(brz|brdb)$/i, '') + (sel ? ' selection' : ''));

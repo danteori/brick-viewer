@@ -5,7 +5,7 @@ import { S } from '../../app/state.ts';
 import { lightFromBp } from '../../format/bp.ts';
 import { LIGHTING, type LightPreset } from '../../render/lighting.ts';
 import { ensureLoadedFiles, loadedName, loadSaveAsync } from '../../scene/load.ts';
-import { download, savedName, sceneBrz } from '../../scene/save.ts';
+import { blockedText, download, savedName, sceneBrz } from '../../scene/save.ts';
 import { hist, setUndoLimit } from '../../scene/history.ts';
 import { initAudio, playClick } from '../audio.ts';
 import { setStatus } from '../status.ts';
@@ -106,6 +106,7 @@ async function saveBrzClick(): Promise<void> {
     await ensureLoadedFiles();                 // a lazily read world: the template needs every file
     const r = sceneBrz();
     if (!r) { setStatus('Open a save first: Save .brz writes your edits back into the save you opened'); return; }
+    if (r.errors.length) { setStatus(blockedText(r.errors)); return; }
     const name = savedName(loadedName, '.brz');
     download(r.bytes, name);
     setStatus(`Saved ${name} (${S.scene.count} brick${S.scene.count === 1 ? '' : 's'})` + (r.warnings.length ? ' · ' + r.warnings.join(' · ') : ''));

@@ -39,6 +39,8 @@ export interface ReadOptions {
   unzstd?: (bytes: Uint8Array) => Uint8Array;
   /** Check the index and blob BLAKE3 hashes (throws on a mismatch). */
   verify?: boolean;
+  /** Read only these file paths; no other blob is decompressed. */
+  only?: readonly string[];
 }
 
 const HEADER = 45;
@@ -79,23 +81,26 @@ export function readBrzArchive(buf: ArrayBuffer | Uint8Array, opts: ReadOptions 
   const hashes: Uint8Array[] = [];
   for (let b = 0; b < nBlob; b++) { hashes.push(idx.slice(o, o + 32)); o += 32; }
   if (opts.verify && !bytesEqual(blake3(idx), indexHash)) throw new Error('index hash mismatch');
-  let p = HEADER + idxStored;
-  const blobs: Uint8Array[] = [], info: BlobInfo[] = [];
-  for (let b = 0; b < nBlob; b++) {
-    const m = method[b]!, n = m ? stored[b]! : size[b]!;
-    const data = unz(u8.subarray(p, p + n), m);
-    p += n;
-    if (opts.verify && !bytesEqual(blake3(data), hashes[b]!)) throw new Error(`blob ${b} hash mismatch`);
-    blobs.push(data);
-    info.push({ method: m, size: size[b]!, stored: stored[b]!, hash: hashes[b]! });
-  }
   const folderPath = (f: number): string => {
     const parts: string[] = [];
     while (f >= 0) { parts.unshift(fNames[f]!); f = fPar[f]!; }
     return parts.join('/');
   };
+  const paths = fileNames.map((name, i) => (folderPath(fileFolder[i]!) + '/' + name).replace(/^\//, ''));
+  const wanted = opts.only ? new Set(fileBlob.filter((_, i) => opts.only!.includes(paths[i]!))) : null;
+  let p = HEADER + idxStored;
+  const blobs: Uint8Array[] = [], info: BlobInfo[] = [];
+  for (let b = 0; b < nBlob; b++) {
+    const m = method[b]!, n = m ? stored[b]! : size[b]!;
+    const skip = wanted !== null && !wanted.has(b);
+    const data = skip ? new Uint8Array(0) : unz(u8.subarray(p, p + n), m);
+    p += n;
+    if (opts.verify && !skip && !bytesEqual(blake3(data), hashes[b]!)) throw new Error(`blob ${b} hash mismatch`);
+    blobs.push(data);
+    info.push({ method: m, size: size[b]!, stored: stored[b]!, hash: hashes[b]! });
+  }
   const files: FileMap = new Map();
-  for (let i = 0; i < nFile; i++) files.set((folderPath(fileFolder[i]!) + '/' + fileNames[i]).replace(/^\//, ''), blobs[fileBlob[i]!]!);
+  for (let i = 0; i < nFile; i++) if (!wanted || wanted.has(fileBlob[i]!)) files.set(paths[i]!, blobs[fileBlob[i]!]!);
   return { version, indexMethod, indexSize, indexHash, index: idx, blobs: info, fileBlob, files };
 }
 

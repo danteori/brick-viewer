@@ -23,7 +23,7 @@ import { fileMapView, type SaveView } from '../format/saveview.ts';
 import { writeBrz, type FileMap } from '../format/brz.ts';
 import { buildWorldModel, buildWorldModelLazy, type WorldModel } from '../scene/grids.ts';
 import { ensureLoadedFiles, loadedName, loadFilesAsync } from '../scene/load.ts';
-import { download, savedName, sceneFiles } from '../scene/save.ts';
+import { blockedText, download, lintSaved, savedName, sceneFiles } from '../scene/save.ts';
 import { openers } from '../ui/panels/file.ts';
 import { initAudio, playClick } from '../ui/audio.ts';
 import { setStatus } from '../ui/status.ts';
@@ -312,6 +312,8 @@ async function saveAsWorld(): Promise<void> {
     await ensureLoadedFiles();
     const s = sceneFiles();
     if (!s) { setStatus('Open a save or world first: the new world is written from the save you opened'); return; }
+    const errors = lintSaved(s);
+    if (errors.length) { setStatus(blockedText(errors)); return; }
     const name = savedName(loadedName.replace(/ @ revision \d+$/, ''), '.brdb');
     download(writeNewWorldFile(s.files), name);
     setStatus(`Saved ${name}` + (s.warnings.length ? ' · ' + s.warnings.join(' · ') : ''));

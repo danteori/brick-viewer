@@ -25,6 +25,7 @@ import { GRIDS, type SceneStore } from './store.ts';
 import { writeDynamicGrids } from './gridsave.ts';
 import { editEntities } from '../format/entitywrite.ts';
 import { componentsOf, type NewPlace, type SceneComponents } from './compmodel.ts';
+import { lintFiles } from '../logic/lint.ts';
 import { chunkName, saveContext, type ChunkKey } from './components.ts';
 
 /** The save asset of a viewer brick. */
@@ -314,11 +315,23 @@ function rebuildPart(template: FileMap, bricks: SeqBrick[]): SavedScene {
   return out;
 }
 
-/** The scene as .brz bytes (raw blobs, method 0), or null without a template. */
-export function sceneBrz(): { bytes: Uint8Array; warnings: string[] } | null {
-  const s = sceneFiles();
-  return s && { bytes: writeBrz(s.files), warnings: s.warnings };
+/** Lints the wires of a saved scene: lint warnings join `s.warnings`, and the errors (which block the save) are returned. */
+export function lintSaved(s: SavedScene): string[] {
+  const { errors, warnings } = lintFiles(s.files);
+  s.warnings.push(...warnings);
+  return errors;
 }
+
+/** The scene as .brz bytes (raw blobs, method 0), or null without a template. With `errors`, the save must not be written and `bytes` is empty. */
+export function sceneBrz(): { bytes: Uint8Array; warnings: string[]; errors: string[] } | null {
+  const s = sceneFiles();
+  if (!s) return null;
+  const errors = lintSaved(s);
+  return { bytes: errors.length ? new Uint8Array(0) : writeBrz(s.files), warnings: s.warnings, errors };
+}
+
+/** The status line text for a save that wire lint blocked. */
+export const blockedText = (errors: readonly string[]): string => `[TEXT: save blocked] ${errors.join(' · ')}`;
 
 /** Hands bytes to the browser as a download. */
 export function download(bytes: Uint8Array, name: string, type = 'application/octet-stream'): void {
