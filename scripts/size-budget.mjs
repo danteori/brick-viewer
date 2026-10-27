@@ -4,7 +4,7 @@ import { readFileSync, statSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 
 const FILE = 'dist-lite/brick-viewer.html';
-const BUDGET = 564 * 1024;
+const BUDGET = 566 * 1024;
 const FULL_ONLY = [['sql.js', /initSqlJs|sqlite3_open/]];
 const bytes = statSync(FILE).size;
 const html = readFileSync(FILE);

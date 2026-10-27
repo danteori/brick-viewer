@@ -19,6 +19,7 @@ import { escapeStep, isFree } from '../app/mode.ts';
 import { rightDragged } from '../app/explore.ts';
 import { anyOpen, closeTop, openWindow } from '../ui/windows.ts';
 import { onUp, selectBrick } from './resize.ts';
+import { PRECISION_HINT, PRECISION_ON_HINT, placeFromPrecision, precisionDragging, precisionFinishAxis, precisionMove, precisionOn, precisionPress, precisionRelease, initPrecision, leavePrecision, togglePrecision } from './precision.ts';
 import { beginDrag, cancelDrag, canDrag, dragHud, dragging, endDrag, finishDragAxis, toggleDragMode } from './dragplace.ts';
 
 export const isTyping = (a: EventTarget | null): boolean => {
@@ -77,6 +78,7 @@ export function escape(): void {
 }
 
 export function initEditorInput(canvas: HTMLCanvasElement): void {
+  initPrecision();
   S.hooks.hud.push(selectionHud);
   // the Box selector's box: an orange outline on top while it's active
   S.hooks.draw.push(() => {
@@ -97,14 +99,16 @@ export function initEditorInput(canvas: HTMLCanvasElement): void {
     return G
       ? `<b>placing ${ghostName(G.items)}</b>${G.pose && !G.valid ? ` <b style="color:#ff7a66">(blocked: ${G.reason})</b>` : ''} · ${dragHud()} · ` +
         `${G.mode === 'drag' ? 'release' : 'click'} to place · R or Ctrl+scroll rotates (Shift+R back), hold R and drag toward an axis to point the top that way · ` +
-        `PgUp / PgDn or Shift+scroll raise / lower one ${gsteps(G.items)[2] === MICRO ? 'micro' : 'plate'}${G.dz ? ` (<b>${G.dz > 0 ? '+' : ''}${G.dz}</b>)` : ''} · Esc or right-click cancels`
+        `PgUp / PgDn or Shift+scroll raise / lower one ${gsteps(G.items)[2] === MICRO ? 'micro' : 'plate'}${G.dz ? ` (<b>${G.dz > 0 ? '+' : ''}${G.dz}</b>)` : ''} · Esc or right-click cancels · ${precisionOn() ? PRECISION_ON_HINT : PRECISION_HINT}`
       : 'drag a brick from Bricks into the scene (or click it, then click to place) · Ctrl+C copies the focused brick · ' +
         `Ctrl+V ${clip.mode === 'brick' ? 'pastes it' : 'opens a copied .brz (switch under Open save)'} · Delete removes the focused brick · ` +
         'R rotates the focused brick (Shift+R back), hold R and drag toward an axis to point its top that way';
   });
   addEventListener('pointermove', (e) => {
+    if (e.button === 2 && (e.buttons & 2) && precisionDragging()) { e.stopImmediatePropagation(); precisionFinishAxis([e.clientX, e.clientY]); return; }
     if (e.button === 2 && (e.buttons & 2) && dragging()) { e.stopImmediatePropagation(); finishDragAxis(); return; }
     ed.lastMouse = [e.clientX, e.clientY]; ed.lastOver = e.target === canvas;
+    if (precisionDragging() && (e.buttons & 1)) precisionMove(ed.lastMouse);
     if (reorienting()) { reorientMove(ed.lastMouse); return; }   // R held: the drag points the top; the ghost stays put
     const G = ed.ghost;
     if (!G) return;
@@ -115,8 +119,13 @@ export function initEditorInput(canvas: HTMLCanvasElement): void {
     const G = ed.ghost;
     if (!G || e.target !== canvas || e.button === 1) return;     // the middle button still orbits
     e.stopImmediatePropagation(); e.preventDefault();
-    if (e.button === 2) { if (!dragging()) rightPress = [e.clientX, e.clientY]; return; }
+    if (e.button === 2) { if (!dragging() && !precisionDragging()) rightPress = [e.clientX, e.clientY]; return; }
     if (e.button !== 0 || G.mode !== 'click') return;
+    if (precisionOn()) {
+      precisionPress([e.clientX, e.clientY]);
+      try { canvas.setPointerCapture(e.pointerId); } catch { /* not capturable */ }
+      return;
+    }
     if (canDrag(G) && beginDrag(G, [e.clientX, e.clientY])) {
       press = [e.clientX, e.clientY];
       try { canvas.setPointerCapture(e.pointerId); } catch { /* not capturable */ }
@@ -129,9 +138,13 @@ export function initEditorInput(canvas: HTMLCanvasElement): void {
     if (e.button === 2 && rightPress) {
       const click = near(rightPress, e);
       rightPress = null;
-      if (G && click && !rightDragged() && !dragging()) { e.stopImmediatePropagation(); endPlacing('Placement cancelled'); }
+      if (G && click && !rightDragged() && !dragging()) {
+        e.stopImmediatePropagation();
+        if (precisionOn()) leavePrecision(); else endPlacing('Placement cancelled');
+      }
       return;
     }
+    if (e.button === 0 && precisionDragging()) { precisionRelease(); return; }
     if (G && e.button === 0 && dragging()) {
       const p0 = press!, still = near(p0, e);
       press = null;
@@ -183,7 +196,9 @@ export function initEditorInput(canvas: HTMLCanvasElement): void {
     }
     if (ed.ghost) {
       if (k === 'PageUp' || k === 'PageDown') { e.preventDefault(); nudgeGhost(k === 'PageUp' ? 1 : -1); }
-      if ((k === 'j' || k === 'J') && !e.repeat) { e.preventDefault(); toggleDragMode(); }
+      if ((k === 'j' || k === 'J') && !e.repeat && !precisionOn()) { e.preventDefault(); toggleDragMode(); }
+      if ((k === 'g' || k === 'G') && !e.repeat) { e.preventDefault(); togglePrecision(); }
+      if (k === 'Enter' && precisionOn()) { e.preventDefault(); placeFromPrecision(); }
       return;
     }
     if (k === 'Delete') { e.preventDefault(); deleteSelection(); }
@@ -224,6 +239,6 @@ export function initEditorInput(canvas: HTMLCanvasElement): void {
   addEventListener('keyup', (e) => {
     if ((e.key === 'r' || e.key === 'R') && reorienting() && endReorient()) rotateTap(rShift ? -1 : 1);
   });
-  addEventListener('pointercancel', () => { rightPress = null; if (dragging()) { cancelDrag(); press = null; } }, true);
-  addEventListener('blur', () => { endReorient(); cancelDrag(); press = null; rightPress = null; if (ed.ghost && ed.ghost.mode === 'drag') endPlacing(); });
+  addEventListener('pointercancel', () => { rightPress = null; precisionRelease(); if (dragging()) { cancelDrag(); press = null; } }, true);
+  addEventListener('blur', () => { endReorient(); precisionRelease(); cancelDrag(); press = null; rightPress = null; if (ed.ghost && ed.ghost.mode === 'drag') endPlacing(); });
 }
