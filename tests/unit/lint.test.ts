@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { readBrz } from '../../src/format/brz.ts';
@@ -77,8 +77,9 @@ describe('wire lint on saves', () => {
     expect(lintFiles(new Map())).toEqual({ errors: [], warnings: [] });
   });
 
-  const chip = 'microchip/Clipboard_2026-10-27_00-17-55.brz';
-  const refs = hasRefs ? [...referenceSaves(), ...(existsSync(join(REFS, chip)) ? [chip] : [])] : [];
+  const chipDir = join(REFS, 'microchip');
+  const chips = hasRefs && existsSync(chipDir) ? readdirSync(chipDir).filter(f => f.endsWith('.brz')).map(f => `microchip/${f}`) : [];
+  const refs = hasRefs ? [...referenceSaves(), ...chips] : [];
   it.skipIf(!hasRefs)('flags nothing in the reference saves', () => {
     for (const rel of refs) expect(lintFiles(readBrz(readRef(rel))), rel).toEqual({ errors: [], warnings: [] });
   });
