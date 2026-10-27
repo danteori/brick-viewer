@@ -41,6 +41,7 @@ const MARKUP = `
     <div class="mrows">
       <label id="lightbox">Lighting <select id="light" aria-label="Lighting preset"></select></label>
       <label id="undobox" title="How many edits Ctrl+Z can step back through">Undo steps <input id="undolim" type="number" min="1" max="500" step="1"></label>
+      <label id="pastehomebox"><span>In Precision Mode Paste Bricks At Original Location</span> <input id="pastehome" type="checkbox" checked></label>
       <div id="soundbox" role="group" aria-label="Sound">Sound
         <button type="button" id="mute" aria-pressed="false" title="Mute the editor sounds">On</button>
         <input id="vol" type="range" min="0" max="100" step="1" aria-label="Sound volume" title="Sound volume">

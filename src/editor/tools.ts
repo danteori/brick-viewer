@@ -166,7 +166,7 @@ export function initTools(c: HTMLCanvasElement): void {
     if (!m || e.button !== 1 || ed.ghost || S.held) return;
     if (Math.hypot(e.clientX - m.x, e.clientY - m.y) > MID_PX || performance.now() - m.t > MID_MS || !S.scene.alive(m.id)) return;
     S.orbit.dragging = false;
-    clip.items = groupItems([m.id]);
+    clip.items = groupItems([m.id]); clip.origin = null;
     setPasteMode('brick');
     startPaste();
     setStatus(`Copied ${itemName(clip.items[0]!)}: click to place it (R turns, PgUp / PgDn raise / lower, Esc cancels); Ctrl+V places another`);

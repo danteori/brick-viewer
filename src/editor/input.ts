@@ -2,6 +2,7 @@
 // the resize / focus / zoom handlers, and Shift+click / Shift+drag select (E-01) instead of
 // focusing or resizing.
 
+import { isClassic } from '../app/mode.ts';
 import { S, hasFocus } from '../app/state.ts';
 import { ed, endPlacing, ghostName, nudgeGhost, gsteps } from './ghost.ts';
 import { beginReorient, endReorient, reorienting, reorientMove, rotateTap } from './rotate.ts';
@@ -19,7 +20,7 @@ import { escapeStep, isFree } from '../app/mode.ts';
 import { rightDragged } from '../app/explore.ts';
 import { anyOpen, closeTop, openWindow } from '../ui/windows.ts';
 import { onUp, selectBrick } from './resize.ts';
-import { PRECISION_HINT, PRECISION_ON_HINT, placeFromPrecision, precisionDragging, precisionFinishAxis, precisionMove, precisionOn, precisionPress, precisionRelease, initPrecision, leavePrecision, togglePrecision } from './precision.ts';
+import { PRECISION_HINT, PRECISION_ON_HINT, placeFromPrecision, precisionDragging, precisionFinishAxis, precisionMove, precisionOn, precisionPress, precisionRelease, initPrecision, leavePrecision, togglePrecision, togglesPrecision } from './precision.ts';
 import { beginDrag, cancelDrag, canDrag, dragHud, dragging, endDrag, finishDragAxis, toggleDragMode } from './dragplace.ts';
 
 export const isTyping = (a: EventTarget | null): boolean => {
@@ -197,7 +198,7 @@ export function initEditorInput(canvas: HTMLCanvasElement): void {
     if (ed.ghost) {
       if (k === 'PageUp' || k === 'PageDown') { e.preventDefault(); nudgeGhost(k === 'PageUp' ? 1 : -1); }
       if ((k === 'j' || k === 'J') && !e.repeat && !precisionOn()) { e.preventDefault(); toggleDragMode(); }
-      if ((k === 'g' || k === 'G') && !e.repeat) { e.preventDefault(); togglePrecision(); }
+      if (togglesPrecision(k, isClassic()) && !e.repeat) { e.preventDefault(); togglePrecision(); }
       if (k === 'Enter' && precisionOn()) { e.preventDefault(); placeFromPrecision(); }
       return;
     }

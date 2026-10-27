@@ -194,7 +194,7 @@ export function installTestHook(canvas: HTMLCanvasElement): void {
     renderStats: () => ({ ...stats, total: inst.set?.chunks.size ?? 0 }),
     blocks: () => ({ n: resizeBlock.n, reason: resizeBlock.reason, age: performance.now() - resizeBlock.t }),
     selection: () => { const ids = S.scene.ordered(); return [...S.selection].map((id) => ids.indexOf(id)).sort((a, b) => a - b); },
-    paste(items) { clip.items = items; startPaste(); },
+    paste(items) { clip.items = items; clip.origin = null; startPaste(); },
     focus(k) { const z = S.zoomMul; selectBrick(S.scene.ordered()[k]!); S.zoomMul = z; },
     autoXray: (on) => { xrayAuto.on = on; },
     xray: () => ({ on: cut.on, size: cut.size, keep: cut.keep }),

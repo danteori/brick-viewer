@@ -31,8 +31,8 @@ async function glide(page: Page, a: P2, b: P2): Promise<void> {
   await frames(page);
 }
 
-async function pasteGhost(page: Page): Promise<void> {
-  await page.goto('/?test');
+async function pasteGhost(page: Page, url = '/?test'): Promise<void> {
+  await page.goto(url);
   await page.waitForFunction(() => !!(window as unknown as W).__brickTest);
   await settle(page);
   await page.mouse.move(640, 790);
@@ -68,7 +68,7 @@ test('precision mode: a drag moves the ghost along an axis, PgUp floats it, the 
   expect(r3(made.lo[1]! - a.lo[1]!)).toBe(0);
   expect(made.lo[2]!).toBeGreaterThan(a.lo[2]!);
   expect(s.ghost).toBe(true);
-  await expect(place(page)).toBeHidden();
+  await expect(place(page)).toBeVisible();
 });
 
 test('precision mode: a short right-click leaves it and keeps the brick in hand; Esc cancels the placement', async ({ page }) => {
@@ -84,4 +84,30 @@ test('precision mode: a short right-click leaves it and keeps the brick in hand;
   await page.keyboard.press('Escape'); await frames(page);
   expect((await snap(page)).ghost).toBe(false);
   await expect(place(page)).toBeHidden();
+});
+
+test('free camera: C toggles precision mode and it stays on after Place; Ctrl+V pastes at the original location (U-36)', async ({ page }) => {
+  await pasteGhost(page, '/?test&mode=one');
+  const n0 = (await snap(page)).bricks.length, a = (await snap(page)).bricks[0]!;
+  await page.mouse.move(...(await ground(page, 0.6))); await frames(page);
+  await page.keyboard.press('c'); await frames(page);
+  await expect(place(page)).toBeVisible();
+  await page.keyboard.press('c'); await frames(page);
+  await expect(place(page)).toBeHidden();
+  await page.keyboard.press('c'); await frames(page);
+  await page.keyboard.press('Control+v'); await frames(page);
+  await expect(place(page)).toBeVisible();
+  await page.keyboard.press('PageUp'); await page.keyboard.press('PageUp'); await page.keyboard.press('PageUp'); await frames(page);
+  await place(page).click(); await settle(page);
+  let s = await snap(page);
+  expect(s.bricks.length).toBe(n0 + 1);
+  const made = s.bricks[n0]!;
+  expect(r3(made.lo[0]! - a.lo[0]!)).toBe(0);
+  expect(r3(made.lo[1]! - a.lo[1]!)).toBe(0);
+  expect(made.lo[2]!).toBeGreaterThan(a.lo[2]!);
+  await expect(place(page)).toBeVisible();
+  await page.keyboard.press('PageUp'); await page.keyboard.press('PageUp'); await page.keyboard.press('PageUp'); await frames(page);
+  await page.keyboard.press('Enter'); await settle(page);
+  s = await snap(page);
+  expect(s.bricks.length).toBe(n0 + 2);
 });
