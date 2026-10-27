@@ -69,6 +69,7 @@ async function twoBricks(page: Page): Promise<void> {
   await click(page, at);
   await settle(page);
   expect((await snap(page)).bricks.length).toBe(2);
+  await page.keyboard.press('Escape');
   // focus A again (click its top)
   await click(page, await onBrick(page, 0, [0.5, 0.5, 1]));
   await settle(page);
