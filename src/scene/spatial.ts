@@ -146,6 +146,9 @@ export function rayBox(Sv: readonly number[], D: readonly number[], l: ArrayLike
   return { s: t0, ax };
 }
 
+/** The view ray's length limit (the ortho depth range is +-60 around the render origin). */
+const SMAX = 120;
+
 export interface Hit { k: number; s: number; ax: number }
 
 /**
@@ -165,18 +168,31 @@ export function viewRay(vx: number, vy: number): { S: number[]; D: number[] } {
  * brick is never hidden by it. Visible-off bricks are passed through while they don't show.
  */
 export function pickRay(vx: number, vy: number): Hit | null {
-  const { S: Sv, D } = viewRay(vx, vy), SMAX = 120;
-  const tube = cutTube(), s0c = 0;                         // the X-ray cutaway's tube, or null
+  const { S: Sv, D } = viewRay(vx, vy);
+  const tube = cutTube();                                  // the X-ray cutaway's tube, or null
   let best: Hit | null = null;
   const off = hiddenShown() ? 0 : hiddenBit(S.scene);       // the Visible-off bit while those bricks are skipped
   const s0 = rayBox(Sv, D, S.dlo, S.dhi, 0, SMAX);
   if (s0 && S.sel >= 0 && S.scene.alive(S.sel) && !S.hidden.has(S.sel) && !(off && isHiddenRow(S.scene, S.sel, off))) best = { k: S.sel, s: s0.s, ax: s0.ax };
   if (!S.scene.count) return best;
-  const G = pickReady(), Sg = Sv;
-  // clip the ray to the grid, then walk its cells (3D DDA), stopping once a hit beats the cell exit
+  walkRay(Sv, D, (k, bl, bh) => {
+    if (tube && tubeHides(tube, bl, bh)) return;
+    const h = rayBox(Sv, D, bl, bh, 0, SMAX);
+    if (h && (!best || h.s < best.s)) best = { k, s: h.s, ax: h.ax };
+  }, () => (best ? best.s : Infinity));
+  return best;
+}
+
+/**
+ * Walks the grid cells along ray Sg + s D (3D DDA) and calls `visit` once for each live brick in
+ * them, the focus and hidden rows left out. It stops when the next cell starts past `stop()`.
+ */
+function walkRay(Sg: readonly number[], D: readonly number[], visit: (k: number, bl: number[], bh: number[]) => void, stop: () => number): void {
+  const G = pickReady();
+  // clip the ray to the grid, then walk its cells (3D DDA), stopping once the stop distance beats the cell exit
   const gl0 = G.org, gh0 = G.org.map((v, i) => v + G.dim[i]! * G.cs);
-  const span = rayBox(Sg, D, gl0, gh0, s0c, SMAX);
-  if (!span) return best;
+  const span = rayBox(Sg, D, gl0, gh0, 0, SMAX);
+  if (!span) return;
   let tEnd = SMAX;
   for (let i = 0; i < 3; i++) if (Math.abs(D[i]!) >= 1e-12) tEnd = Math.min(tEnd, Math.max((gl0[i]! - Sg[i]!) / D[i]!, (gh0[i]! - Sg[i]!) / D[i]!));
   const t = span.s, c: number[] = [], stp: number[] = [], tMax: number[] = [], tDel: number[] = [];
@@ -188,7 +204,7 @@ export function pickRay(vx: number, vy: number): Hit | null {
     const edge = G.org[i]! + (c[i]! + (D[i]! > 0 ? 1 : 0)) * G.cs;
     tMax[i] = (edge - Sg[i]!) / D[i]!; tDel[i] = G.cs / Math.abs(D[i]!);
   }
-  const q = ++G.q, bl = [0, 0, 0], bh = [0, 0, 0], hidden = S.hidden;
+  const q = ++G.q, bl = [0, 0, 0], bh = [0, 0, 0], hidden = S.hidden, off = hiddenShown() ? 0 : hiddenBit(S.scene);
   for (let guard = 0; guard < 100000; guard++) {
     const cell = G.cells[(c[2]! * G.dim[1]! + c[1]!) * G.dim[0]! + c[0]!];
     if (cell) for (const k of cell) {
@@ -198,18 +214,41 @@ export function pickRay(vx: number, vy: number): Hit | null {
       if (off && isHiddenRow(S.scene, k, off)) continue;
       const o = k * 6;
       bl[0] = G.box[o]!; bl[1] = G.box[o + 1]!; bl[2] = G.box[o + 2]!; bh[0] = G.box[o + 3]!; bh[1] = G.box[o + 4]!; bh[2] = G.box[o + 5]!;
-      if (tube && tubeHides(tube, bl, bh)) continue;
-      const h = rayBox(Sg, D, bl, bh, s0c, SMAX);
-      if (h && (!best || h.s < best.s)) best = { k, s: h.s, ax: h.ax };
+      visit(k, bl, bh);
     }
     const a = tMax[0]! < tMax[1]! ? (tMax[0]! < tMax[2]! ? 0 : 2) : (tMax[1]! < tMax[2]! ? 1 : 2);
     const exit = tMax[a]!;
-    if ((best && best.s <= exit) || exit > tEnd) break;
+    if (stop() <= exit || exit > tEnd) break;
     c[a]! += stp[a]!;
     if (c[a]! < 0 || c[a]! >= G.dim[a]!) break;
     tMax[a]! += tDel[a]!;
   }
-  return best;
+}
+
+/**
+ * The bricks between the camera and the focus (live box), the X-ray cutaway left out: view rays
+ * through an n x n grid over the focus's outline on screen, each brick hit before the focus.
+ */
+export function coveringBricks(n = 7): number[] {
+  const out = new Set<number>();
+  if (S.sel < 0 || !S.scene.alive(S.sel) || !S.scene.count) return [];
+  const m = S.view, r0 = [m[0]!, m[8]!, m[4]!], r1 = [m[1]!, m[9]!, m[5]!], o = S.origin, lo = S.dlo, hi = S.dhi;
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (let c = 0; c < 8; c++) {
+    const p = [0, 1, 2].map((i) => ((c >> i) & 1 ? hi[i] : lo[i]) - o[i]!);
+    const vx = p[0]! * r0[0]! + p[1]! * r0[1]! + p[2]! * r0[2]!, vy = p[0]! * r1[0]! + p[1]! * r1[1]! + p[2]! * r1[2]!;
+    x0 = Math.min(x0, vx); x1 = Math.max(x1, vx); y0 = Math.min(y0, vy); y1 = Math.max(y1, vy);
+  }
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+    const { S: Sv, D } = viewRay(x0 + (x1 - x0) * (i + 0.5) / n, y0 + (y1 - y0) * (j + 0.5) / n);
+    const f = rayBox(Sv, D, lo, hi, 0, SMAX);
+    if (!f) continue;
+    walkRay(Sv, D, (k, bl, bh) => {
+      const h = rayBox(Sv, D, bl, bh, 0, SMAX);
+      if (h && h.s < f.s - 1e-6) out.add(k);
+    }, () => f.s);
+  }
+  return [...out];
 }
 
 /** Ids whose boxes (viewer units) overlap or touch box [lo, hi] grown by `pad`, from the grid (focus included by its live box). */

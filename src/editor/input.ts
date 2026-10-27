@@ -102,6 +102,7 @@ export function initEditorInput(canvas: HTMLCanvasElement): void {
         'R rotates the focused brick (Shift+R back), hold R and drag toward an axis to point its top that way';
   });
   addEventListener('pointermove', (e) => {
+    if (e.button === 2 && (e.buttons & 2) && dragging()) { e.stopImmediatePropagation(); finishDragAxis(); return; }
     ed.lastMouse = [e.clientX, e.clientY]; ed.lastOver = e.target === canvas;
     if (reorienting()) { reorientMove(ed.lastMouse); return; }   // R held: the drag points the top; the ghost stays put
     const G = ed.ghost;
@@ -121,11 +122,6 @@ export function initEditorInput(canvas: HTMLCanvasElement): void {
       return;
     }
     placeHere();
-  }, true);
-  addEventListener('mousedown', (e) => {
-    if (e.button !== 2 || !dragging()) return;
-    e.stopImmediatePropagation(); e.preventDefault();
-    finishDragAxis();
   }, true);
   addEventListener('pointerup', (e) => {
     const G = ed.ghost;

@@ -16,6 +16,8 @@ import { clip, startPaste } from '../editor/clipboard.ts';
 import type { Brick } from '../scene/brick.ts';
 import { ed } from '../editor/ghost.ts';
 import { selectBrick } from '../editor/resize.ts';
+import { xrayAuto } from '../editor/autoxray.ts';
+import { cut } from '../render/cutaway.ts';
 import { setSelection } from '../editor/select.ts';
 import { inst, stats } from '../render/instances.ts';
 import { MAT_HIDDEN } from '../render/matcode.ts';
@@ -66,6 +68,10 @@ export interface BrickTest {
   paste(items: Brick[]): void;
   /** give brick k (k-th in list order) the focus (camera glides to it), keeping the zoom factor */
   focus(k: number): void;
+  /** auto X-ray on a new focus (U-33; off in ?test until this turns it on) */
+  autoXray(on: boolean): void;
+  /** the X-ray settings: on, Hole (cut.size) and Keep (cut.keep, viewer units) */
+  xray(): { on: boolean; size: number; keep: number };
   /** the scene's components and wires (C-02 / C-03): each instance as [brick key, type, data as JSON], each wire as "source -> target" */
   components(): { instances: [string, string, string][]; wires: string[]; dirty: boolean; refused: number; drawn: { wires: number; ports: number } } | null;
   /** list index of the scene row showing save brick `key` ("grid/x_y_z/index"), or -1 */
@@ -187,6 +193,8 @@ export function installTestHook(canvas: HTMLCanvasElement): void {
     selection: () => { const ids = S.scene.ordered(); return [...S.selection].map((id) => ids.indexOf(id)).sort((a, b) => a - b); },
     paste(items) { clip.items = items; startPaste(); },
     focus(k) { const z = S.zoomMul; selectBrick(S.scene.ordered()[k]!); S.zoomMul = z; },
+    autoXray: (on) => { xrayAuto.on = on; },
+    xray: () => ({ on: cut.on, size: cut.size, keep: cut.keep }),
     select: (ids) => setSelection(ids),
     components() {
       const m = componentsOf(S.scene);

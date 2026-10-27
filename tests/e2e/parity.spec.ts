@@ -138,6 +138,10 @@ async function run(page: Page): Promise<{ step: string; snap: unknown }[]> {
   const snap = async (step: string): Promise<void> => {
     await settle(page);
     out.push({ step, snap: await page.evaluate(() => window.__brickTest.snapshot()) });
+    if (PLACE_STEPS.has(step) && await page.evaluate(() => (window.__brickTest.snapshot() as { ghost: boolean }).ghost)) {
+      await page.keyboard.press('Escape');
+      await settle(page);
+    }
   };
   await snap('start');
 
@@ -256,9 +260,13 @@ async function run(page: Page): Promise<{ step: string; snap: unknown }[]> {
   return out;
 }
 
-interface Snap { bricks: { lo: number[]; hi: number[]; grid?: string }[]; sel: number; status: string; active?: string; clip?: unknown[] | null }
+interface Snap { bricks: { lo: number[]; hi: number[]; grid?: string }[]; sel: number; status: string; active?: string; clip?: unknown[] | null; ghost?: boolean }
 
 const CATALOGUE_STEPS = new Set(['place ramp', 'place microbrick']);
+/** Steps that place a brick: the app keeps it in hand (U-29b), and the script puts it away with Esc after the snapshot. */
+const PLACE_STEPS = new Set(['paste', ...CATALOGUE_STEPS]);
+/** Legacy's status after the last placement while it stays on screen; the app shows its put-away status instead. */
+let putAwayStatus = '';
 let catalogueClip: unknown[] | null = null, catalogueStatus = '';
 
 /** The placed brick moved to the origin: what the app's clipboard holds after a pick from the Bricks window. */
@@ -282,12 +290,15 @@ function canon(snap: unknown): unknown {
 /** The app's expected snapshot after `step`, from legacy's (prev: legacy's snapshot one step before). */
 function expectedApp(step: string, legacy: unknown, prev: unknown): unknown {
   const s = structuredClone(legacy) as Snap;
-  if (step === 'start') { catalogueClip = null; catalogueStatus = ''; }
+  if (step === 'start') { catalogueClip = null; catalogueStatus = ''; putAwayStatus = ''; }
   if (step === 'paste') s.status = s.status.replace(/^Placed /, 'Pasted ');
   if (CATALOGUE_STEPS.has(step)) { catalogueClip = clipOf(s.bricks[s.sel]!); catalogueStatus = s.status; }
   if (catalogueStatus && s.status === catalogueStatus) s.status = s.status.replace(/^Placed /, 'Pasted ');
   if (catalogueClip) s.clip = structuredClone(catalogueClip);
   if (s.active === 'BUTTON') s.active = 'BODY';
+  const raw = (legacy as Snap).status;
+  if (PLACE_STEPS.has(step)) { s.ghost = true; putAwayStatus = (legacy as Snap).ghost ? '' : raw; }
+  else if (putAwayStatus && raw === putAwayStatus) s.status = 'Placement cancelled';
   if (step === 'grow into neighbour') {
     // the +Y face grows in studs until it touches the nearest same-grid brick ahead of it
     const p = prev as Snap, f = p.bricks[p.sel], over = (a: number, b: number, i: number): boolean => Math.max(f.lo[i], a) < Math.min(f.hi[i], b) - 1e-9;

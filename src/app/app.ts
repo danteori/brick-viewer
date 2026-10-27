@@ -9,7 +9,7 @@ import { initWorldEnvironment } from './environment.ts';
 import { initPaintPanel } from '../ui/panels/paint.ts';
 import { initApplicatorPanel, tickApplicator } from '../ui/panels/applicator.ts';
 import { initSoundPanel } from '../ui/panels/sound.ts';
-import { initViewPanel } from '../ui/panels/view.ts';
+import { initViewPanel, tickXray } from '../ui/panels/view.ts';
 import { installTestHook } from './test-hook.ts';
 import { createGfx } from '../render/gl.ts';
 import { initDraw } from '../render/draw.ts';
@@ -18,7 +18,7 @@ import { initInstances } from '../render/instances.ts';
 import { initGrid } from '../render/grid.ts';
 import { initCamera, updateCamera } from '../render/camera.ts';
 import { renderFrame } from '../render/pipeline.ts';
-import { edgeTick, onDown, onMove, onRightDown, onUp, onWheel, orbitMove } from '../editor/resize.ts';
+import { edgeTick, onDown, onMove, onRightDown, onUp, onWheel, orbitMove, startOrbit } from '../editor/resize.ts';
 import { initExplore, exploreTick } from './explore.ts';
 import { isClassic, setCameraStyle } from './mode.ts';
 import { initWindow } from '../ui/windows.ts';
@@ -105,6 +105,8 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
   addEventListener('pointermove', orbitMove);
   addEventListener('pointerup', (e) => { if (e.button === 1 && S.orbit.dragging) S.orbit.dragging = false; });
   addEventListener('mousedown', (e) => { if (e.button === 1) e.preventDefault(); });   // no browser auto-scroll
+  addEventListener('mousedown', (e) => { if (e.button === 1 && S.held) startOrbit(e, canvas); });
+  addEventListener('mouseup', (e) => { if (e.button === 1) S.orbit.dragging = false; });
   addEventListener('pointerdown', (e) => onDown(e, canvas));
   addEventListener('pointermove', onMove);
   addEventListener('pointerup', (e) => onUp(e));
@@ -155,6 +157,7 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
     if (w && h) {
       if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
       updateCamera(w, h);
+      tickXray();
       const { sx, sy } = renderFrame(w, h, canvas);
       drawHud();
       drawDims(sx, sy);
