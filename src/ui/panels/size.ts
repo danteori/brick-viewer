@@ -22,7 +22,9 @@ let modeBtns: HTMLButtonElement[] = [];
 interface SizeTarget {
   kind(i: number): string; units(i: number): number; min(i: number): number; max(i: number): number; set(i: number, n: number): void;
 }
-const focusTarget: SizeTarget = { kind: stepKind, units, min: minUnits, max: maxUnits, set: setSize };
+const focusTarget: SizeTarget = {
+  kind: (i) => stepKind(i), units: (i) => units(i), min: (i) => minUnits(i), max: (i) => maxUnits(i), set: (i, n) => setSize(i, n),
+};
 function ghostTarget(t: Brick): SizeTarget {
   return {
     kind: (i) => kindOf(sizeRule(t).steps[i]!, !!t.micro), units: (i) => ghostUnits(t, i),
