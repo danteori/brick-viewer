@@ -6,7 +6,7 @@ import { readBrz } from '../../src/format/brz.ts';
 import { storeFromFiles } from '../../src/scene/load.ts';
 import { cullColumnsOf, regionMasks } from '../../src/scene/parsecore.ts';
 import { flagMask, writeFlags } from '../../src/scene/brickflags.ts';
-import { hiddenBit, isHiddenRow, nextHiddenMode, pickableRow, showsHidden } from '../../src/scene/hidden.ts';
+import { hiddenBit, isHiddenRow, nextHiddenMode, pickableRow, showsHidden, wireDrawn } from '../../src/scene/hidden.ts';
 import { ASSETS, FLAG_NAMES, MATERIALS, SceneStore } from '../../src/scene/store.ts';
 import { HIDDEN_LOOK, hiddenPhase, hiddenStripe } from '../../src/render/hiddenlook.ts';
 import { synthSave, type SynthBrick } from './synthsave.ts';
@@ -58,6 +58,27 @@ describe('show and pick rule', () => {
     expect(nextHiddenMode('auto')).toBe('show');
     expect(nextHiddenMode('show')).toBe('hide');
     expect(nextHiddenMode('hide')).toBe('auto');
+  });
+});
+
+describe('wires to hidden bricks', () => {
+  const s = load([cube(0), cube(20), cube(40, true)]);
+
+  it('draws a wire between visible bricks always', () => {
+    expect(wireDrawn(s, 0, 1, false)).toBe(true);
+    expect(wireDrawn(s, 0, 1, true)).toBe(true);
+  });
+
+  it('draws a wire with a hidden end only while hidden bricks show', () => {
+    expect(wireDrawn(s, 0, 2, false)).toBe(false);
+    expect(wireDrawn(s, 2, 1, false)).toBe(false);
+    expect(wireDrawn(s, 2, 2, false)).toBe(false);
+    expect(wireDrawn(s, 0, 2, true)).toBe(true);
+  });
+
+  it('ignores an end outside the scene', () => {
+    expect(wireDrawn(s, 0, -1, false)).toBe(true);
+    expect(wireDrawn(s, 2, -1, false)).toBe(false);
   });
 });
 

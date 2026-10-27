@@ -22,5 +22,9 @@ export const showsHidden = (mode: HiddenMode, selected: boolean): boolean => mod
 /** Row `id` can be picked: a visible row always, a hidden one only while hidden bricks show. */
 export const pickableRow = (s: SceneStore, id: number, shown: boolean, bit = hiddenBit(s)): boolean => shown || !isHiddenRow(s, id, bit);
 
+/** A wire between rows `a` and `b` (-1: an end outside the scene) is drawn: it needs both ends visible, or hidden bricks showing. */
+export const wireDrawn = (s: SceneStore, a: number, b: number, shown: boolean, bit = hiddenBit(s)): boolean =>
+  shown || !((a >= 0 && isHiddenRow(s, a, bit)) || (b >= 0 && isHiddenRow(s, b, bit)));
+
 /** The mode after `m` in the toggle's cycle. */
 export const nextHiddenMode = (m: HiddenMode): HiddenMode => HIDDEN_MODES[(HIDDEN_MODES.indexOf(m) + 1) % HIDDEN_MODES.length]!;
