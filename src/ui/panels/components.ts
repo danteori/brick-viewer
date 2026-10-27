@@ -7,6 +7,7 @@
 // of that type's instances have), "Remove" takes one off along with its wires (one undo step each).
 
 import { S } from '../../app/state.ts';
+import { chipForRow, isChipOpen, setChipOpen } from '../../app/chips.ts';
 import { ComponentEditError, defaultValue, type ComponentInstance, type FieldDescriptor } from '../../scene/components.ts';
 import { componentsOf, onComponentsChange, shortType, type SceneComponents } from '../../scene/compmodel.ts';
 import { initAudio, playClick, playError } from '../audio.ts';
@@ -88,6 +89,8 @@ function render(): void {
   // a new brick has no place in the save until it gets a component (C-04): Add gives it one
   const ref = m.refOfRow(S.sel), types = m.addableOn(S.sel);
   if (!ref && !S.scene.alive(S.sel)) { body.append(h('p', { class: 'cnote' }, 'Focus a brick to see its components.')); return; }
+  const chip = chipForRow(S.sel);
+  if (chip) body.append(chipSwitch(chip));
   const list = ref ? m.store.onBrick(ref) : [];
   if (!list.length) body.append(h('p', { class: 'cnote' }, 'No components on this brick.'));
   for (const c of list) body.append(componentBlock(m, c));
@@ -104,6 +107,15 @@ function render(): void {
   row.append(sel, add);
   body.append(row, msg);
   if (keep) body.querySelector<HTMLElement>(`[data-k="${CSS.escape(keep)}"]`)?.focus();
+}
+
+function chipSwitch(chip: Parameters<typeof setChipOpen>[0]): HTMLElement {
+  const box = h('input', { type: 'checkbox', 'data-k': 'chip-open' }) as HTMLInputElement;
+  box.checked = isChipOpen(chip);
+  box.addEventListener('change', () => { setChipOpen(chip, box.checked); initAudio(); playClick(); });
+  const label = h('label', { class: 'cchip' }, ' PLACEHOLDER chip open');
+  label.prepend(box);
+  return label;
 }
 
 const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e));

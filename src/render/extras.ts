@@ -8,37 +8,57 @@
 import { S } from '../app/state.ts';
 import { G } from './draw.ts';
 import { ChunkSet, type ViewCull } from './instances.ts';
+import { MAT_HOLOGRAM } from './matcode.ts';
 import { boxIB } from './meshes/registry.ts';
 import type { SceneStore } from '../scene/store.ts';
 
-const extra = {
-  sets: [] as ChunkSet[],
+interface Source {
+  sets: ChunkSet[];
   /** the scene store these extras go with */
-  owner: null as SceneStore | null,
-  count: 0,
-};
-
-/** Replaces the extras: each grid's store with its origin (units). `owner`: the scene they go with. */
-export function setExtraStores(grids: { store: SceneStore; origin: [number, number, number] }[], owner: SceneStore | null): void {
-  for (const s of extra.sets) s.dispose();
-  extra.sets = grids.map((g) => new ChunkSet(g.store, { scene: false, offset: g.origin }));
-  extra.owner = owner;
-  extra.count = grids.reduce((n, g) => n + g.store.count, 0);
+  owner: SceneStore | null;
+  count: number;
 }
 
-export const extraCount = (): number => extra.count;
+const sources = new Map<string, Source>();
+const shown = (): ChunkSet[] => {
+  const out: ChunkSet[] = [];
+  for (const x of sources.values()) if (x.sets.length && (!x.owner || x.owner === S.scene)) out.push(...x.sets);
+  return out;
+};
+
+/** Replaces the extras of source `key`: each grid's store with its origin (units). `owner`: the scene they go with. */
+export function setExtraStores(grids: { store: SceneStore; origin: [number, number, number] }[], owner: SceneStore | null, key = 'grids'): void {
+  for (const s of sources.get(key)?.sets ?? []) s.dispose();
+  sources.set(key, { sets: grids.map((g) => new ChunkSet(g.store, { scene: false, offset: g.origin })), owner, count: grids.reduce((n, g) => n + g.store.count, 0) });
+}
+
+export const extraCount = (): number => sources.get('grids')?.count ?? 0;
 
 /** How far the shown extras reach along the view axis (viewer units; see ChunkSet.depthReach). */
 export function extrasDepth(): number {
-  if (!extra.sets.length || (extra.owner && extra.owner !== S.scene)) return 0;
   let r = 0;
-  for (const s of extra.sets) { s.sync(); r = Math.max(r, s.depthReach()); }
+  for (const s of shown()) { s.sync(); r = Math.max(r, s.depthReach()); }
   return r;
 }
 
 /** Draws the extras (call with the body uniforms set and the cube's element array bound). */
 export function drawExtras(cull: ViewCull | null = null): void {
-  if (!extra.sets.length || (extra.owner && extra.owner !== S.scene)) return;
-  for (const s of extra.sets) { s.sync(); s.draw(cull); }
+  const sets = shown();
+  if (!sets.length) return;
+  for (const s of sets) { s.sync(); s.draw(cull); }
   G.gl.bindBuffer(G.gl.ELEMENT_ARRAY_BUFFER, boxIB);
+}
+
+/** Draws the extras' hologram bricks (after the opaque pass, like matpass.ts does for the scene's own). */
+export function drawExtraHolograms(cull: ViewCull | null = null): void {
+  const sets = shown().filter((s) => s.matCount[MAT_HOLOGRAM]);
+  if (!sets.length) return;
+  const { gl, u } = G;
+  gl.enable(gl.BLEND); gl.depthMask(false);
+  gl.uniform1f(u.uIntensity, -1); gl.uniform1f(u.uMat, MAT_HOLOGRAM); gl.uniform1f(u.uMatPass, 0);
+  gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+  for (const s of sets) s.drawSpecial(MAT_HOLOGRAM, cull, true);
+  gl.uniform1f(u.uMat, 0);
+  gl.depthMask(true); gl.disable(gl.BLEND);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxIB);
 }

@@ -40,6 +40,7 @@ import { initSaveGame } from '../ui/panels/savegame.ts';
 import { initProps, tickProps } from '../ui/panels/props.ts';
 import { initSelectionPanel, tickSelection } from '../ui/panels/selection.ts';
 import { initGridPanel, tickGrid } from '../ui/panels/grid.ts';
+import { tickChips } from './chips.ts';
 import { initComponentsPanel, tickComponents } from '../ui/panels/components.ts';
 import { initContextPanel, tickContextPanel } from '../ui/panels/context.ts';
 import { drawWires, initWires } from '../ui/overlay/wires.ts';
@@ -157,6 +158,7 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
     if (w && h) {
       if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
       updateCamera(w, h);
+      tickChips();
       tickXray();
       const { sx, sy } = renderFrame(w, h, canvas);
       drawHud();

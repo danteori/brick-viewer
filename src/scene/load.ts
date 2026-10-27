@@ -28,7 +28,7 @@ import { loadDynamicGrids, type DynLoad } from './dyngrids.ts';
 function gridLine(extra: number, d: DynLoad): string {
   const shown = d.grids ? `${d.grids} moving grid${d.grids === 1 ? '' : 's'} (click one to select it)` : '';
   const rest = [d.snapped && `${d.snapped} turned to the nearest quarter turn`, d.skipped && `${d.skipped} of their bricks unsupported`,
-    d.failed && `${d.failed} unreadable`, d.others && `${d.others} other grid${d.others === 1 ? '' : 's'} (microchips...) not shown`].filter(Boolean);
+    d.failed && `${d.failed} unreadable`, d.others && `${d.others} other grid${d.others === 1 ? '' : 's'} not shown (microchip boards show on the chip)`].filter(Boolean);
   return [shown || (!d.others && !d.failed ? `${extra} grid(s) not shown` : ''), ...rest].filter(Boolean).join(', ');
 }
 

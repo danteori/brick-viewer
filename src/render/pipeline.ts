@@ -11,7 +11,7 @@ import { drawInstances, inst, setFarLod, syncInstances, type ViewCull } from './
 import { hidesCovered, LOD_HIDE, lodLevel, lodSettings, MERGE_MIN_CHUNKS } from './lod.ts';
 import { syncScene } from '../scene/sync.ts';
 import { drawGrid } from './grid.ts';
-import { drawExtras, extrasDepth } from './extras.ts';
+import { drawExtraHolograms, drawExtras, extrasDepth } from './extras.ts';
 import { drawGround, drawGroundBackdrop } from './ground.ts';
 import { bloomPass, drawGlow, drawHidden, drawMaterials, drawMetallic, focusIsSpecial, hasFocusGlow, hasGlow } from './matpass.ts';
 import { LIGHTING, lightDir } from './lighting.ts';
@@ -110,6 +110,7 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
   if (fxc) { perfMark('fxWater'); fxWater(fxc); }   // the water surface over what's under it
   perfMark('materials');
   drawMaterials(dlo, dhi);                   // glow, metallic, then glass / translucent / hologram back to front (if any)
+  drawExtraHolograms(cull);
   drawHidden(dlo, dhi);                      // hidden bricks' ghosts, while they show (app/hidden.ts)
   perfMark('bloom');
   if (bloomPass && hasGlow() && fxState.want.bloom) {              // full build: the glow halo

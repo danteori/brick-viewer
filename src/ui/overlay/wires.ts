@@ -12,6 +12,7 @@
 // renders and goldens don't change.
 
 import { S } from '../../app/state.ts';
+import { boardBricks, boardRev } from '../../app/chips.ts';
 import { BRZ_UNIT } from '../../core/units.ts';
 import { camSignature, toView } from '../../render/camera.ts';
 import { brickKey, type BrickRef } from '../../scene/components.ts';
@@ -181,7 +182,7 @@ export function drawWires(sx: number, sy: number): void {
   if (!wireView.on) return;
   const m = componentsOf(S.scene), cw = canvas.clientWidth, ch = canvas.clientHeight;
   const sel = wireView.selected, f = wireView.from;
-  const key = [sceneId(), camSignature(), cw, ch, S.scene.rev, S.hidden.size, m?.version ?? -1, sel ? endKey(sel.s) + endKey(sel.t) : '', f ? `${f.row}/${f.comp}/${f.port.name}` : ''].join('|');
+  const key = [sceneId(), camSignature(), cw, ch, S.scene.rev, S.hidden.size, m?.version ?? -1, boardRev(), sel ? endKey(sel.s) + endKey(sel.t) : '', f ? `${f.row}/${f.comp}/${f.port.name}` : ''].join('|');
   if (key === shownKey) return;
   shownKey = key;
   if (!m) { svg.replaceChildren(); dots = []; wires = []; return; }
@@ -210,6 +211,25 @@ export function drawWires(sx: number, sy: number): void {
     });
     put(ins, lay.inputs); put(outs, lay.outputs);
     layout.set(brickKey(ref), map);
+  }
+  let synthetic = 0;
+  for (const pick of boardBricks()) {
+    if (bricks > MAX_BRICKS) break;
+    const insts = m.store.onBrick(pick.ref);
+    if (!insts.length) continue;
+    const b = pick.box, lo = [b[0]! * BRZ_UNIT, b[1]! * BRZ_UNIT, b[2]! * BRZ_UNIT], hi = [b[3]! * BRZ_UNIT, b[4]! * BRZ_UNIT, b[5]! * BRZ_UNIT];
+    const c = P([(lo[0]! + hi[0]!) / 2, (lo[1]! + hi[1]!) / 2, hi[2]!]);
+    if (!onScreen(c[0], c[1], 200)) continue;
+    bricks++;
+    const ins: { comp: string; port: PortInfo }[] = [], outs: { comp: string; port: PortInfo }[] = [];
+    for (const inst of insts) for (const p of m.portsOf(inst)) (p.dir === 'in' ? ins : outs).push({ comp: inst.type, port: p });
+    const lay = portLayout(lo, hi, ins.length, outs.length), map = new Map<string, PortDot>(), row = -1 - synthetic++;
+    const put = (list: typeof ins, pos: number[][]): void => list.forEach((q, i) => {
+      const [x, y] = P(pos[i]!), d: PortDot = { row, ref: pick.ref, comp: q.comp, port: q.port, x, y };
+      map.set(`${q.comp}/${q.port.name}/${q.port.dir}`, d); dots.push(d);
+    });
+    put(ins, lay.inputs); put(outs, lay.outputs);
+    layout.set(brickKey(pick.ref), map);
   }
   // wires: a curve between the two dots, or a stub from the one end that's drawn
   const parts: string[] = [];
