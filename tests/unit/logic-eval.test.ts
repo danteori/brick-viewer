@@ -1,10 +1,10 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { readBrz } from '../../src/format/brz.ts';
 import { Clock, MAX_CATCH_UP_TICKS } from '../../src/logic/clock.ts';
 import { Evaluator } from '../../src/logic/evaluator.ts';
-import { buildLogicGraph, type LogicNode } from '../../src/logic/graph.ts';
+import { buildLogicGraph, type LogicGraph, type LogicNode } from '../../src/logic/graph.ts';
 import { loadComponents, type BrickRef, type ComponentStore } from '../../src/scene/components.ts';
 import { loadWires, type WireGraph } from '../../src/scene/wires.ts';
 import { REFS } from './refs.ts';
@@ -13,9 +13,13 @@ const CHIP_DIR = join(REFS, 'microchip');
 const CHIP_SAVE = existsSync(CHIP_DIR) ? readdirSync(CHIP_DIR).filter((n) => n.endsWith('.brz')).sort().map((n) => join(CHIP_DIR, n))[0] : undefined;
 
 describe.skipIf(!CHIP_SAVE)('evaluator on the microchip reference save', () => {
-  const files = readBrz(readFileSync(CHIP_SAVE!));
-  const graph = buildLogicGraph(loadComponents(files), loadWires(files));
-  const [sw] = graph.ofKind('switch'), [text] = graph.ofKind('display');
+  let graph: LogicGraph, sw: LogicNode, text: LogicNode;
+  beforeAll(() => {
+    const files = readBrz(readFileSync(CHIP_SAVE!));
+    graph = buildLogicGraph(loadComponents(files), loadWires(files));
+    [sw] = graph.ofKind('switch') as [LogicNode];
+    [text] = graph.ofKind('display') as [LogicNode];
+  });
 
   it('reads the chip and every wired component', () => {
     expect(graph.chips.size).toBe(1);
@@ -25,16 +29,16 @@ describe.skipIf(!CHIP_SAVE)('evaluator on the microchip reference save', () => {
 
   it('shows 3 with the switch on and 0 with it off', () => {
     const ev = new Evaluator(graph);
-    expect(ev.switchOn(sw!)).toBe(true);
+    expect(ev.switchOn(sw)).toBe(true);
     ev.tick();
-    expect(ev.displayText(text!)).toBe('3');
-    ev.toggle(sw!);
-    expect(ev.displayText(text!)).toBe('3');
+    expect(ev.displayText(text)).toBe('3');
+    ev.toggle(sw);
+    expect(ev.displayText(text)).toBe('3');
     ev.tick();
-    expect(ev.displayText(text!)).toBe('0');
-    ev.setSwitch(sw!, true);
+    expect(ev.displayText(text)).toBe('0');
+    ev.setSwitch(sw, true);
     ev.tick();
-    expect(ev.displayText(text!)).toBe('3');
+    expect(ev.displayText(text)).toBe('3');
   });
 });
 
