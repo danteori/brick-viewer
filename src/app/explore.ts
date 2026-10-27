@@ -9,6 +9,7 @@ import { gridClick } from '../editor/grids.ts';
 import { isTyping } from '../editor/input.ts';
 import { initAudio, playSelect } from '../ui/audio.ts';
 import type { V3 } from '../scene/brick.ts';
+import { ops as perspOps, persp } from '../render/persp.ts';
 
 const MOVE_KEYS = new Set(['w', 'a', 's', 'd', ' ']);
 /** Camera key speed: view heights per second. */
@@ -36,6 +37,7 @@ export const rightDragged = (): boolean => rightMoved;
 
 /** A brick, a selection or a ghost is being edited: the camera keys are off, so they don't clash with Shift+click. */
 export const editing = (): boolean => hasFocus() || S.selection.size > 0 || !!ed.ghost;
+const keysBlocked = (): boolean => editing() && !(persp.on && persp.fly);
 
 /** The brick under this screen point, or -1. */
 function brickAt(x: number, y: number): number {
@@ -56,6 +58,7 @@ export function clickBrick(id: number): void {
 /** Double-click: select the brick and glide the camera onto its centre; the zoom stays. */
 export function centreOn(id: number): void {
   clickBrick(id);
+  if (persp.on) { perspOps.rootAt([0, 1, 2].map((i) => (S.lo[i]! + S.hi[i]!) / 2), persp.follow); return; }
   glide = [0, 1, 2].map((i) => (S.lo[i] + S.hi[i]) / 2) as V3;
 }
 
@@ -153,11 +156,11 @@ export function initExplore(canvas: HTMLCanvasElement): void {
 
   addEventListener('keydown', (e) => {
     if (e.key === 'Shift') {
-      if (!e.repeat) shift = isFree() && !editing() && !isTyping(e.target) ? { t: performance.now(), alone: true } : null;
+      if (!e.repeat) shift = isFree() && !keysBlocked() && !isTyping(e.target) ? { t: performance.now(), alone: true } : null;
       return;
     }
     if (shift) shift.alone = false;
-    if (!isFree() || editing() || e.ctrlKey || e.metaKey || e.altKey || isTyping(e.target)) return;
+    if (!isFree() || keysBlocked() || e.ctrlKey || e.metaKey || e.altKey || isTyping(e.target)) return;
     const k = e.key.toLowerCase();
     if (!MOVE_KEYS.has(k)) return;
     e.preventDefault(); e.stopImmediatePropagation();
@@ -178,10 +181,11 @@ export function exploreTick(t: number): void {
   const dt = Math.min(0.1, Math.max(0, (t - lastT) / 1000));
   lastT = t;
   if (!isFree()) return;
-  if (editing()) { keys.clear(); shift = null; }
+  if (keysBlocked()) { keys.clear(); shift = null; }
   const dx = (keys.has('d') ? 1 : 0) - (keys.has('a') ? 1 : 0), dy = (keys.has('w') ? 1 : 0) - (keys.has('s') ? 1 : 0);
   const dz = (keys.has(' ') ? 1 : 0) - (shiftDown(t) ? 1 : 0);
   const n = Math.hypot(dx, dy);
+  if (persp.on) { perspOps.move(dx, dy, dz, dt); return; }
   if (n) { const v = PAN_SPEED * dt / n; panView(dx * v, dy * v); }
   if (dz) {
     const up = viewDir(0, 0, 1), len = Math.hypot(up[0], up[1]);

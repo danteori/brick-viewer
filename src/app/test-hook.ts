@@ -3,6 +3,7 @@
 // driven identically.
 
 import { cameraStyle } from './mode.ts';
+import { persp } from '../render/persp.ts';
 import { gliding } from './explore.ts';
 import { closeWindow, openWindow, openWindows } from '../ui/windows.ts';
 import { ELEV, S, YAW0 } from './state.ts';
@@ -94,6 +95,7 @@ export interface BrickTest {
   closeWindow(id: string): void;
   /** the camera: view-plane centre, half-height, yaw and pitch (radians) */
   camera(): { x: number; y: number; half: number; yaw: number; pitch: number };
+  persp(): { on: boolean; fly: boolean; follow: boolean; eye: number[]; anchor: number[]; dist: number; effDist: number };
   grids(): { id: number; origin: number[]; frac: number[]; quat: number[]; ids: number[] }[] | null;
   /**
    * Graphics effects (L-03 / L-06; off in ?test until this is called): on / off, the game quality
@@ -188,6 +190,7 @@ export function installTestHook(canvas: HTMLCanvasElement): void {
     openWindow: (id) => { openWindow(id); },
     closeWindow: (id) => { closeWindow(id); },
     camera: () => ({ x: S.cam.x, y: S.cam.y, half: S.cam.half, yaw: S.orbit.yaw, pitch: S.orbit.pitch }),
+    persp: () => ({ on: persp.on, fly: persp.fly, follow: persp.follow, eye: persp.eye.slice(), anchor: persp.anchor.slice(), dist: persp.dist, effDist: persp.effDist }),
     focusBox: () => ({ lo: S.lo.slice(), hi: S.hi.slice() }),
     brickBox: (k) => { const b = brickView(S.scene, S.scene.ordered()[k]!); return { lo: b.lo, hi: b.hi }; },
     ids: () => S.scene.ordered(),

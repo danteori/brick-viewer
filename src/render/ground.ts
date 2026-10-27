@@ -13,6 +13,7 @@ import { linearToSrgb } from '../format/environment.ts';
 import type { Brick, V3 } from '../scene/brick.ts';
 import { G, drawBody } from './draw.ts';
 import { mul } from '../core/math.ts';
+import { persp } from './persp.ts';
 
 const visible = (): boolean => !!S.ground?.visible && S.orbit.pitch >= 0;
 
@@ -38,7 +39,7 @@ function drawPlate(reach: number): void {
  * wrote; pass 2 redraws the near part with real depth.
  */
 export function drawGroundBackdrop(ortho: Float32Array, view: Float32Array): void {
-  if (!visible()) return;
+  if (!visible() || persp.on) return;
   const { gl, u } = G, deep = ortho.slice();
   deep[10] = -1 / 1e6;
   gl.uniformMatrix4fv(u.uMVP, false, mul(deep, view));
@@ -50,5 +51,5 @@ export function drawGroundBackdrop(ortho: Float32Array, view: Float32Array): voi
 /** Pass 2, after the bricks: the near plate with depth, so it hides what's below Z = 0. */
 export function drawGround(): void {
   if (!visible()) return;
-  drawPlate(Math.min(S.cam.half * 3, 60));
+  drawPlate(persp.on ? 60 : Math.min(S.cam.half * 3, 60));
 }
