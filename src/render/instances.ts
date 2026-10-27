@@ -28,7 +28,7 @@ import { viewDir } from './camera.ts';
 import { addMirror } from '../scene/sync.ts';
 import { ASSETS, F_LINEAR, MATERIALS, worldHalfOf, type SceneStore } from '../scene/store.ts';
 import { topOf } from '../scene/view.ts';
-import { MAT_CODES, MAT_GLASS, MAT_GLOW, MAT_HIDDEN, MAT_HOLOGRAM, MAT_METALLIC, MAT_TRANSLUCENT, matCode } from './matcode.ts';
+import { MAT_CIRCUIT, MAT_CODES, MAT_GLASS, MAT_GLOW, MAT_HIDDEN, MAT_HOLOGRAM, MAT_METALLIC, MAT_TRANSLUCENT, matCode } from './matcode.ts';
 import { hiddenBit, isHiddenRow } from '../scene/hidden.ts';
 import { FULLY_HIDDEN } from '../scene/cull.ts';
 import { BLOCK, LOD_LEVELS, LodBuilder, MERGE_MIN_CHUNKS } from './lod.ts';
@@ -137,6 +137,7 @@ const wordOf = (a: number): number => {
 };
 const matOf: number[] = [];
 const materialCode = (m: number): number => (matOf[m] ??= matCode({ material: MATERIALS.name(m) }));
+const extraCode = (m: number): number => { const c = materialCode(m); return c === MAT_HOLOGRAM || c === MAT_CIRCUIT ? c : 0; };
 
 /**
  * The render chunks of one store. `opts.offset` (units, doubles) shifts the whole set (a dynamic
@@ -425,7 +426,7 @@ export class ChunkSet {
       ch.minZ = Math.min(ch.minZ, z - h[2]);
       if (hidden && hidden.size && hidden.has(id)) continue;
       const mesh = meshOf(s.shape[id]!, ASSETS.name(s.asset[id]!), s.hx[id]!, s.hy[id]!, s.hz[id]!);
-      const m = !scene ? 0 : isHiddenRow(s, id, hideBit) ? MAT_HIDDEN : materialCode(s.material[id]!);   // extras draw every brick as plastic, as before
+      const m = !scene ? extraCode(s.material[id]!) : isHiddenRow(s, id, hideBit) ? MAT_HIDDEN : materialCode(s.material[id]!);
       let into = lists;
       if (m > 0) {
         ch.special.push(id); ch.mc[m]!++;

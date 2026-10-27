@@ -8,7 +8,7 @@
 import { S } from '../app/state.ts';
 import { G } from './draw.ts';
 import { ChunkSet, type ViewCull } from './instances.ts';
-import { MAT_HOLOGRAM } from './matcode.ts';
+import { MAT_CIRCUIT, MAT_HOLOGRAM } from './matcode.ts';
 import { boxIB } from './meshes/registry.ts';
 import type { SceneStore } from '../scene/store.ts';
 
@@ -49,15 +49,18 @@ export function drawExtras(cull: ViewCull | null = null): void {
   G.gl.bindBuffer(G.gl.ELEMENT_ARRAY_BUFFER, boxIB);
 }
 
-/** Draws the extras' hologram bricks (after the opaque pass, like matpass.ts does for the scene's own). */
+/** Draws the extras' hologram and circuit-board bricks (after the opaque pass, like matpass.ts does for the scene's own). */
 export function drawExtraHolograms(cull: ViewCull | null = null): void {
-  const sets = shown().filter((s) => s.matCount[MAT_HOLOGRAM]);
+  const sets = shown().filter((s) => s.matCount[MAT_HOLOGRAM] || s.matCount[MAT_CIRCUIT]);
   if (!sets.length) return;
   const { gl, u } = G;
   gl.enable(gl.BLEND); gl.depthMask(false);
-  gl.uniform1f(u.uIntensity, -1); gl.uniform1f(u.uMat, MAT_HOLOGRAM); gl.uniform1f(u.uMatPass, 0);
+  gl.uniform1f(u.uIntensity, -1); gl.uniform1f(u.uMatPass, 0);
   gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-  for (const s of sets) s.drawSpecial(MAT_HOLOGRAM, cull, true);
+  for (const m of [MAT_CIRCUIT, MAT_HOLOGRAM]) {
+    gl.uniform1f(u.uMat, m);
+    for (const s of sets) s.drawSpecial(m, cull, true);
+  }
   gl.uniform1f(u.uMat, 0);
   gl.depthMask(true); gl.disable(gl.BLEND);
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxIB);

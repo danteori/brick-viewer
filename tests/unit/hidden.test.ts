@@ -6,7 +6,7 @@ import { readBrz } from '../../src/format/brz.ts';
 import { storeFromFiles } from '../../src/scene/load.ts';
 import { cullColumnsOf, regionMasks } from '../../src/scene/parsecore.ts';
 import { flagMask, writeFlags } from '../../src/scene/brickflags.ts';
-import { hiddenBit, isHiddenRow, nextHiddenMode, pickableRow, showsHidden, wireDrawn } from '../../src/scene/hidden.ts';
+import { hiddenBit, isHiddenRow, nextHiddenMode, pickableRow, portsOfHiddenWires, showsHidden, wireDrawn } from '../../src/scene/hidden.ts';
 import { ASSETS, FLAG_NAMES, MATERIALS, SceneStore } from '../../src/scene/store.ts';
 import { HIDDEN_LOOK, hiddenPhase, hiddenStripe } from '../../src/render/hiddenlook.ts';
 import { synthSave, type SynthBrick } from './synthsave.ts';
@@ -105,5 +105,16 @@ describe('ghost stripes', () => {
     // after 0.1 s the phase seen at (0, 0) is the one that was 0.05 periods up-right of it
     const d = HIDDEN_LOOK.speed * 0.1 * HIDDEN_LOOK.period / 2;
     expect(hiddenPhase(0, 0, 0.1)).toBeCloseTo(hiddenPhase(d, d, 0));
+  });
+});
+
+describe('port dots of hidden wires (C-20)', () => {
+  it('lists the ports that only hidden wires use', () => {
+    const only = portsOfHiddenWires([['a', false], ['b', true], ['b', false], ['c', false], ['c', false]]);
+    expect([...only].sort()).toEqual(['a', 'c']);
+  });
+  it('lists nothing when every wire is drawn or there are no wires', () => {
+    expect(portsOfHiddenWires([['a', true]]).size).toBe(0);
+    expect(portsOfHiddenWires([]).size).toBe(0);
   });
 });

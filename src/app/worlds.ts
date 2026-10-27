@@ -6,7 +6,7 @@
 // open only the SQLite header, the revisions / folders / files tables and the blob index are read
 // (File.slice); the world model (grids, entities) reads only the chunk indexes and entity chunks;
 // then the scene loads what it shows: every file except the brick grids it doesn't draw
-// (microchip, other entity and orphan grids). "Save .brz" / "Save as new world" need the whole tree
+// (other entity and orphan grids; microchip grids load, for the chip boards). "Save .brz" / "Save as new world" need the whole tree
 // as a template, so they load the rest first (ensureLoadedFiles).
 //
 // "Save as new world (.brdb)" writes a fresh world with the pure-TS SQLite writer (sqlitewrite.ts,
@@ -91,7 +91,7 @@ async function openLazy(f: File): Promise<OpenWorld> {
     async state(revisionId) {
       const tree = w.tree(revisionId ?? undefined);
       const model = await buildWorldModelLazy(tree);
-      const hidden = new Set(model.grids.filter((g) => g.id !== 1 && g.kind !== 'dynamic').map((g) => String(g.id)));
+      const hidden = new Set(model.grids.filter((g) => g.id !== 1 && g.kind !== 'dynamic' && g.kind !== 'microchip').map((g) => String(g.id)));
       const want = tree.paths().filter((p) => { const m = p.match(GRID_DIR); return !m || !hidden.has(m[1]!); });
       await tree.loadWritten(want.filter((p) => p.endsWith('.mps')));
       await tree.load(want);

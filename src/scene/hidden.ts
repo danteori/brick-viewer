@@ -26,5 +26,13 @@ export const pickableRow = (s: SceneStore, id: number, shown: boolean, bit = hid
 export const wireDrawn = (s: SceneStore, a: number, b: number, shown: boolean, bit = hiddenBit(s)): boolean =>
   shown || !((a >= 0 && isHiddenRow(s, a, bit)) || (b >= 0 && isHiddenRow(s, b, bit)));
 
+/** Of port keys with one flag per wire that uses them (true: the wire is drawn), the keys that only hidden wires use. */
+export function portsOfHiddenWires(uses: Iterable<readonly [string, boolean]>): Set<string> {
+  const drawn = new Set<string>(), all = new Set<string>();
+  for (const [key, on] of uses) { all.add(key); if (on) drawn.add(key); }
+  for (const key of drawn) all.delete(key);
+  return all;
+}
+
 /** The mode after `m` in the toggle's cycle. */
 export const nextHiddenMode = (m: HiddenMode): HiddenMode => HIDDEN_MODES[(HIDDEN_MODES.indexOf(m) + 1) % HIDDEN_MODES.length]!;

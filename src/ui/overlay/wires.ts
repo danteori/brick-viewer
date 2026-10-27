@@ -16,7 +16,7 @@ import { S } from '../../app/state.ts';
 import { boardBricks, boardRev } from '../../app/chips.ts';
 import { BRZ_UNIT } from '../../core/units.ts';
 import { camSignature, toView } from '../../render/camera.ts';
-import { hiddenBit, isHiddenRow, wireDrawn } from '../../scene/hidden.ts';
+import { hiddenBit, isHiddenRow, portsOfHiddenWires, wireDrawn } from '../../scene/hidden.ts';
 import { brickKey, type BrickRef } from '../../scene/components.ts';
 import { componentsOf, onComponentsChange, shortType, type PortInfo, type PortKind, type SceneComponents } from '../../scene/compmodel.ts';
 import type { Wire, WireEnd } from '../../scene/wires.ts';
@@ -48,6 +48,7 @@ let shownKey = '', dots: PortDot[] = [], wires: Wire[] = [];
 
 const endOf = (d: PortDot): WireEnd => ({ ...d.ref, chunk: { ...d.ref.chunk }, component: d.comp, port: d.port.name });
 const endKey = (e: WireEnd): string => `${brickKey(e)}/${e.component}/${e.port}`;
+const dotKey = (d: PortDot): string => `${d.row}/${d.comp}/${d.port.name}/${d.port.dir}`;
 const portName = (comp: string, port: string): string => `${shortType(comp)}.${port}`;
 
 export function initWires(c: HTMLCanvasElement): void {
@@ -237,13 +238,17 @@ export function drawWires(sx: number, sy: number): void {
   // wires: a curve between the two dots, or a stub from the one end that's drawn
   const parts: string[] = [];
   wires = [];
+  const portUses: [PortDot, boolean][] = [];
   const selKey = sel ? endKey(sel.s) + '>' + endKey(sel.t) : '';
   for (const w of m.wires.wires()) {
     if (wires.length >= MAX_WIRES) break;
     const a = layout.get(brickKey(w.source))?.get(`${w.source.component}/${w.source.port}/out`);
     const b = layout.get(brickKey(w.target))?.get(`${w.target.component}/${w.target.port}/in`);
     if (!a && !b) continue;
-    if (!wireDrawn(scene, m.rowOfRef(w.source), m.rowOfRef(w.target), shown, bit)) continue;
+    const drawnNow = wireDrawn(scene, m.rowOfRef(w.source), m.rowOfRef(w.target), shown, bit);
+    if (a) portUses.push([a, drawnNow]);
+    if (b) portUses.push([b, drawnNow]);
+    if (!drawnNow) continue;
     if (m.orphan(w.source) || m.orphan(w.target)) continue;   // an end on a new brick that is gone (its paste undone)
     const col = KIND_COLOUR[m.wireKind(w)], i = wires.push(w) - 1, on = selKey === endKey(w.source) + '>' + endKey(w.target);
     let d: string;
@@ -259,6 +264,8 @@ export function drawWires(sx: number, sy: number): void {
       `<path class="wire${on ? ' sel' : ''}${stub ? ' stub' : ''}" d="${d}" stroke="${col}"/>`);
     if (stub) { const e = (a ?? b)!; parts.push(`<circle class="wend" cx="${f1(e.x)}" cy="${f1(e.y - STUB)}" r="3" fill="${col}"/>`); }
   }
+  const hiddenOnly = portsOfHiddenWires(portUses.map(([d, on]) => [dotKey(d), on] as const));
+  if (hiddenOnly.size) dots = dots.filter((d) => !hiddenOnly.has(dotKey(d)));
   // dots on top
   dots.forEach((d, i) => {
     const pick = f && f.row === d.row && f.comp === d.comp && f.port.name === d.port.name;

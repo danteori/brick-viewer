@@ -5,7 +5,7 @@ import { decodeBrickChunk, type BrickChunk, type GlobalData, type PlainBrick } f
 import type { BrickRef, ChunkKey } from './components.ts';
 import type { SceneStore } from './store.ts';
 import { fixedHalfOf, putPlain, supportedAsset } from './view.ts';
-import { buildWorldModel, type Grid, type GridChunk, type Vec3 } from './grids.ts';
+import { buildWorldModel, localToWorld, type Grid, type GridChunk, type GridTransform, type Quat, type Vec3 } from './grids.ts';
 
 export const CHIP_ASSET = 'B_1x1_Microchip';
 
@@ -22,6 +22,8 @@ export interface Chip {
   collapsed: boolean;
   planeCenter: Vec3;
   planeExtent: Vec3;
+  /** where the game keeps the open board, in the chip brick's coordinates (the saved entity transform) */
+  placement: GridTransform;
 }
 
 export interface ChipBrick {
@@ -46,9 +48,27 @@ function decodeChunk(view: SaveView, chunk: GridChunk): { bricks: PlainBrick[]; 
 
 const chunkKey = (c: GridChunk): ChunkKey => ({ X: c.index[0], Y: c.index[1], Z: c.index[2] });
 
+/** What a prefab save adds to its global-grid brick positions to reach its entity positions (Meta/Prefab.json addedGlobalGridOffset); zero for worlds. */
+export function prefabOffset(files: FileMap): Vec3 {
+  const bytes = files.get('Meta/Prefab.json');
+  if (!bytes) return [0, 0, 0];
+  try {
+    const o = (JSON.parse(new TextDecoder().decode(bytes)) as { addedGlobalGridOffset?: { x?: number; y?: number; z?: number } }).addedGlobalGridOffset;
+    return o ? [o.x ?? 0, o.y ?? 0, o.z ?? 0] : [0, 0, 0];
+  } catch { return [0, 0, 0]; }
+}
+
+/** The saved entity transform of a chip grid, moved into the coordinates the outer grid's brick positions use. */
+export function placementOf(entity: GridTransform, offset: Vec3): GridTransform {
+  return { pos: [entity.pos[0] - offset[0], entity.pos[1] - offset[1], entity.pos[2] - offset[2]], quat: [...entity.quat] as Quat };
+}
+
+/** A position inside the chip grid, in the outer grid's coordinates, as the game places the open board. */
+export const innerToOuter = (chip: Chip, local: Vec3): Vec3 => localToWorld(chip.placement, local);
+
 /** The microchips of a save, in the order their chip bricks are stored. */
 export function readChips(files: FileMap): Chip[] {
-  const view = fileMapView(files), model = buildWorldModel(view), byId = new Map<number, Grid>(model.grids.map((g) => [g.id, g]));
+  const view = fileMapView(files), model = buildWorldModel(view), offset = prefabOffset(files), byId = new Map<number, Grid>(model.grids.map((g) => [g.id, g]));
   const out: Chip[] = [];
   for (const g of model.grids) {
     for (const c of g.chunks) {
@@ -65,6 +85,7 @@ export function readChips(files: FileMap): Chip[] {
         out.push({
           grid: inner.id, parent: g.id, ref: { grid: g.id, chunk: chunkKey(c), brick: bi }, pos: [...pb.pos], orient: pb.orient,
           collapsed: d.bCollapsed === true, planeCenter: vec(d.PlaneCenter, [0, 0, 0]), planeExtent: vec(d.PlaneExtent, [0, 0, 0]),
+          placement: placementOf(inner.transform, offset),
         });
       });
     }
@@ -85,11 +106,8 @@ export function chipBricks(files: FileMap, chip: Chip): ChipBrick[] {
   return out;
 }
 
-/** Chips that start open: those the save did not collapse, unless the save has too many to show at once. */
-export const AUTO_OPEN_MAX = 8;
-export function defaultOpen(chips: readonly Chip[]): number[] {
-  return chips.length <= AUTO_OPEN_MAX ? chips.filter((c) => !c.collapsed).map((c) => c.grid) : [];
-}
+/** Chips that start open: those the save did not collapse. */
+export const defaultOpen = (chips: readonly Chip[]): number[] => chips.filter((c) => !c.collapsed).map((c) => c.grid);
 
 export const BOARD_LIFT = 60;
 const SURFACE_HALF_Z = 1;
@@ -110,8 +128,8 @@ export interface Board {
   beam: PlainBrick;
 }
 
-const holo = (pos: Vec3, size: Vec3): PlainBrick => ({
-  asset: 'PB_DefaultBrick', size, pos, orient: 16, color: SURFACE_COLOUR, material: 'BMC_Hologram',
+const holo = (pos: Vec3, size: Vec3, material = 'BMC_Hologram'): PlainBrick => ({
+  asset: 'PB_DefaultBrick', size, pos, orient: 16, color: SURFACE_COLOUR, material,
 });
 
 /** Where the open board of `chip` floats and where each inner brick sits on it (outer-grid units). */
@@ -124,7 +142,7 @@ export function boardOf(chip: Chip, inner: readonly ChipBrick[], chipHalfZ = fix
   }));
   const ex = Math.max(1, Math.round(chip.planeExtent[0])), ey = Math.max(1, Math.round(chip.planeExtent[1]));
   const surfaceTop = origin[2];
-  const surface = holo([origin[0], origin[1], surfaceTop - SURFACE_HALF_Z], [ex, ey, SURFACE_HALF_Z]);
+  const surface = holo([origin[0], origin[1], surfaceTop - SURFACE_HALF_Z], [ex, ey, SURFACE_HALF_Z], 'BMC_Circuit');
   const beamBottom = chip.pos[2] + chipHalfZ, beamTop = surfaceTop - 2 * SURFACE_HALF_Z;
   const beamHalf = Math.max(1, Math.floor((beamTop - beamBottom) / 2));
   const beam = holo([chip.pos[0], chip.pos[1], beamBottom + beamHalf], [BEAM_HALF_XY, BEAM_HALF_XY, beamHalf]);
