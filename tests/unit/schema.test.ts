@@ -26,7 +26,7 @@ const value = {
 };
 
 describe('schema', () => {
-  for (const [label, top] of [['2-part (older saves)', [{}, structs]], ['3-part (newer saves)', [{}, [], structs]]] as const) {
+  for (const [label, top] of [['2-part (older saves)', [{}, structs]], ['3-part (newer saves)', [{}, [], structs]], ['keyed (CL16374 saves)', { enums: {}, variants: {}, structs, types: [] }], ['keyed, enums and variants left out', { structs }]] as const) {
     it(`parses the ${label} layout and round-trips a value`, () => {
       const schema = parseSchema(mp(top).done());
       expect(schema.root).toBe('Root');

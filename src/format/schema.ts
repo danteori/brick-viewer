@@ -1,7 +1,8 @@
 // .schema / .mps: data files are MessagePack laid out by a schema, which is itself MessagePack.
 //
-// A schema decodes to [enums, structs] (before ~CL14860) or [enums, variants, structs] (after);
-// structs is a map {StructName: {Field: Type}}. A Type is
+// A schema decodes to [enums, structs] (before ~CL14860), [enums, variants, structs] (after), or
+// a map {enums, variants, structs, types} (CL16374). structs is a map {StructName: {Field: Type}}.
+// A Type is
 //   - a primitive ("u8", "i16", "f32", "f64", "str", "bool", ...) or an asset ref ("object",
 //     "class", "weak_object", ...): one MessagePack value;
 //   - an enum name: one MessagePack value (its number);
@@ -113,9 +114,20 @@ const pairs = (v: MsgValue | undefined, what: string): [MsgValue, MsgValue][] =>
   return v;
 };
 
-/** Parses a .schema file (both the 2-part and the 3-part layout). */
+/**
+ * The keyed layout (CL16374): a map {enums?, variants?, structs, types?} in place of the list.
+ * Returns it as the 3-part list; `types` (a list of enum names) is not needed to decode.
+ */
+function keyedTop(m: MsgMap): MsgValue[] {
+  const get = (k: string): MsgValue => m.find(([key]) => key === k)?.[1] ?? new MsgMap();
+  if (!m.some(([k]) => k === 'structs')) throw new Error('schema: keyed layout without structs');
+  return [get('enums'), get('variants'), get('structs')];
+}
+
+/** Parses a .schema file (the 2-part and 3-part lists, and the keyed map of CL16374). */
 export function parseSchema(u8: Uint8Array): Schema {
-  const top = new MsgReader(u8).next();
+  const raw = new MsgReader(u8).next();
+  const top = raw instanceof MsgMap ? keyedTop(raw) : raw;
   if (!Array.isArray(top) || top.length < 2) throw new Error('schema: unexpected top level');
   const E = new Map<string, MsgValue>(), V = new Map<string, SchemaType[]>(), S = new Map<string, StructFields>();
   for (const [name, table] of pairs(top[0], 'enum table')) E.set(String(name), table);
