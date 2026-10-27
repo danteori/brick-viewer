@@ -38,4 +38,30 @@ describe('X-ray tube', () => {
     expect(hides(below, [0, 0, -2], [2, 2, 0.08])).toBe(true);        // a slab far under the focus
     expect(hides(below, [0, 0, 2], [2, 2, 0.08])).toBe(false);        // the roof is behind now
   });
+  describe('the far side of the focus always stays (U-33)', () => {
+    const el60 = 60 * Math.PI / 180, fromY = [0, Math.cos(el60), Math.sin(el60)];
+    const steep: Tube = { ...tube(0.6), e: fromY };
+    const wall = (y: number): [number[], number[]] => [[0, y, 1.5], [1, 0.05, 1.5]];
+    it('keeps a tall far wall, though its centre is nearer the camera in view depth', () => {
+      const [c, h] = wall(-0.6);
+      const depth = c[0]! * fromY[0]! + c[1]! * fromY[1]! + (c[2]! - 0.12) * fromY[2]!;
+      expect(depth).toBeGreaterThan(0);
+      expect(hides(steep, c, h)).toBe(false);
+    });
+    it('cuts the near wall', () => {
+      const [c, h] = wall(0.6);
+      expect(hides(steep, c, h)).toBe(true);
+    });
+    it('keeps both far walls of a room seen from its corner, and cuts the near ones', () => {
+      expect(hides(t, [0, -0.6, 1.5], [0.6, 0.05, 1.5])).toBe(false);
+      expect(hides(t, [-0.6, 0, 1.5], [0.05, 0.6, 1.5])).toBe(false);
+      expect(hides(t, [0, 0.6, 1.5], [0.6, 0.05, 1.5])).toBe(true);
+      expect(hides(t, [0.6, 0, 1.5], [0.05, 0.6, 1.5])).toBe(true);
+    });
+    it('a top-down view uses the view depth test', () => {
+      const l = Math.hypot(0.02, 1), down: Tube = { ...tube(0.6), e: [0, 0.02 / l, 1 / l] };
+      expect(hides(down, [0, -0.3, 2], [0.1, 0.1, 0.1])).toBe(true);
+      expect(hides(steep, [0, -0.3, 2], [0.1, 0.1, 0.1])).toBe(false);
+    });
+  });
 });

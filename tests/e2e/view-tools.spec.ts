@@ -15,6 +15,8 @@ interface Api {
   snapshot(): { bricks: Box[]; sel: number; status: string };
   loadSave(b64: string, name: string): { bricks: number };
   focus(k: number): void;
+  autoXray(on: boolean): void;
+  xray(): { on: boolean; size: number; keep: number };
 }
 type W = { __brickTest: Api };
 
@@ -143,7 +145,7 @@ test('X-ray: a click through the hole focuses an interior brick; the hole slider
   expect(await pick()).not.toBe(k);                           // X-ray off: the roof is in the way
   await page.keyboard.press('x');
   await expect(page.locator('#xray')).toHaveAttribute('aria-pressed', 'true');
-  await inMenu(page, () => expect(page.locator('#xraybox')).toBeVisible());
+  await expect(page.locator('#xraybox')).toBeVisible();
   await slide(page, 'xraykeep', 3);                  // the old default: the house's roof is inside the 5-brick default
   await settle(page);
   expect(await pick()).toBe(k);                               // the roof in the way is hidden: through to the block inside
@@ -183,5 +185,47 @@ test('X-ray: a click through the hole focuses an interior brick; the hole slider
   await expect(page.locator('#xraybox')).toBeHidden();
   await settle(page);
   expect(await pick()).not.toBe(k);
+  expect(errors).toEqual([]);
+});
+
+test('auto X-ray (U-33): a covered focus turns it on with a fitted Keep; hand edits stay; a focus in the clear turns it off', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  await page.goto('/?test');
+  await page.waitForFunction(() => !!(window as unknown as W).__brickTest);
+  await page.evaluate(() => (window as unknown as W).__brickTest.autoXray(true));
+  await page.evaluate((b64) => (window as unknown as W).__brickTest.loadSave(b64, 'house.brz'), house);
+  const xray = (): Promise<ReturnType<Api['xray']>> => page.evaluate(() => (window as unknown as W).__brickTest.xray());
+  const focusIndex = (pick: 'block' | 'roof'): Promise<number> => page.evaluate((pick) => {
+    const t = (window as unknown as W).__brickTest, n = t.snapshot().bricks.length;
+    let best = { k: -1, z: -1e9 };
+    for (let k = 0; k < n; k++) {
+      const { lo, hi } = t.brickBox(k);
+      if (pick === 'roof' && lo[2] > best.z) best = { k, z: lo[2] };
+      if (pick === 'block' && k !== t.snapshot().sel && Math.abs(hi[0] - lo[0] - 0.2) < 1e-6) return k;
+    }
+    return best.k;
+  }, pick);
+  const focus = async (k: number): Promise<void> => { await page.evaluate((k) => (window as unknown as W).__brickTest.focus(k), k); await settle(page); };
+
+  await focus(0);
+  let x = await xray();
+  expect(x.on).toBe(true);
+  expect(x.keep).toBeGreaterThanOrEqual(3 * 3 * PLATE - 1e-6);
+  expect(x.keep).toBeLessThanOrEqual(4 * 3 * PLATE + 1e-6);
+  await expect(page.locator('#xraybox')).toBeVisible();
+  await slide(page, 'xraysize', 90);
+  await slide(page, 'xraykeep', 1);
+  await focus(await focusIndex('block'));
+  x = await xray();
+  expect(x.on).toBe(true);
+  expect(x.size).toBeCloseTo(0.72);
+  expect(x.keep).toBeCloseTo(3 * PLATE);
+  await focus(await focusIndex('roof'));
+  x = await xray();
+  expect(x).toEqual({ on: false, size: 0.2, keep: 15 * PLATE });
+  await expect(page.locator('#xraybox')).toBeHidden();
+  await expect(page.locator('#xray')).toHaveAttribute('aria-pressed', 'false');
   expect(errors).toEqual([]);
 });

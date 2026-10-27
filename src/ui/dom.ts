@@ -25,6 +25,10 @@ const MARKUP = `
   </div>
 </div>
 <div id="name"></div>
+<div id="xraybox" role="group" aria-label="X-ray" hidden>
+  <label title="Width of the X-ray tube around the focused brick: bricks reaching into it in front of the brick are hidden">Hole <input id="xraysize" type="range" min="0" max="100" step="1" aria-label="X-ray hole size"></label>
+  <label title="Dead zone: how far above the focused brick's top nothing is cut, so furniture in the room stays (bricks)">Keep <input id="xraykeep" type="range" min="0" max="20" step="1" aria-label="X-ray dead zone above the focus, bricks"></label>
+</div>
 <section id="escmenu" class="win" role="dialog" aria-labelledby="escmenutitle" hidden>
   <div class="winhead"><h2 class="wintitle" id="escmenutitle">Menu</h2><button type="button" class="winclose" aria-label="Close">×</button></div>
   <div class="winbody">
@@ -49,10 +53,6 @@ const MARKUP = `
         <button type="button" id="underside" aria-pressed="false" title="Flip to the iso corner below the brick, or back above (U)">Underside (U)</button>
         <button type="button" id="xray" aria-pressed="false" title="X-ray: hide the bricks between the focused brick and the camera (X)">X-ray (X)</button>
         <button type="button" id="figure" aria-pressed="false" title="Player figure: a player-sized mannequin (4 bricks tall) beside the focused brick, for scale. Not a brick: never saved, picked or collided with (P)">Figure (P)</button>
-      </div>
-      <div id="xraybox" hidden>
-        <label title="Width of the X-ray tube around the focused brick: bricks reaching into it in front of the brick are hidden">Hole <input id="xraysize" type="range" min="0" max="100" step="1" aria-label="X-ray hole size"></label>
-        <label title="Dead zone: how far above the focused brick's top nothing is cut, so furniture in the room stays (bricks)">Keep <input id="xraykeep" type="range" min="0" max="20" step="1" aria-label="X-ray dead zone above the focus, bricks"></label>
       </div>
     </div>
   </div>

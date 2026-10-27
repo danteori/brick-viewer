@@ -394,6 +394,10 @@ body.placing canvas { cursor:copy !important; }
 #props.ctx #tool button[aria-pressed="true"], #props.ctx #mode button[aria-pressed="true"] { background:var(--br-select); }
 #props.ctx .flagsw:focus-visible, #props.ctx button:focus-visible { outline:2px solid var(--br-select); }
 #escmenu #viewbox button[aria-pressed="true"] { background:var(--br-select); }
-#escmenu #xraybox label { gap:8px; }
+#xraybox { position:fixed; z-index:2; left:calc(12px + env(safe-area-inset-left, 0px)); bottom:calc(56px + env(safe-area-inset-bottom, 0px));
+        width:200px; padding:8px 12px; border:0; border-radius:var(--br-r-md); background:var(--br-navy-5); box-shadow:0 12px 40px rgba(0,0,0,.5);
+        color:var(--br-muted); font:600 12px/1.2 var(--br-font); text-transform:uppercase; letter-spacing:.03em; }
+#xraybox input { accent-color:var(--br-select); }
+#xraybox :focus-visible { outline:2px solid var(--br-select); }
 #props.ctx.placing > :not(#menu):not(#mode) { display:none; }
 body :not(svg):not(svg *) { font-family:var(--br-font) !important; }

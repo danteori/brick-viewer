@@ -9,7 +9,7 @@ import { initWorldEnvironment } from './environment.ts';
 import { initPaintPanel } from '../ui/panels/paint.ts';
 import { initApplicatorPanel, tickApplicator } from '../ui/panels/applicator.ts';
 import { initSoundPanel } from '../ui/panels/sound.ts';
-import { initViewPanel } from '../ui/panels/view.ts';
+import { initViewPanel, tickXray } from '../ui/panels/view.ts';
 import { installTestHook } from './test-hook.ts';
 import { createGfx } from '../render/gl.ts';
 import { initDraw } from '../render/draw.ts';
@@ -155,6 +155,7 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
     if (w && h) {
       if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
       updateCamera(w, h);
+      tickXray();
       const { sx, sy } = renderFrame(w, h, canvas);
       drawHud();
       drawDims(sx, sy);

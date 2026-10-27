@@ -1,6 +1,7 @@
 // The View row in the left column: Underside (U, backlog U-03) flips the camera to the iso corner
-// below the brick or back above; X-ray (X, U-05) toggles the cutaway cone, with its Hole (tube width)
-// and Keep (dead zone) sliders shown underneath while it's on.
+// below the brick or back above; X-ray (X, U-05) toggles the cutaway cone. Its Hole (tube width) and
+// Keep (dead zone) sliders sit in a small side panel that shows only while it's on. A new focus
+// fits X-ray to the bricks that cover it (U-33, render/xrayfit.ts).
 // Figure (P, U-16) shows the player reference figure; its button sits in the Lighting row, so the
 // View row never sets the left column's width (a wider column covers more of the scene).
 
@@ -8,22 +9,31 @@ import { $ } from '../dom.ts';
 import { S } from '../../app/state.ts';
 import { flipUnderside } from '../../render/camera.ts';
 import { cut } from '../../render/cutaway.ts';
-import { PLATE } from '../../core/units.ts';
+import { KEEP_STEP, SIZE_MAX, fitXray, xrayOff, type XrayState } from '../../render/xrayfit.ts';
+import { focusChanged, focusNeed, xrayAuto } from '../../editor/autoxray.ts';
 import { figure, initFigure } from '../../render/figure.ts';
 import { isTyping } from '../../editor/input.ts';
 import { initAudio, playClick } from '../audio.ts';
 
-/** Keep slider step: one brick (3 plates). */
-const BRICK = 3 * PLATE;
+/** Sets X-ray on or off with its Hole and Keep, and the button, panel and sliders to match. */
+export function applyXray(x: XrayState): void {
+  cut.on = x.on; cut.size = x.size; cut.keep = x.keep;
+  $('xray').setAttribute('aria-pressed', String(x.on));
+  $('xraybox').hidden = !x.on;
+  $<HTMLInputElement>('xraysize').value = String(Math.round(cut.size / SIZE_MAX * 100));
+  $<HTMLInputElement>('xraykeep').value = String(Math.round(cut.keep / KEEP_STEP));
+}
 
-/** Hole slider 0..100 -> cut.size (fraction of the view's half-height). */
-const SIZE_MAX = 0.8;
-
+/** The X toggle: on fits the focus (the defaults when nothing covers it); off resets Hole and Keep. */
 export function setXray(on: boolean): void {
-  cut.on = on;
-  const b = $('xray');
-  b.setAttribute('aria-pressed', String(on));
-  $('xraybox').hidden = !on;
+  if (!on) { applyXray(xrayOff()); return; }
+  const need = focusNeed();
+  applyXray(need ? fitXray(xrayOff(), need) : { ...xrayOff(), on: true });
+}
+
+/** Call each frame before drawing: a new focus fits X-ray (on, off, Hole and Keep) to it. */
+export function tickXray(): void {
+  if (focusChanged() && xrayAuto.on) applyXray(fitXray({ ...cut }, focusNeed()));
 }
 
 export function setFigure(on: boolean): void {
@@ -38,12 +48,13 @@ export function initViewPanel(): void {
   fig.addEventListener('click', toggleFigure);
   const under = $<HTMLButtonElement>('underside'), xray = $<HTMLButtonElement>('xray');
   const size = $<HTMLInputElement>('xraysize'), keep = $<HTMLInputElement>('xraykeep');
-  size.value = String(Math.round(cut.size / SIZE_MAX * 100)); keep.value = String(Math.round(cut.keep / BRICK));
+  xrayAuto.on = !S.testMode;
+  applyXray(xrayOff());
   const flip = (): void => { flipUnderside(); initAudio(); playClick(); };
   under.addEventListener('click', flip);
   xray.addEventListener('click', () => { setXray(!cut.on); initAudio(); playClick(); });
   size.addEventListener('input', () => { cut.size = +size.value / 100 * SIZE_MAX; });
-  keep.addEventListener('input', () => { cut.keep = +keep.value * BRICK; });
+  keep.addEventListener('input', () => { cut.keep = +keep.value * KEEP_STEP; });
   for (const id of ['viewbox', 'xraybox']) for (const t of ['pointerdown', 'dblclick']) $(id).addEventListener(t, (e) => e.stopPropagation());
   addEventListener('keydown', (e) => {
     if (isTyping(e.target) || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
