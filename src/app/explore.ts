@@ -4,7 +4,7 @@ import { frameFocus, toView, viewDir } from '../render/camera.ts';
 import { centrePoint, orbitAbout, panBy, panView, rebaseOrigin, zoomAt } from '../render/freecam.ts';
 import { cursorRay, ed } from '../editor/ghost.ts';
 import { pickRay } from '../scene/spatial.ts';
-import { selectBrick } from '../editor/resize.ts';
+import { orbitDuringResize, selectBrick } from '../editor/resize.ts';
 import { gridClick } from '../editor/grids.ts';
 import { isTyping } from '../editor/input.ts';
 import { initAudio, playSelect } from '../ui/audio.ts';
@@ -26,7 +26,7 @@ let shift: { t: number; alone: boolean } | null = null;
 let press: { x: number; y: number; id: number } | null = null;
 let drag: { kind: 'orbit' | 'pan'; x: number; y: number; id: number; pivot: V3 } | null = null;
 let glide: V3 | null = null;
-let lastT = 0, buttons = 0;
+let lastT = 0, buttons = 0, pointerId = 1;
 
 /** A brick, a selection or a ghost is being edited: the camera keys are off, so they don't clash with Shift+click. */
 export const editing = (): boolean => hasFocus() || S.selection.size > 0 || !!ed.ghost;
@@ -73,7 +73,7 @@ export function initExplore(canvas: HTMLCanvasElement): void {
 
   addEventListener('pointerdown', (e) => {
     if (shift) shift.alone = false;
-    buttons = e.buttons;
+    buttons = e.buttons; pointerId = e.pointerId;
     if (!isFree() || e.target !== canvas || S.held) return;
     if (e.button === 1) { startDrag('orbit', e.clientX, e.clientY, e.pointerId, canvas); return; }
     if (ed.ghost) return;
@@ -102,6 +102,15 @@ export function initExplore(canvas: HTMLCanvasElement): void {
     buttons = e.buttons;
     if (press && e.pointerId === press.id) press = null;
     if (drag && e.pointerId === drag.id) { drag = null; camDrag.kind = null; }
+  }, true);
+  addEventListener('mousedown', (e) => {
+    if (!isFree() || !S.held || e.button !== 1 || drag) return;
+    e.preventDefault();
+    orbitDuringResize();
+    startDrag('orbit', e.clientX, e.clientY, pointerId, canvas);
+  }, true);
+  addEventListener('mouseup', (e) => {
+    if (e.button === 1 && drag?.kind === 'orbit') { drag = null; camDrag.kind = null; }
   }, true);
   addEventListener('blur', stopAll);
 

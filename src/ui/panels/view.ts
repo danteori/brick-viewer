@@ -1,12 +1,10 @@
-// The View row in the left column: Underside (U, backlog U-03) flips the camera to the iso corner
-// below the brick or back above; X-ray (X, U-05) toggles the cutaway cone, with its Hole (tube width)
+// The View row in the left column: X-ray (X, U-05) toggles the cutaway cone, with its Hole (tube width)
 // and Keep (dead zone) sliders shown underneath while it's on.
 // Figure (P, U-16) shows the player reference figure; its button sits in the Lighting row, so the
 // View row never sets the left column's width (a wider column covers more of the scene).
 
 import { $ } from '../dom.ts';
 import { S } from '../../app/state.ts';
-import { flipUnderside } from '../../render/camera.ts';
 import { cut } from '../../render/cutaway.ts';
 import { PLATE } from '../../core/units.ts';
 import { figure, initFigure } from '../../render/figure.ts';
@@ -36,24 +34,17 @@ export function initViewPanel(): void {
   const fig = $<HTMLButtonElement>('figure');
   const toggleFigure = (): void => { setFigure(!figure.on); initAudio(); playClick(); };
   fig.addEventListener('click', toggleFigure);
-  const under = $<HTMLButtonElement>('underside'), xray = $<HTMLButtonElement>('xray');
+  const xray = $<HTMLButtonElement>('xray');
   const size = $<HTMLInputElement>('xraysize'), keep = $<HTMLInputElement>('xraykeep');
   size.value = String(Math.round(cut.size / SIZE_MAX * 100)); keep.value = String(Math.round(cut.keep / BRICK));
-  const flip = (): void => { flipUnderside(); initAudio(); playClick(); };
-  under.addEventListener('click', flip);
   xray.addEventListener('click', () => { setXray(!cut.on); initAudio(); playClick(); });
   size.addEventListener('input', () => { cut.size = +size.value / 100 * SIZE_MAX; });
   keep.addEventListener('input', () => { cut.keep = +keep.value * BRICK; });
   for (const id of ['viewbox', 'xraybox']) for (const t of ['pointerdown', 'dblclick']) $(id).addEventListener(t, (e) => e.stopPropagation());
   addEventListener('keydown', (e) => {
     if (isTyping(e.target) || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
-    if (e.key === 'u' || e.key === 'U') { e.preventDefault(); flip(); }
-    else if (e.key === 'x' || e.key === 'X') { e.preventDefault(); setXray(!cut.on); initAudio(); playClick(); }
+    if (e.key === 'x' || e.key === 'X') { e.preventDefault(); setXray(!cut.on); initAudio(); playClick(); }
     else if (e.key === 'p' || e.key === 'P') { e.preventDefault(); toggleFigure(); }
   });
-  // the underside button shows which side the view is on
-  S.hooks.hud.push(() => {
-    under.setAttribute('aria-pressed', String(S.orbit.pitchT < 0));
-    return `U flips the view below / above the brick · X toggles the X-ray hole${cut.on ? ' (<b>on</b>: clicks go through it)' : ''} · P shows a player figure for scale${figure.on ? ' (<b>on</b>)' : ''}`;
-  });
+  S.hooks.hud.push(() => `X toggles the X-ray hole${cut.on ? ' (<b>on</b>: clicks go through it)' : ''} · P shows a player figure for scale${figure.on ? ' (<b>on</b>)' : ''}`);
 }

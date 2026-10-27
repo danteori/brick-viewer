@@ -12,11 +12,11 @@ import { brickType, cloneBrick, fixedSize, lockedType, sizeRule, type V3 } from 
 import { brickView, writeBrick } from '../scene/view.ts';
 import { focusChangeHits, freeGrowth } from '../scene/collision.ts';
 import { setStatus } from '../ui/status.ts';
-import { farOf, fitHalf, PITCH_MAX, PITCH_MIN, snapToIso, studPx, toView, updateDirs, viewDir, ZOOM_MAX, ZOOM_MIN } from '../render/camera.ts';
+import { farOf, fitHalf, glideBackFromResize, glideToResizeIso, noteResizeOrbit, PITCH_MAX, PITCH_MIN, studPx, toView, updateDirs, viewDir, ZOOM_MAX, ZOOM_MIN } from '../render/camera.ts';
 import { viewOf } from '../core/math.ts';
 import { histBegin, histEnd } from '../scene/history.ts';
 import { applyMove, beginMove, endMove, moveFree } from './move.ts';
-import { isClassic, isFree } from '../app/mode.ts';
+import { camDrag, isClassic, isFree } from '../app/mode.ts';
 import { gridClick } from './grids.ts';
 import { initAudio, playClick, playError, playResize, playSelect } from '../ui/audio.ts';
 import { drawGuide, clearGuide } from '../ui/overlay/dims.ts';
@@ -223,6 +223,7 @@ export { SNAP } from './axisdrag.ts';
 /** The free camera snaps to the iso corner once the drag moves, not on a plain click. */
 let snapOnMove = false;
 const SNAP_PX = 3;
+const orbitingInResize = (): boolean => S.orbit.dragging || camDrag.kind === 'orbit';
 
 export function onDown(e: PointerEvent, canvas: HTMLCanvasElement): void {
   if (e.button === 1) { startOrbit(e, canvas); return; }
@@ -237,8 +238,8 @@ export function onDown(e: PointerEvent, canvas: HTMLCanvasElement): void {
   }
   const moving = S.tool === 'move';
   if (!moving && fixedSize(S.focus)) return;          // rounds / cones can't be resized (they can move)
-  if (isClassic()) snapToIso(); else snapOnMove = true;   // resize from a balanced iso corner
   if (moving) { if (!beginMove()) return; } else histBegin('resize');   // the whole drag is one undo step
+  if (isClassic()) glideToResizeIso(); else snapOnMove = true;
   S.held = true; S.grab = [0, 0, 0]; S.steppedThisDrag = false; S.userZoomed = false;
   S.lockAxis = -1; S.bannedAxis = -1; S.lastAxis = -1;
   S.pendAxis = -1; S.pendUnits = 0;
@@ -258,13 +259,15 @@ export function onUp(e?: { type: string }): void {
   S.held = false; S.anchor = S.cursor = S.active = null; S.grab = [0, 0, 0];
   recenter();
   if (S.move) endMove(); else histEnd();
+  glideBackFromResize();
 }
 
 export function onMove(e: PointerEvent): void {
   if (!S.held || !S.anchor) return;
   if (!(e.buttons & 1)) { onUp({ type: 'pointerup' }); return; }   // left released while right still held
   const p: [number, number] = [e.clientX, e.clientY]; S.cursor = p;
-  if (snapOnMove && Math.hypot(p[0] - S.anchor[0], p[1] - S.anchor[1]) > SNAP_PX) { snapOnMove = false; snapToIso(); }
+  if (orbitingInResize()) { S.anchor = p; return; }
+  if (snapOnMove && Math.hypot(p[0] - S.anchor[0], p[1] - S.anchor[1]) > SNAP_PX) { snapOnMove = false; glideToResizeIso(); }
   axisDragMove(S, p, S.dirs, studPx, step);
   drawGuide();
 }
@@ -288,12 +291,27 @@ export function onRightDown(): void {
   playClick(); drawGuide();
 }
 
+/**
+ * The user starts to orbit during a resize: the pending step is committed (the near face can change
+ * sides as the view turns), the drag picks its axis again afterwards, and the camera stays where
+ * the user turns it when the resize ends.
+ */
+export function orbitDuringResize(): void {
+  if (!S.held) return;
+  snapOnMove = false;
+  noteResizeOrbit();
+  commit();
+  axisDragFinish(S, -1, S.cursor);
+  clearGuide();
+}
+
 // --- Middle-mouse orbit: horizontal drag spins about the vertical axis, vertical drag tilts.
-export function startOrbit(e: PointerEvent, canvas: HTMLCanvasElement): void {
-  if (S.held || isFree()) return;
+export function startOrbit(e: MouseEvent, canvas: HTMLCanvasElement): void {
+  if (isFree() || S.orbit.dragging) return;
   e.preventDefault();
+  orbitDuringResize();
   S.orbit.dragging = true; S.orbit.last = [e.clientX, e.clientY];
-  try { (e.target as Element).setPointerCapture(e.pointerId); } catch { /* not capturable */ }
+  if (e instanceof PointerEvent) try { (e.target as Element).setPointerCapture(e.pointerId); } catch { /* not capturable */ }
   canvas.style.cursor = 'move';
 }
 export function orbitMove(e: PointerEvent): void {

@@ -46,7 +46,6 @@ const MARKUP = `
         <button type="button" data-paste="brick" aria-pressed="false" title="Ctrl+V places the brick copied with Ctrl+C">Paste brick</button>
       </div>
       <div id="viewbox" role="group" aria-label="View">View
-        <button type="button" id="underside" aria-pressed="false" title="Flip to the iso corner below the brick, or back above (U)">Underside (U)</button>
         <button type="button" id="xray" aria-pressed="false" title="X-ray: hide the bricks between the focused brick and the camera (X)">X-ray (X)</button>
         <button type="button" id="figure" aria-pressed="false" title="Player figure: a player-sized mannequin (4 bricks tall) beside the focused brick, for scale. Not a brick: never saved, picked or collided with (P)">Figure (P)</button>
       </div>
