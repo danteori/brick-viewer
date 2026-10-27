@@ -65,6 +65,8 @@ export const ed = {
   keepOnLoad: false,
   /** draws this in place of the posed ghost while it returns a view (a drag placement) */
   preview: null as (() => GhostView | null) | null,
+  /** precision mode: the ghost sits at this pose, not under the cursor */
+  fixedPose: null as V3 | null,
 };
 
 /** Items above this count are drawn instanced (a store of their own) and outlined as one box. */
@@ -124,6 +126,7 @@ export function endPlacing(msg?: string): void {
   if (g.from) g.from.classList.remove('on');
   ed.ghost = null;
   ed.preview = null;
+  ed.fixedPose = null;
   if (batch) { batch.set.dispose(); batch = null; }
   document.body.classList.remove('placing');
   if (msg) setStatus(msg);
@@ -160,7 +163,13 @@ export function rotateItems(items: Brick[], turns: number): void {
   }
 }
 
-export function nudgeGhost(d: number): void { if (!ed.ghost) return; ed.ghost.dz += d; playClick(); }
+export function nudgeGhost(d: number): void {
+  const G = ed.ghost;
+  if (!G) return;
+  if (ed.fixedPose) ed.fixedPose[2] = r3(ed.fixedPose[2] + d * gsteps(G.items)[2]!);
+  else G.dz += d;
+  playClick();
+}
 
 /** a ray from the cursor (the same one pickRay casts) */
 export function cursorRay(mx: number, my: number): { vx: number; vy: number; S: number[]; D: number[] } | null {
@@ -182,6 +191,7 @@ export function groundZ(): number {
 export function poseGhost(): void {
   const G = ed.ghost!;
   G.pose = null; G.valid = false; G.reason = ''; G.skip = [];
+  if (ed.fixedPose) { checkPose(G, ed.fixedPose.slice() as V3, groundZ()); return; }
   if (!G.mouse || !G.over) return;
   const r = cursorRay(G.mouse[0], G.mouse[1]);
   if (!r) return;
@@ -206,6 +216,11 @@ export function poseGhost(): void {
     p[0] = snap(P[0] - off(0), ref[0], st[0]); p[1] = snap(P[1] - off(1), ref[1], st[1]); p[2] = r3(gz);
   }
   p[2] = r3(p[2] + G.dz * st[2]);
+  checkPose(G, p, gz);
+}
+
+/** Sets the ghost's pose and tests it against the ground and the bricks of its grid. */
+function checkPose(G: Ghost, p: V3, gz: number): void {
   G.pose = p;
   if (p[2] < gz - 1e-4) { G.reason = 'below the ground'; return; }
   if (G.noHits) { G.valid = true; return; }
