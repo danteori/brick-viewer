@@ -105,10 +105,10 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
     histStep(k === 'y' || e.shiftKey);
   });
   addEventListener('pointermove', orbitMove);
-  addEventListener('pointerup', (e) => { if (e.button === 1 && S.orbit.dragging) S.orbit.dragging = false; });
+  addEventListener('pointerup', (e) => { if ((e.button === 1 || e.button === 2) && S.orbit.dragging) S.orbit.dragging = false; });
   addEventListener('mousedown', (e) => { if (e.button === 1) e.preventDefault(); });   // no browser auto-scroll
   addEventListener('mousedown', (e) => { if (e.button === 1 && S.held) startOrbit(e, canvas); });
-  addEventListener('mouseup', (e) => { if (e.button === 1) S.orbit.dragging = false; });
+  addEventListener('mouseup', (e) => { if (e.button === 1 || e.button === 2) S.orbit.dragging = false; });
   addEventListener('pointerdown', (e) => onDown(e, canvas));
   addEventListener('pointermove', onMove);
   addEventListener('pointerup', (e) => onUp(e));

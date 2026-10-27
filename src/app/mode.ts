@@ -6,7 +6,7 @@ let style: CameraStyle = 'free';
 export const camDrag = { kind: null as null | 'orbit' | 'pan' };
 
 /** The HUD hint line. */
-export const HINT = 'drag to orbit · right-drag pans · WASD moves, Space up, Shift down · scroll zooms toward the cursor · click a brick to select it, double-click to centre on it · B bricks · Esc menu';
+export const HINT = 'drag to orbit · right-drag orbits · middle-drag pans · WASD moves, Space up, Shift down · scroll zooms toward the cursor · click a brick to select it, double-click to centre on it · B bricks · Esc menu';
 
 export const cameraStyle = (): CameraStyle => style;
 export const isFree = (): boolean => style === 'free';
