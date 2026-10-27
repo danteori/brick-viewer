@@ -10,6 +10,7 @@ import { initPaintPanel } from '../ui/panels/paint.ts';
 import { initApplicatorPanel, tickApplicator } from '../ui/panels/applicator.ts';
 import { initSoundPanel } from '../ui/panels/sound.ts';
 import { initViewPanel, tickXray } from '../ui/panels/view.ts';
+import { initCamera3d } from '../ui/panels/camera3d.ts';
 import { installTestHook } from './test-hook.ts';
 import { createGfx } from '../render/gl.ts';
 import { initDraw } from '../render/draw.ts';
@@ -123,6 +124,7 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
   initSaveGame();
   initSoundPanel();
   initViewPanel();
+  initCamera3d();
   initLogicPanel();
   if (opts.features.brdbRead) initWorlds();
   initImporter();

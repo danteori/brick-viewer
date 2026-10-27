@@ -20,19 +20,22 @@ import { BOX_EDGE_COUNT, boxEB, boxIB } from './meshes/registry.ts';
 import { proposedBox } from '../editor/resize.ts';
 import { perfBegin, perfEnd, perfMark } from './perf.ts';
 import { useBrickVariant } from './gl.ts';
-import { cutActive, setCutUniforms } from './cutaway.ts';
+import { cut, cutActive, setCutUniforms } from './cutaway.ts';
+import { MAT_GHOST } from './matcode.ts';
 import { movedBox } from '../editor/move.ts';
 import { fxFrameOn, fxLight, fxPrepass, fxProgram, fxWater, type FxCtx } from './fx/frame.ts';
 import { fx as fxState } from './fx/state.ts';
+import { NEAR, eyeTranslation, perspMatrix, persp, tanHalf } from './persp.ts';
 
 /** index in the cube's faces of the near face for X (+-x), Y (+-GL z), Z (top +y, bottom -y) */
 export const faceOf = (i: number): number => (i === 0 ? (S.ns[0] > 0 ? 0 : 1) : i === 1 ? (S.ns[1] > 0 ? 4 : 5) : (S.ns[2] > 0 ? 2 : 3));
 
 /** Draws one frame into a w x h drawing buffer; returns the ortho scale (sx, sy) for the DOM overlays. */
 export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { sx: number; sy: number } {
-  const cutOn = cutActive();
+  const pOn = persp.on;
+  const cutOn = cutActive() && !pOn;
   // graphics effects (render/fx): their program variant only while they're on; off, the frame is the original one
-  const fxOn = fxFrameOn();
+  const fxOn = fxFrameOn() && !pOn;
   if (fxOn) fxProgram(cutOn, true);
   else useBrickVariant(G, cutOn);            // the X-ray cutaway's program only while it's on
   const { gl, u } = G, { cam, dlo, dhi } = S;
@@ -47,7 +50,10 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
   const ortho = new Float32Array([sx, 0, 0, 0, 0, sy, 0, 0, 0, 0, -1 / 60, 0, -cx * sx, -cy * sy, 0, 1]);
   const view = S.view;
   const cull: ViewCull = { x0: cx - half * fx, x1: cx + half * fx, y0: cy - half * fy, y1: cy + half * fy, depth: 60 };
-  gl.uniformMatrix4fv(u.uMVP, false, mul(ortho, view));
+  const eyeRel: V3 = [persp.eye[0] - S.origin[0], persp.eye[1] - S.origin[1], persp.eye[2] - S.origin[2]];
+  const perspMVP = (far: number): Float32Array => mul(mul(perspMatrix(fx, fy, tanHalf(), NEAR, far), view), eyeTranslation(eyeRel));
+  if (pOn) { cull.x0 = cull.y0 = -1e12; cull.x1 = cull.y1 = 1e12; cull.depth = 1e12; }
+  gl.uniformMatrix4fv(u.uMVP, false, pOn ? perspMVP(200) : mul(ortho, view));
   gl.uniform3f(u.uEye, view[2], view[6], view[10]);   // view-space +z (toward the camera) in world/GL space
   if (cutOn) setCutUniforms(G);
   { const P = LIGHTING[S.lighting]; gl.uniform3fv(u.uSun, P.sun); gl.uniform3fv(u.uSky, P.sky); gl.uniform3fv(u.uFloor, P.floor); gl.uniform1f(u.uExposure, P.exposure); }
@@ -66,7 +72,8 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
   // depth range: +-60 view units as before, or enough to hold the whole scene (big builds zoomed out)
   const reach = Math.max(inst.set!.depthReach(), extrasDepth(), Math.abs(view[2]! * (dlo[0]! - S.origin[0]) + view[6]! * (dlo[2]! - S.origin[2]) + view[10]! * (dlo[1]! - S.origin[1])));
   const zr = reach * 1.05 + 1 > 60 ? reach * 1.05 + 1 : 60;
-  if (zr !== 60) { ortho[10] = -1 / zr; cull.depth = zr; gl.uniformMatrix4fv(u.uMVP, false, mul(ortho, view)); }
+  if (pOn) gl.uniformMatrix4fv(u.uMVP, false, perspMVP(Math.max(200, 1.2 * (reach + Math.hypot(eyeRel[0], eyeRel[1], eyeRel[2])) + 10)));
+  else if (zr !== 60) { ortho[10] = -1 / zr; cull.depth = zr; gl.uniformMatrix4fv(u.uMVP, false, mul(ortho, view)); }
   // far LOD (render/lod.ts) by how many device pixels a stud (0.2 view units) is
   let level = lodSettings.on ? lodLevel(0.2 * h / (2 * half * fy)) : 0;
   if (level === LOD_HIDE && inst.set!.chunks.size < MERGE_MIN_CHUNKS) level = 0;
@@ -104,6 +111,13 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
   gl.uniform1f(u.uBump, SHADE.BUMP_STRENGTH * bumpFade);
   drawGroundBackdrop(ortho, view);           // the far ground plate, if an environment shows one
   drawInstances(drawFocus, cull);
+  if (cutOn && cut.mode === 'ghost') {       // the ghost mode: the bricks the tube hides, drawn faint
+    gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false);
+    gl.uniform1f(u.uCutInv, 1); gl.uniform1f(u.uMat, MAT_GHOST);
+    drawInstances(() => {}, cull);
+    gl.uniform1f(u.uMat, 0); gl.uniform1f(u.uCutInv, 0);
+    gl.depthMask(true); gl.disable(gl.BLEND);
+  }
   perfMark('extras');
   drawExtras(cull);                          // read-only dynamic grids (none unless a world placed some)
   drawGround();                              // the ground plate (off unless an environment is applied)
@@ -113,7 +127,7 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
   drawExtraHolograms(cull);
   drawHidden(dlo, dhi);                      // hidden bricks' ghosts, while they show (app/hidden.ts)
   perfMark('bloom');
-  if (bloomPass && hasGlow() && fxState.want.bloom) {              // full build: the glow halo
+  if (bloomPass && !pOn && hasGlow() && fxState.want.bloom) {              // full build: the glow halo
     // the depth-only pass takes the shader's early exit (uEdge): its colour is masked off anyway
     // and only the bodies over glow on screen (glowCull: the rest can't hide any); the focused
     // brick glowing: everything in view
