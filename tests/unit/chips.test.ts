@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { readBrz } from '../../src/format/brz.ts';
@@ -50,8 +50,10 @@ describe('microchip board', () => {
   });
 });
 
-const REFERENCE = resolve(REFS, 'microchip/Clipboard_2026-10-27_00-17-55.brz');
-describe.skipIf(!existsSync(REFERENCE))('microchip reading (private reference save)', () => {
+const CHIP_DIR = resolve(REFS, 'microchip');
+const CHIP_SAVE = existsSync(CHIP_DIR) ? readdirSync(CHIP_DIR).filter((f) => f.endsWith('.brz')).sort()[0] : undefined;
+const REFERENCE = CHIP_SAVE ? resolve(CHIP_DIR, CHIP_SAVE) : '';
+describe.skipIf(!REFERENCE)('microchip reading (private reference save)', () => {
   const files = existsSync(REFERENCE) ? readBrz(new Uint8Array(readFileSync(REFERENCE))) : new Map();
   it('finds the chip, its grid and its board', () => {
     const chips = readChips(files);
