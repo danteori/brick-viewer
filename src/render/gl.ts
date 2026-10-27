@@ -16,7 +16,7 @@ export const LOC = { aPos: 0, aNrm: 1, aSlope: 2, iPos: 3, iHalf: 4, iColor: 5, 
 
 const UNIFORMS = ['uMVP', 'uChunkOffset', 'uBox', 'uUnitDiv', 'uEdge', 'uLine', 'uFadeC', 'uFadeR', 'uStudFade', 'uBevelMax', 'uBevelFit',
   'uEye', 'uLight', 'uSun', 'uSky', 'uFloor', 'uExposure', 'uBump', 'uMat', 'uIntensity', 'uMatPass',
-  'uTime', 'uSpecAA', 'uCutA', 'uCutK', 'uCutLo', 'uCutHi', 'uCutOff', 'uCutEdge', 'uShowHidden', 'uPull',
+  'uTime', 'uSpecAA', 'uCutA', 'uCutK', 'uCutLo', 'uCutHi', 'uCutOff', 'uCutEdge', 'uCutInv', 'uRoomLo', 'uRoomHi', 'uRoomT', 'uShowHidden', 'uPull',
   // graphics effects (FX variant only; render/fx/glsl.ts)
   'uShadowMat', 'uShadowP', 'uShadowL', 'uAOP', 'uFogEye', 'uFogP', 'uFogColor', 'uWaterP', 'uWaterExt', 'uWaterIn', 'uWaterFogColor', 'uViewDir'] as const;
 export type UniformName = (typeof UNIFORMS)[number];

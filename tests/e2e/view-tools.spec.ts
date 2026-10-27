@@ -18,7 +18,8 @@ interface Api {
   loadSave(b64: string, name: string): { bricks: number };
   focus(k: number): void;
   autoXray(on: boolean): void;
-  xray(): { on: boolean; size: number; keep: number };
+  xray(): { on: boolean; size: number; keep: number; mode: string; room: boolean };
+  xrayMode(mode: string): void;
 }
 type W = { __brickTest: Api };
 
@@ -245,8 +246,68 @@ test('auto X-ray (U-33): a covered focus turns it on with a fitted Keep; hand ed
   expect(x.keep).toBeCloseTo(3 * PLATE);
   await focus(await focusIndex('roof'));
   x = await xray();
-  expect(x).toEqual({ on: false, size: 0.2, keep: 15 * PLATE });
+  expect(x).toMatchObject({ on: false, size: 0.2, keep: 15 * PLATE });
   await expect(page.locator('#xraybox')).toBeHidden();
   await expect(page.locator('#xray')).toHaveAttribute('aria-pressed', 'false');
+  expect(errors).toEqual([]);
+});
+
+test('X-ray modes (U-39): height slice, room and see-through let a click reach the block inside; the panel shows only the sliders each mode uses', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  await page.goto('/?test');
+  await page.waitForFunction(() => !!(window as unknown as W).__brickTest);
+  await page.locator('#ptoggle').click();
+  const focus0 = async (): Promise<void> => { await page.evaluate(() => (window as unknown as W).__brickTest.focus(0)); await settle(page); };
+  await page.evaluate((b64) => (window as unknown as W).__brickTest.loadSave(b64, 'house.brz'), house);
+  await focus0();
+  const k = await page.evaluate(() => {
+    const t = (window as unknown as W).__brickTest;
+    let best = { k: -1, y: 1e9 };
+    for (let k = 0; k < t.snapshot().bricks.length; k++) {
+      const { lo, hi } = t.brickBox(k);
+      if (k === t.snapshot().sel || Math.abs(hi[0] - lo[0] - 0.2) > 1e-6) continue;
+      const y = t.project((lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, hi[2])[1];
+      if (y < best.y) best = { k, y };
+    }
+    return best.k;
+  });
+  const pick = async (): Promise<number> => {
+    const p = await page.evaluate((k) => {
+      const t = (window as unknown as W).__brickTest, { lo, hi } = t.brickBox(k);
+      return t.project((lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, hi[2]);
+    }, k);
+    await click(page, p); await settle(page); const s = (await snap(page)).sel; await focus0(); return s;
+  };
+  const mode = async (m: string): Promise<void> => { await page.locator(`#xraymodes button[data-xmode="${m}"]`).click(); await settle(page); };
+
+  await page.keyboard.press('x');
+  await expect(page.locator('#xraybox')).toBeVisible();
+  await expect(page.locator('#xraymodes button')).toHaveCount(4);
+  await expect(page.locator('#xraymodes button[data-xmode="tube"]')).toHaveAttribute('aria-pressed', 'true');
+
+  await mode('slice');
+  await expect(page.locator('#xraysizerow')).toBeHidden();
+  await expect(page.locator('#xraykeeprow')).toBeVisible();
+  await slide(page, 'xraykeep', 0);
+  await settle(page);
+  expect(await pick()).toBe(k);
+
+  await mode('room');
+  await expect(page.locator('#xraykeeprow')).toBeHidden();
+  await expect.poll(async () => (await page.evaluate(() => (window as unknown as W).__brickTest.xray())).room).toBe(true);
+  expect(await pick()).toBe(k);
+
+  await mode('ghost');
+  await expect(page.locator('#xraysizerow')).toBeVisible();
+  await slide(page, 'xraysize', 20);
+  await slide(page, 'xraykeep', 3);
+  await settle(page);
+  expect(await pick()).toBe(k);
+
+  await mode('tube');
+  await settle(page);
+  expect(await pick()).toBe(k);
   expect(errors).toEqual([]);
 });

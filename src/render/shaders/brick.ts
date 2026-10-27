@@ -411,7 +411,7 @@ void main(){
     // from the camera (the underside seen from above, the top from below, the far sides) isn't
     // drawn, so its stud or underside texture never shows through. The fitted models are one
     // surface each.
-    if ((uMat < 2.5 || uMat > 4.5) && uMat < 6.5 && dot(nG, vEyeL) < 0.0) discard;
+    if ((uMat < 2.5 || uMat > 4.5) && uMat < 7.5 && dot(nG, vEyeL) < 0.0) discard;
     float inten = uIntensity < 0.0 ? vIntensity : uIntensity;
     // Blended in display space over the tone-mapped scene (the forward pipeline has no linear
     // buffer): glass multiplies what is behind by its transmission (approximately display-encoded)
@@ -428,13 +428,16 @@ void main(){
       surf = fxAtmos(surf);
 #endif
       fragColor = vec4(ueFilmic(uExposure * surf), translucentOpacity(inten));
-    } else if (uMat > 6.5) {
+    } else if (uMat > 7.5) {
       vec2 cq = vL.xz * 50.0, ch = vHalf.xz * 50.0;
       bool top = nG.y > 0.5;
       if (top && cirEdge(cq, ch) > 0.0) discard;
       vec3 cc = top ? circuitColour(cq, ch) : CIR_BASE;
       vec3 cl = ueFilmic(uExposure * (cc * (uSky + uSun * d) + uFloor * 0.2) * shade);
       fragColor = vec4(mix(cl, SEL_TINT, vMisc.y * SEL_MIX) * CIR_ALPHA, CIR_ALPHA);
+    } else if (uMat > 6.5) {
+      // X-ray ghost (render/cutaway.ts): a brick between the camera and the focus, faint
+      fragColor = vec4(ueFilmic(uExposure * lit), ${glf(0.16)});
     } else if (uMat > 5.5) {
       // hidden brick (Visible off): see-through ghost, stripes in the face's plane, bright edge
       vec3 own = step(0.5, abs(nG)), dist = vHalf - abs(vL) + own * 1e3;

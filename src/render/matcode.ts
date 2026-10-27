@@ -5,9 +5,11 @@ import type { Brick } from '../scene/brick.ts';
 export const MAT_GLASS = 1, MAT_TRANSLUCENT = 2, MAT_GLOW = 3, MAT_METALLIC = 4, MAT_HOLOGRAM = 5;
 /** Not a game material: a hidden (Visible off) brick's ghost, whatever its material (scene/hidden.ts). */
 export const MAT_HIDDEN = 6;
-export const MAT_CIRCUIT = 7;
+/** Not stored: the uMat value of the X-ray ghost pass (render/cutaway.ts). */
+export const MAT_GHOST = 7;
+export const MAT_CIRCUIT = 8;
 /** How many codes there are (plastic included): the length of the per-material count arrays. */
-export const MAT_CODES = 8;
+export const MAT_CODES = 9;
 const CODES: Record<string, number> = {
   BMC_Glass: MAT_GLASS, BMC_TranslucentPlastic: MAT_TRANSLUCENT, BMC_Glow: MAT_GLOW, BMC_Metallic: MAT_METALLIC, BMC_Hologram: MAT_HOLOGRAM,
   BMC_Circuit: MAT_CIRCUIT,
