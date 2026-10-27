@@ -28,7 +28,7 @@ import { componentsOf } from '../scene/compmodel.ts';
 import { brickKey } from '../scene/components.ts';
 import type { WireEnd } from '../scene/wires.ts';
 import { wireView } from '../ui/overlay/wires.ts';
-import { interact, live } from '../ui/panels/logic.ts';
+import { live, shownPrompt } from '../ui/panels/logic.ts';
 import { figureBoxes } from '../render/figure.ts';
 import { gridSetOf, rowsOfGrid } from '../scene/dyngrids.ts';
 import { setGraphicsPreset, setViewerGraphics } from './graphics.ts';
@@ -77,7 +77,7 @@ export interface BrickTest {
   /** the scene's components and wires (C-02 / C-03): each instance as [brick key, type, data as JSON], each wire as "source -> target" */
   components(): { instances: [string, string, string][]; wires: string[]; dirty: boolean; refused: number; drawn: { wires: number; ports: number } } | null;
   /** the live logic (C-13): tick count, rate, pause, the texts shown and the switches' states */
-  logic(): { ticks: number; tps: number; paused: boolean; interact: boolean; texts: string[]; switches: boolean[] };
+  logic(): { ticks: number; tps: number; paused: boolean; prompt: string | null; texts: string[]; switches: boolean[] };
   /** list index of the scene row showing save brick `key` ("grid/x_y_z/index"), or -1 */
   rowOfBrick(key: string): number;
   /** the player reference figure's part boxes (absolute viewer units), empty while it's off */
@@ -214,7 +214,7 @@ export function installTestHook(canvas: HTMLCanvasElement): void {
       };
     },
     logic: () => ({
-      ticks: live.ev?.ticks ?? 0, tps: live.clock.tps, paused: live.clock.paused, interact: interact.on,
+      ticks: live.ev?.ticks ?? 0, tps: live.clock.tps, paused: live.clock.paused, prompt: shownPrompt(),
       texts: live.shownTexts().map((s) => s.text), switches: live.graph?.ofKind('switch').map((n) => live.ev!.switchOn(n)) ?? [],
     }),
     rowOfBrick(key) {
