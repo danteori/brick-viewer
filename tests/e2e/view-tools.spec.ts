@@ -272,6 +272,7 @@ test('free camera: a middle drag pans during a resize and keeps the angle (U-37)
   await page.mouse.up(); await settle(page);
   expect((await snap(page)).bricks.length).toBe(1);
   expect(b0).toBeTruthy();
+});
 
 test('X-ray modes (U-39): height slice, room and see-through let a click reach the block inside; the panel shows only the sliders each mode uses', async ({ page }) => {
   const errors: string[] = [];
