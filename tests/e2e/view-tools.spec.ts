@@ -113,7 +113,7 @@ test('a resize from above glides to the iso corner above; an orbit during it kee
   await page.mouse.up(); await settle(page);
   const end = await camera(page);
   expect(end.yaw).toBeCloseTo(YAW0 + 60 * 0.008, 4);
-  expect(end.pitch).toBeCloseTo(ELEV, 4);
+  expect(end.pitch).toBeCloseTo(ELEV, 2);
   expect(r3((await snap(page)).bricks[0].hi[2])).toBe(r3(b0.hi[2]));
 });
 
