@@ -32,6 +32,7 @@
 import { S } from '../app/state.ts';
 import type { Gfx } from './gl.ts';
 import { XRAY_DEFAULTS } from './xrayfit.ts';
+import { MODES_GLSL, modeIndex, roomHides, sliceHides, type Room, type XrayMode } from './xraymodes.ts';
 
 export const cut = {
   on: false,
@@ -39,7 +40,14 @@ export const cut = {
   size: XRAY_DEFAULTS.size,
   /** dead zone, viewer units above the focused brick's top (below its bottom from underneath) that are never cut */
   keep: XRAY_DEFAULTS.keep,
+  /** tube (the original), slice (hide above a height), room (roof and near walls of the focus's room), ghost (the tube's bricks drawn faint) */
+  mode: 'tube' as XrayMode,
+  /** the room around the focus, found by the UI on a new focus (scene/room.ts); null: none found, the tube applies */
+  room: null as Room | null,
 };
+
+/** The mode the shader and picking run: room falls back to the tube while no room is known. */
+export const effectiveMode = (): XrayMode => (cut.mode === 'room' && !cut.room ? 'tube' : cut.mode);
 
 /** The tube in world [X,Y,Z] (absolute viewer units): centre a, axis e toward the camera, radius r; the keep level and side. */
 export interface Tube { a: number[]; e: number[]; r: number; level: number; side: number; lo: readonly number[]; hi: readonly number[] }
@@ -69,7 +77,7 @@ const TOP_DOWN = 0.1;
 export const cutActive = (): boolean => cut.on && S.sel >= 0 && S.scene.alive(S.sel);
 
 /** For the hover key: changes whenever the hole does. */
-export const cutKey = (): string => (cutActive() ? `${cut.size},${cut.keep}` : '');
+export const cutKey = (): string => (cutActive() ? `${effectiveMode()},${cut.size},${cut.keep},${cut.room ? [...cut.room.lo, ...cut.room.hi, ...cut.room.t] : ''}` : '');
 
 /** The tube for this frame, or null when the cutaway is off (picking calls this once per ray). */
 export const cutTube = (): Tube | null => (cutActive() ? params() : null);
@@ -129,15 +137,36 @@ export function bandReach(ux: number, uy: number, cx: number, cy: number, hx: nu
   return t0 <= t1 + 1e-9 ? t1 : -Infinity;
 }
 
+/** True when box [lo, hi] lies inside the focus box (never hidden). */
+function inFocusBox(lo: ArrayLike<number>, hi: ArrayLike<number>): boolean {
+  for (let i = 0; i < 3; i++) if (lo[i]! < S.dlo[i]! - BOX_EPS || hi[i]! > S.dhi[i]! + BOX_EPS) return false;
+  return true;
+}
+
+/** The hide rule for this frame's mode as a box test (absolute viewer units), or null when the cutaway is off. Picking calls this once per ray. */
+export function cutRule(): ((lo: ArrayLike<number>, hi: ArrayLike<number>) => boolean) | null {
+  if (!cutActive()) return null;
+  const t = params(), mode = effectiveMode(), room = cut.room;
+  if (mode === 'slice') return (lo, hi) => !inFocusBox(lo, hi) && sliceHides(t.level, t.side, lo, hi);
+  if (mode === 'room' && room) return (lo, hi) => !inFocusBox(lo, hi) && roomHides(room, t.e, lo, hi);
+  return (lo, hi) => tubeHides(t, lo, hi);
+}
+
 /** True when the cutaway hides box [lo, hi] (absolute viewer units). */
-export const cutHides = (lo: ArrayLike<number>, hi: ArrayLike<number>): boolean => { const t = cutTube(); return !!t && tubeHides(t, lo, hi); };
+export const cutHides = (lo: ArrayLike<number>, hi: ArrayLike<number>): boolean => { const r = cutRule(); return !!r && r(lo, hi); };
 
 /** Sets the cut uniforms (call each frame while the CUT program is in use). */
 export function setCutUniforms(G: Gfx): void {
   // the shader's positions are relative to the render origin, in GL axes (x = X, y = Z, z = Y)
   const { gl, u } = G, { a, r, level, side } = params(), E = BOX_EPS, lo = S.dlo, hi = S.dhi, o = S.origin;
   gl.uniform3f(u.uCutA, a[0]! - o[0], a[2]! - o[2], a[1]! - o[1]);
-  gl.uniform4f(u.uCutK, r, 0, level - o[2], side);
+  gl.uniform4f(u.uCutK, r, modeIndex(effectiveMode()), level - o[2], side);
+  const room = cut.room;
+  if (room) {
+    gl.uniform3f(u.uRoomLo, room.lo[0]! - o[0], room.lo[2]! - o[2], room.lo[1]! - o[1]);
+    gl.uniform3f(u.uRoomHi, room.hi[0]! - o[0], room.hi[2]! - o[2], room.hi[1]! - o[1]);
+    gl.uniform4f(u.uRoomT, room.t[0], room.t[1], room.t[2], room.t[3]);
+  }
   gl.uniform3f(u.uCutLo, lo[0] - o[0] - E, lo[2] - o[2] - E, lo[1] - o[1] - E);
   gl.uniform3f(u.uCutHi, hi[0] - o[0] + E, hi[2] - o[2] + E, hi[1] - o[1] + E);
 }
@@ -146,8 +175,8 @@ export function setCutUniforms(G: Gfx): void {
 export const CUT_VS_GLSL = `
 #ifdef CUT
 uniform vec3 uCutA, uCutLo, uCutHi;
-uniform vec4 uCutK;   // tube radius, unused, the keep level (world Z) and side (+1 above / -1 below)
-uniform float uCutOff, uCutEdge, uEdge;
+uniform vec4 uCutK;   // tube radius, mode (0 tube, 1 slice, 2 room, 3 ghost: the tube's rule), the keep level (world Z) and side (+1 above / -1 below)
+uniform float uCutOff, uCutEdge, uEdge, uCutInv;   // uCutInv 1: the ghost pass draws only the bricks the rule hides
 float cutBand(vec2 u, vec2 c, vec2 h, float r){
   vec2 v = vec2(-u.y, u.x), k = c + sign(u) * h;
   float s = clamp(dot(k, v), -r, r), t0 = -1e30, t1 = 1e30;
@@ -164,10 +193,13 @@ float cutFront(vec3 q, vec3 h){
   if (l < ${TOP_DOWN}) return dot(q, uEye);
   return cutBand(uEye.xz / l, q.xz, h.xz, uCutK.x);
 }
+${MODES_GLSL}
 // box centre c, half-extents h (GL axes, relative to the render origin)
-bool cutHides(vec3 c, vec3 h){
+bool cutRule(vec3 c, vec3 h){
   if (uCutOff > 0.5) return false;
   if (all(greaterThanEqual(c - h, uCutLo)) && all(lessThanEqual(c + h, uCutHi))) return false;
+  if (uCutK.y > 0.5 && uCutK.y < 1.5) return sliceHides(c, h);
+  if (uCutK.y > 1.5 && uCutK.y < 2.5) return roomHides(c, h);
   float top = uCutK.w > 0.0 ? c.y + h.y : c.y - h.y;
   if (uCutK.w * (top - uCutK.z) <= ${LEVEL_EPS}) return false;
   vec3 q = c - uCutA;
@@ -180,6 +212,10 @@ bool cutHides(vec3 c, vec3 h){
     if (abs(dot(q, n)) > uCutK.x + dot(abs(n), h)) return false;
   }
   return true;
+}
+bool cutHides(vec3 c, vec3 h){
+  if (uCutOff > 0.5) return false;
+  return cutRule(c, h) != (uCutInv > 0.5);
 }
 #endif
 `;

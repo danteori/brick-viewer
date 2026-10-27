@@ -8,8 +8,9 @@
 import { $ } from '../dom.ts';
 import { S } from '../../app/state.ts';
 import { cut } from '../../render/cutaway.ts';
+import { XRAY_MODES, type XrayMode } from '../../render/xraymodes.ts';
 import { KEEP_STEP, SIZE_MAX, fitXray, xrayOff, type XrayState } from '../../render/xrayfit.ts';
-import { focusChanged, focusNeed, xrayAuto } from '../../editor/autoxray.ts';
+import { focusChanged, focusNeed, refreshRoom, xrayAuto } from '../../editor/autoxray.ts';
 import { figure, initFigure } from '../../render/figure.ts';
 import { isTyping } from '../../editor/input.ts';
 import { initAudio, playClick } from '../audio.ts';
@@ -26,6 +27,39 @@ export function applyXray(x: XrayState): void {
   $<HTMLInputElement>('xraykeep').value = String(Math.round(cut.keep / KEEP_STEP));
 }
 
+const MODE_TEXT: Record<XrayMode, string> = {
+  tube: placeholder('[TEXT: X-ray mode Tube]'), slice: placeholder('[TEXT: X-ray mode Height slice]'),
+  room: placeholder('[TEXT: X-ray mode Room]'), ghost: placeholder('[TEXT: X-ray mode See-through]'),
+};
+const MODE_TITLE: Record<XrayMode, string> = {
+  tube: placeholder('[TEXT: Tube: hide the bricks in a tube between the focus and the camera]'),
+  slice: placeholder('[TEXT: Height slice: hide everything above a height]'),
+  room: placeholder('[TEXT: Room: hide the roof and the near walls of the focus room]'),
+  ghost: placeholder('[TEXT: See-through: draw the bricks in the tube as faint ghosts]'),
+};
+const HEIGHT_TEXT = placeholder('[TEXT: Height]');
+
+/** Picks the X-ray mode, and shows only the sliders it uses. */
+export function setXrayMode(mode: XrayMode): void {
+  cut.mode = mode;
+  if (mode !== 'room') cut.room = null;
+  for (const b of document.querySelectorAll<HTMLButtonElement>('#xraymodes button')) b.setAttribute('aria-pressed', String(b.dataset.xmode === mode));
+  $('xraysizerow').hidden = mode === 'slice' || mode === 'room';
+  $('xraykeeprow').hidden = mode === 'room';
+  $('xraykeeplabel').textContent = mode === 'slice' ? HEIGHT_TEXT : 'Keep';
+  refreshRoom(true);
+}
+
+function addModeButtons(): void {
+  for (const m of XRAY_MODES) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.dataset.xmode = m; b.textContent = MODE_TEXT[m]; b.title = MODE_TITLE[m];
+    b.addEventListener('click', () => { setXrayMode(m); initAudio(); playClick(); });
+    $('xraymodes').append(b);
+  }
+  setXrayMode(cut.mode);
+}
+
 /** The X toggle: on fits the focus (the defaults when nothing covers it); off resets Hole and Keep. */
 export function setXray(on: boolean): void {
   if (!on) { applyXray(xrayOff()); return; }
@@ -36,6 +70,7 @@ export function setXray(on: boolean): void {
 /** Call each frame before drawing: a new focus fits X-ray (on, off, Hole and Keep) to it. */
 export function tickXray(): void {
   if (focusChanged() && xrayAuto.on) applyXray(fitXray({ ...cut }, focusNeed()));
+  refreshRoom(false);
 }
 
 const HIDDEN_TEXT: Record<HiddenMode, string> = { auto: placeholder('Hidden: auto'), show: placeholder('Hidden: shown'), hide: placeholder('Hidden: off') };
@@ -72,6 +107,7 @@ export function initViewPanel(): void {
   const size = $<HTMLInputElement>('xraysize'), keep = $<HTMLInputElement>('xraykeep');
   xrayAuto.on = !S.testMode;
   applyXray(xrayOff());
+  addModeButtons();
   xray.addEventListener('click', () => { setXray(!cut.on); initAudio(); playClick(); });
   size.addEventListener('input', () => { cut.size = +size.value / 100 * SIZE_MAX; });
   keep.addEventListener('input', () => { cut.keep = +keep.value * KEEP_STEP; });

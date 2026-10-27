@@ -426,6 +426,9 @@ void main(){
       surf = fxAtmos(surf);
 #endif
       fragColor = vec4(ueFilmic(uExposure * surf), translucentOpacity(inten));
+    } else if (uMat > 6.5) {
+      // X-ray ghost (render/cutaway.ts): a brick between the camera and the focus, faint
+      fragColor = vec4(ueFilmic(uExposure * lit), ${glf(0.16)});
     } else if (uMat > 5.5) {
       // hidden brick (Visible off): see-through ghost, stripes in the face's plane, bright edge
       vec3 own = step(0.5, abs(nG)), dist = vHalf - abs(vL) + own * 1e3;

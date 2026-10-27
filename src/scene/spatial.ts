@@ -8,7 +8,7 @@
 import { S } from '../app/state.ts';
 import { hiddenShown } from '../app/hidden.ts';
 import { hiddenBit, isHiddenRow } from './hidden.ts';
-import { cutTube, tubeHides } from '../render/cutaway.ts';
+import { cutRule } from '../render/cutaway.ts';
 import { BRZ_UNIT } from '../core/units.ts';
 import { addMirror, syncScene } from './sync.ts';
 import type { SceneStore } from './store.ts';
@@ -164,19 +164,19 @@ export function viewRay(vx: number, vy: number): { S: number[]; D: number[] } {
 
 /**
  * The nearest brick under view-plane point (vx, vy) (relative to the render origin), or null. With
- * the X-ray cutaway on, the bricks it hides (cutTube / tubeHides) are passed through. The focused
+ * the X-ray cutaway on, the bricks it hides (cutRule) are passed through. The focused
  * brick is never hidden by it. Visible-off bricks are passed through while they don't show.
  */
 export function pickRay(vx: number, vy: number): Hit | null {
   const { S: Sv, D } = viewRay(vx, vy);
-  const tube = cutTube();                                  // the X-ray cutaway's tube, or null
+  const hides = cutRule();                                 // the X-ray cutaway's rule, or null
   let best: Hit | null = null;
   const off = hiddenShown() ? 0 : hiddenBit(S.scene);       // the Visible-off bit while those bricks are skipped
   const s0 = rayBox(Sv, D, S.dlo, S.dhi, 0, SMAX);
   if (s0 && S.sel >= 0 && S.scene.alive(S.sel) && !S.hidden.has(S.sel) && !(off && isHiddenRow(S.scene, S.sel, off))) best = { k: S.sel, s: s0.s, ax: s0.ax };
   if (!S.scene.count) return best;
   walkRay(Sv, D, (k, bl, bh) => {
-    if (tube && tubeHides(tube, bl, bh)) return;
+    if (hides && hides(bl, bh)) return;
     const h = rayBox(Sv, D, bl, bh, 0, SMAX);
     if (h && (!best || h.s < best.s)) best = { k, s: h.s, ax: h.ax };
   }, () => (best ? best.s : Infinity));

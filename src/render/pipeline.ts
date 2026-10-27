@@ -20,7 +20,8 @@ import { BOX_EDGE_COUNT, boxEB, boxIB } from './meshes/registry.ts';
 import { proposedBox } from '../editor/resize.ts';
 import { perfBegin, perfEnd, perfMark } from './perf.ts';
 import { useBrickVariant } from './gl.ts';
-import { cutActive, setCutUniforms } from './cutaway.ts';
+import { cut, cutActive, setCutUniforms } from './cutaway.ts';
+import { MAT_GHOST } from './matcode.ts';
 import { movedBox } from '../editor/move.ts';
 import { fxFrameOn, fxLight, fxPrepass, fxProgram, fxWater, type FxCtx } from './fx/frame.ts';
 import { fx as fxState } from './fx/state.ts';
@@ -104,6 +105,13 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
   gl.uniform1f(u.uBump, SHADE.BUMP_STRENGTH * bumpFade);
   drawGroundBackdrop(ortho, view);           // the far ground plate, if an environment shows one
   drawInstances(drawFocus, cull);
+  if (cutOn && cut.mode === 'ghost') {       // the ghost mode: the bricks the tube hides, drawn faint
+    gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false);
+    gl.uniform1f(u.uCutInv, 1); gl.uniform1f(u.uMat, MAT_GHOST);
+    drawInstances(() => {}, cull);
+    gl.uniform1f(u.uMat, 0); gl.uniform1f(u.uCutInv, 0);
+    gl.depthMask(true); gl.disable(gl.BLEND);
+  }
   perfMark('extras');
   drawExtras(cull);                          // read-only dynamic grids (none unless a world placed some)
   drawGround();                              // the ground plate (off unless an environment is applied)

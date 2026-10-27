@@ -26,8 +26,9 @@ const MARKUP = `
 </div>
 <div id="name"></div>
 <div id="xraybox" role="group" aria-label="X-ray" hidden>
-  <label title="Width of the X-ray tube around the focused brick: bricks reaching into it in front of the brick are hidden">Hole <input id="xraysize" type="range" min="0" max="100" step="1" aria-label="X-ray hole size"></label>
-  <label title="Dead zone: how far above the focused brick's top nothing is cut, so furniture in the room stays (bricks)">Keep <input id="xraykeep" type="range" min="0" max="20" step="1" aria-label="X-ray dead zone above the focus, bricks"></label>
+  <div id="xraymodes" role="group" aria-label="X-ray mode"></div>
+  <label id="xraysizerow" title="Width of the X-ray tube around the focused brick: bricks reaching into it in front of the brick are hidden">Hole <input id="xraysize" type="range" min="0" max="100" step="1" aria-label="X-ray hole size"></label>
+  <label id="xraykeeprow" title="Dead zone: how far above the focused brick's top nothing is cut, so furniture in the room stays (bricks)"><span id="xraykeeplabel">Keep</span> <input id="xraykeep" type="range" min="0" max="20" step="1" aria-label="X-ray dead zone above the focus, bricks"></label>
 </div>
 <section id="escmenu" class="win" role="dialog" aria-labelledby="escmenutitle" hidden>
   <div class="winhead"><h2 class="wintitle" id="escmenutitle">Menu</h2><button type="button" class="winclose" aria-label="Close">×</button></div>

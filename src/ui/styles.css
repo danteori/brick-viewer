@@ -399,6 +399,10 @@ body.placing canvas { cursor:copy !important; }
         color:var(--br-muted); font:600 12px/1.2 var(--br-font); text-transform:uppercase; letter-spacing:.03em; }
 #xraybox input { accent-color:var(--br-select); }
 #xraybox :focus-visible { outline:2px solid var(--br-select); }
+#xraybox label[hidden] { display:none; }
+#xraymodes { display:grid; grid-template-columns:1fr 1fr; gap:4px; margin-bottom:4px; }
+#xraymodes button { padding:4px 6px; border-radius:var(--br-r-sm); border:0; background:var(--br-navy-3); color:var(--br-muted); font:inherit; text-transform:none; letter-spacing:0; cursor:pointer; }
+#xraymodes button[aria-pressed="true"] { background:var(--br-select); color:#fff; }
 #props.ctx.placing > :not(#menu):not(#mode) { display:none; }
 body :not(svg):not(svg *) { font-family:var(--br-font) !important; }
 

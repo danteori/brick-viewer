@@ -18,6 +18,8 @@ import { ed } from '../editor/ghost.ts';
 import { selectBrick } from '../editor/resize.ts';
 import { xrayAuto } from '../editor/autoxray.ts';
 import { cut } from '../render/cutaway.ts';
+import type { XrayMode } from '../render/xraymodes.ts';
+import { setXrayMode } from '../ui/panels/view.ts';
 import { setSelection } from '../editor/select.ts';
 import { inst, stats } from '../render/instances.ts';
 import { MAT_HIDDEN } from '../render/matcode.ts';
@@ -72,7 +74,9 @@ export interface BrickTest {
   /** auto X-ray on a new focus (U-33; off in ?test until this turns it on) */
   autoXray(on: boolean): void;
   /** the X-ray settings: on, Hole (cut.size) and Keep (cut.keep, viewer units) */
-  xray(): { on: boolean; size: number; keep: number };
+  xray(): { on: boolean; size: number; keep: number; mode: string; room: boolean };
+  /** picks the X-ray mode (tube, slice, room, ghost) as its panel button does */
+  xrayMode(mode: string): void;
   /** the scene's components and wires (C-02 / C-03): each instance as [brick key, type, data as JSON], each wire as "source -> target" */
   components(): { instances: [string, string, string][]; wires: string[]; dirty: boolean; refused: number; drawn: { wires: number; ports: number } } | null;
   /** the live logic (C-13): tick count, rate, pause, the texts shown and the switches' states */
@@ -197,7 +201,8 @@ export function installTestHook(canvas: HTMLCanvasElement): void {
     paste(items) { clip.items = items; startPaste(); },
     focus(k) { const z = S.zoomMul; selectBrick(S.scene.ordered()[k]!); S.zoomMul = z; },
     autoXray: (on) => { xrayAuto.on = on; },
-    xray: () => ({ on: cut.on, size: cut.size, keep: cut.keep }),
+    xray: () => ({ on: cut.on, size: cut.size, keep: cut.keep, mode: cut.mode, room: !!cut.room }),
+    xrayMode: (mode) => setXrayMode(mode as XrayMode),
     select: (ids) => setSelection(ids),
     components() {
       const m = componentsOf(S.scene);
