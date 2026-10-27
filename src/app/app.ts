@@ -43,6 +43,7 @@ import { initGridPanel, tickGrid } from '../ui/panels/grid.ts';
 import { initComponentsPanel, tickComponents } from '../ui/panels/components.ts';
 import { initContextPanel, tickContextPanel } from '../ui/panels/context.ts';
 import { drawWires, initWires } from '../ui/overlay/wires.ts';
+import { initLogicPanel, tickLogic } from '../ui/panels/logic.ts';
 import { initCataloguePanel } from '../ui/panels/catalogue.ts';
 import { drawDims, initDims } from '../ui/overlay/dims.ts';
 import { drawHud, initHud } from '../ui/overlay/hud.ts';
@@ -121,6 +122,7 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
   initSaveGame();
   initSoundPanel();
   initViewPanel();
+  initLogicPanel();
   if (opts.features.brdbRead) initWorlds();
   initImporter();
   initProps();
@@ -162,6 +164,7 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
       drawHud();
       drawDims(sx, sy);
       drawWires(sx, sy);
+      tickLogic(t, sx, sy);
       tickProps();
       tickComponents();
       tickSelection();
