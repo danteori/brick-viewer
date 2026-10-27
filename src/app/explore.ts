@@ -4,7 +4,7 @@ import { frameFocus, toView, viewDir } from '../render/camera.ts';
 import { centrePoint, orbitAbout, panBy, panView, rebaseOrigin, zoomAt } from '../render/freecam.ts';
 import { cursorRay, ed } from '../editor/ghost.ts';
 import { pickRay } from '../scene/spatial.ts';
-import { orbitDuringResize, selectBrick } from '../editor/resize.ts';
+import { orbitDuringResize, selectBrick, startOrbit } from '../editor/resize.ts';
 import { gridClick } from '../editor/grids.ts';
 import { isTyping } from '../editor/input.ts';
 import { initAudio, playSelect } from '../ui/audio.ts';
@@ -24,9 +24,15 @@ const GLIDE = 0.2;
 const keys = new Set<string>();
 let shift: { t: number; alone: boolean } | null = null;
 let press: { x: number; y: number; id: number } | null = null;
-let drag: { kind: 'orbit' | 'pan'; x: number; y: number; id: number; pivot: V3 } | null = null;
+let drag: { kind: 'orbit' | 'pan'; x: number; y: number; id: number; pivot: V3; btn: number } | null = null;
+/** The right button is down on the canvas: a move past CLICK_PX turns it into an orbit. */
+let rightTrack: { x: number; y: number; id: number } | null = null;
+let rightMoved = false;
 let glide: V3 | null = null;
 let lastT = 0, buttons = 0, pointerId = 1;
+
+/** The last right press turned into an orbit drag, so its release is not a click. */
+export const rightDragged = (): boolean => rightMoved;
 
 /** A brick, a selection or a ghost is being edited: the camera keys are off, so they don't clash with Shift+click. */
 export const editing = (): boolean => hasFocus() || S.selection.size > 0 || !!ed.ghost;
@@ -53,8 +59,8 @@ export function centreOn(id: number): void {
   glide = [0, 1, 2].map((i) => (S.lo[i] + S.hi[i]) / 2) as V3;
 }
 
-function startDrag(kind: 'orbit' | 'pan', x: number, y: number, id: number, canvas: HTMLCanvasElement): void {
-  drag = { kind, x, y, id, pivot: centrePoint() };
+function startDrag(kind: 'orbit' | 'pan', x: number, y: number, id: number, canvas: HTMLCanvasElement, btn = 0): void {
+  drag = { kind, x, y, id, pivot: centrePoint(), btn };
   glide = null;
   S.orbit.yawT = S.orbit.yaw; S.orbit.pitchT = S.orbit.pitch;
   camDrag.kind = kind;
@@ -65,7 +71,7 @@ function capture(el: Element, id: number): boolean {
   try { el.setPointerCapture(id); return true; } catch { return false; }
 }
 
-function stopAll(): void { drag = null; press = null; camDrag.kind = null; keys.clear(); shift = null; buttons = 0; }
+function stopAll(): void { drag = null; press = null; rightTrack = null; camDrag.kind = null; keys.clear(); shift = null; buttons = 0; }
 
 export function initExplore(canvas: HTMLCanvasElement): void {
   S.hooks.loaded.push(() => { if (isFree()) frameFocus(); });
@@ -74,15 +80,25 @@ export function initExplore(canvas: HTMLCanvasElement): void {
   addEventListener('pointerdown', (e) => {
     if (shift) shift.alone = false;
     buttons = e.buttons; pointerId = e.pointerId;
+    if (e.button === 2 && e.target === canvas) { rightTrack = { x: e.clientX, y: e.clientY, id: e.pointerId }; rightMoved = false; }
     if (!isFree() || e.target !== canvas || S.held) return;
-    if (e.button === 1) { startDrag('orbit', e.clientX, e.clientY, e.pointerId, canvas); return; }
+    if (e.button === 1) { startDrag('pan', e.clientX, e.clientY, e.pointerId, canvas, 1); return; }
     if (ed.ghost) return;
-    if (e.button === 2) { e.stopImmediatePropagation(); e.preventDefault(); startDrag('pan', e.clientX, e.clientY, e.pointerId, canvas); return; }
+    if (e.button === 2) { e.stopImmediatePropagation(); e.preventDefault(); return; }
     if (e.button !== 0 || e.shiftKey || S.tool === 'paint' || S.hoverAxis >= 0) return;
     e.stopImmediatePropagation(); e.preventDefault();
     press = { x: e.clientX, y: e.clientY, id: e.pointerId };
   }, true);
   addEventListener('pointermove', (e) => {
+    if (e.button === 2 && (e.buttons & 2) && !rightTrack && e.target === canvas) { rightTrack = { x: e.clientX, y: e.clientY, id: e.pointerId }; rightMoved = false; }
+    if (rightTrack && (e.buttons & 2) && !rightMoved && Math.hypot(e.clientX - rightTrack.x, e.clientY - rightTrack.y) > CLICK_PX) {
+      rightMoved = true;
+      if (isFree()) {
+        if (S.held) orbitDuringResize();
+        startDrag('orbit', rightTrack.x, rightTrack.y, e.pointerId, canvas, 2);
+        press = null;
+      } else startOrbit(e, canvas);
+    }
     if (press && e.pointerId === press.id && Math.hypot(e.clientX - press.x, e.clientY - press.y) > CLICK_PX) {
       startDrag('orbit', press.x, press.y, press.id, canvas);
       press = null;
@@ -95,11 +111,13 @@ export function initExplore(canvas: HTMLCanvasElement): void {
   }, true);
   addEventListener('pointerup', (e) => {
     buttons = e.buttons;
+    if (e.button === 2) rightTrack = null;
     if (press && e.pointerId === press.id) { press = null; e.stopImmediatePropagation(); clickBrick(brickAt(e.clientX, e.clientY)); }
     if (drag && e.pointerId === drag.id) { drag = null; camDrag.kind = null; }
   }, true);
   addEventListener('pointercancel', (e) => {
     buttons = e.buttons;
+    rightTrack = null;
     if (press && e.pointerId === press.id) press = null;
     if (drag && e.pointerId === drag.id) { drag = null; camDrag.kind = null; }
   }, true);
@@ -110,7 +128,8 @@ export function initExplore(canvas: HTMLCanvasElement): void {
     startDrag('orbit', e.clientX, e.clientY, pointerId, canvas);
   }, true);
   addEventListener('mouseup', (e) => {
-    if (e.button === 1 && drag?.kind === 'orbit') { drag = null; camDrag.kind = null; }
+    if (e.button === 2) rightTrack = null;
+    if (drag?.kind === 'orbit' && e.button === (drag.btn || 1)) { drag = null; camDrag.kind = null; }
   }, true);
   addEventListener('blur', stopAll);
 

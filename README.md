@@ -17,7 +17,7 @@ without WebGL2.
 
 On top of that:
 
-- **Explore / Edit modes:** the viewer starts in Explore, where clicks never touch bricks: drag orbits freely, right-drag or WASD pans (Shift is faster), scroll zooms toward the cursor. Double-click a brick (or press Edit) to switch to Edit, the editor below; Esc clears the selection, then returns to Explore.
+- **Explore / Edit modes:** the viewer starts in Explore, where clicks never touch bricks: left-drag or right-drag orbits, middle-drag or WASD pans (Shift is faster), scroll zooms toward the cursor. Double-click a brick (or press Edit) to switch to Edit, the editor below; Esc clears the selection, then returns to Explore.
 - **Save .brz:** download your edits, written back into the save you opened (uncompressed).
 - **Selection:** Shift+click adds or removes a brick, Shift+drag box-selects (Ctrl+Shift+drag
   removes), Ctrl+A selects everything, Esc clears; select by colour or everything connected to the

@@ -16,6 +16,7 @@ import { MICRO } from '../core/units.ts';
 import { setStatus } from '../ui/status.ts';
 import { initAudio, playClick, playSelect } from '../ui/audio.ts';
 import { escapeStep, isFree } from '../app/mode.ts';
+import { rightDragged } from '../app/explore.ts';
 import { anyOpen, closeTop, openWindow } from '../ui/windows.ts';
 import { onUp, selectBrick } from './resize.ts';
 import { beginDrag, cancelDrag, canDrag, dragHud, dragging, endDrag, finishDragAxis, toggleDragMode } from './dragplace.ts';
@@ -128,7 +129,7 @@ export function initEditorInput(canvas: HTMLCanvasElement): void {
     if (e.button === 2 && rightPress) {
       const click = near(rightPress, e);
       rightPress = null;
-      if (G && click && !dragging()) { e.stopImmediatePropagation(); endPlacing('Placement cancelled'); }
+      if (G && click && !rightDragged() && !dragging()) { e.stopImmediatePropagation(); endPlacing('Placement cancelled'); }
       return;
     }
     if (G && e.button === 0 && dragging()) {
