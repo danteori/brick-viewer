@@ -76,3 +76,8 @@ export const FEATURES: Readonly<FeatureFlags> = Object.freeze({
   paint: true,
   mapPanel: !IS_LITE,
 });
+
+/** The game-map loader (render/gamemaps.ts; the ?maps flag), or null in lite. */
+export const loadGameMapsModule: (() => Promise<typeof import('../render/gamemaps.ts')>) | null = IS_LITE
+  ? null
+  : () => import('../render/gamemaps.ts');

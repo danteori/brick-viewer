@@ -35,10 +35,13 @@ import { applyEnvironment, clearEnvironment } from './environment.ts';
 import { defaultEnvironment, setEnvValue } from '../format/environment.ts';
 import { defaultGraphicsPreset, withQualityLevel } from '../format/graphics.ts';
 import { fxDebug } from '../render/fx/frame.ts';
+import { mapsState } from '../render/gl.ts';
 
 export interface BrickTest {
   ready: true;
   renderer(): string;
+  /** the game-map look: 0 procedural, 1 or 2 maps (render/gamemaps.ts); setting it needs the maps loaded first (?maps) */
+  mapsMode(set?: number): number;
   hideUi(): void;
   loadSave(b64: string, name: string): { status: string; bricks: number; zoom: number };
   /** loads as opening a file does, through the parse worker when there is one (S-01; any size); cullMax = the main-thread face-culling cap meanwhile */
@@ -121,6 +124,10 @@ export function installTestHook(canvas: HTMLCanvasElement): void {
   const raf = (): Promise<number> => new Promise((r) => requestAnimationFrame(r));
   const api: BrickTest = {
     ready: true,
+    mapsMode(set) {
+      if (set !== undefined) mapsState.mode = set;
+      return mapsState.mode;
+    },
     renderer() {
       const gl = document.createElement('canvas').getContext('webgl2');
       if (!gl) return 'no WebGL2';

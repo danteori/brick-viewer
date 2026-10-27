@@ -2,7 +2,7 @@
 // listener order (it decides which handler sees an event first), and runs the frame loop.
 
 import { S } from './state.ts';
-import { loadFaceCull, loadFullUi, type FeatureFlags } from './features.ts';
+import { loadFaceCull, loadFullUi, loadGameMapsModule, type FeatureFlags } from './features.ts';
 import { initWorlds } from './worlds.ts';
 import { initImporter } from './importer.ts';
 import { initWorldEnvironment } from './environment.ts';
@@ -73,6 +73,11 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
   }
   const gl = gfx.gl;
   initDraw(gfx);
+  const mapsFlag = q.get('maps');
+  if (mapsFlag !== null && loadGameMapsModule) {
+    void loadGameMapsModule().then((m) => m.loadGameMaps(gl, q.get('mapsbase') ?? 'maps', mapsFlag === 'stretch' ? 2 : 1))
+      .then((info) => console.info('game maps', JSON.stringify(info)), (e: unknown) => console.warn(String(e)));
+  }
   initMeshes(gl);
   initInstances();
   if (loadFaceCull) void loadFaceCull().then((m) => m.initFaceCull());   // full build only

@@ -11,12 +11,16 @@ import { BRICK_FS, BRICK_VS } from './shaders/brick.ts';
 export const PULL_UNIT = 7;
 /** Texture units of the graphics effects' shadow map and AO texture (render/fx), bound while drawing. */
 export const SHADOW_UNIT = 5, AO_UNIT = 6;
+/** Texture unit of the game-map array (render/gamemaps.ts); the sampler always points here. */
+export const MAPS_UNIT = 8;
+/** Game-map look: 0 procedural, 1 maps with the bevel at the procedural width, 2 maps with the bevel stretched over the face. */
+export const mapsState = { mode: 0 };
 
 export const LOC = { aPos: 0, aNrm: 1, aSlope: 2, iPos: 3, iHalf: 4, iColor: 5, iMisc: 6, aPart: 7, aCap: 8 } as const;
 
 const UNIFORMS = ['uMVP', 'uChunkOffset', 'uBox', 'uUnitDiv', 'uEdge', 'uLine', 'uFadeC', 'uFadeR', 'uStudFade', 'uBevelMax', 'uBevelFit',
   'uEye', 'uLight', 'uSun', 'uSky', 'uFloor', 'uExposure', 'uBump', 'uMat', 'uIntensity', 'uMatPass',
-  'uTime', 'uSpecAA', 'uCutA', 'uCutK', 'uCutLo', 'uCutHi', 'uCutOff', 'uCutEdge', 'uShowHidden', 'uPull',
+  'uTime', 'uSpecAA', 'uMaps', 'uCutA', 'uCutK', 'uCutLo', 'uCutHi', 'uCutOff', 'uCutEdge', 'uShowHidden', 'uPull',
   // graphics effects (FX variant only; render/fx/glsl.ts)
   'uShadowMat', 'uShadowP', 'uShadowL', 'uAOP', 'uFogEye', 'uFogP', 'uFogColor', 'uWaterP', 'uWaterExt', 'uWaterIn', 'uWaterFogColor', 'uViewDir'] as const;
 export type UniformName = (typeof UNIFORMS)[number];
@@ -47,7 +51,7 @@ function link(gl: WebGL2RenderingContext, fs: string, vs = BRICK_VS): { prog: We
   // the template table's sampler (render/meshes/registry.ts) reads its own unit, set once here
   const cur = gl.getParameter(gl.CURRENT_PROGRAM) as WebGLProgram | null;
   gl.useProgram(prog); gl.uniform1i(gl.getUniformLocation(prog, 'uVtx'), PULL_UNIT);
-  gl.uniform1i(gl.getUniformLocation(prog, 'uShadowMap'), SHADOW_UNIT); gl.uniform1i(gl.getUniformLocation(prog, 'uAO'), AO_UNIT);
+  gl.uniform1i(gl.getUniformLocation(prog, 'uShadowMap'), SHADOW_UNIT); gl.uniform1i(gl.getUniformLocation(prog, 'uAO'), AO_UNIT); gl.uniform1i(gl.getUniformLocation(prog, 'uMapTex'), MAPS_UNIT);
   gl.useProgram(cur);
   return { prog, u };
 }

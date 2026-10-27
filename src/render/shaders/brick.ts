@@ -171,6 +171,9 @@ ${ORIENT_GLSL}
 const vec3 SEL_TINT = vec3(1.0, 0.62, 0.28); const float SEL_MIX = 0.42;
 in float vSlope;
 uniform float uBump;
+uniform float uMaps;
+uniform highp sampler2DArray uMapTex;
+const float MAP_BAND = 0.0215;
 const float BUMPS = ${glf(SHADE.BUMPS)};
 const float RIM = ${glf(SHADE.RIM)};
 const float SKEL = ${glf(SHADE.SKEL)};
@@ -238,6 +241,9 @@ void faceFrame(vec3 nG, out vec3 eA, out vec3 eU, out vec3 eV){
   else if (a.y >= a.z) { eA = vec3(0.0, 1.0, 0.0); eU = vec3(1.0, 0.0, 0.0); eV = vec3(0.0, 0.0, 1.0); }
   else { eA = vec3(0.0, 0.0, 1.0); eU = vec3(1.0, 0.0, 0.0); eV = vec3(0.0, 1.0, 0.0); }
 }
+vec3 mapSample(float layer, vec2 uv, vec2 gx, vec2 gy){ return textureGrad(uMapTex, vec3(uv, layer), gx, gy).xyz; }
+vec2 mapTilt(vec3 t){ return (t.xy*2.0 - 1.0) / max(t.z*2.0 - 1.0, 0.2); }
+float bevelUV(float d0, float d1, float w){ return d0 < w ? d0 / w * MAP_BAND : d1 < w ? 1.0 - d1 / w * MAP_BAND : 0.5; }
 vec3 axisDir(float code){
   float a = abs(code), s = code < 0.0 ? -1.0 : 1.0;
   return s * (a < 1.5 ? vec3(0.0, 1.0, 0.0) : a < 2.5 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 0.0, 1.0));
@@ -312,10 +318,15 @@ void main(){
     vec3 t = normalize(cross(nW, w));
     w = normalize(cross(t, nW));
     vec2 p = vec2(dot(lW, w)*0.8, dot(lW, t)) * (BUMPS/PITCH);
-    const float E = 0.15;
-    float gw = bumpHeight(p + vec2(E, 0.0)) - bumpHeight(p - vec2(E, 0.0));
-    float gt = bumpHeight(p + vec2(0.0, E)) - bumpHeight(p - vec2(0.0, E));
-    n = transpose(vR) * normalize(nW - uBump*(gw*w + gt*t)/(2.0*E));
+    if (uMaps > 0.5) {
+      vec2 bt = mapTilt(mapSample(2.0, p / BUMPS, dFdx(p) / BUMPS, dFdy(p) / BUMPS));
+      n = transpose(vR) * normalize(nW + (bt.x*w + bt.y*t) * (uBump / ${glf(SHADE.BUMP_STRENGTH)}));
+    } else {
+      const float E = 0.15;
+      float gw = bumpHeight(p + vec2(E, 0.0)) - bumpHeight(p - vec2(E, 0.0));
+      float gt = bumpHeight(p + vec2(0.0, E)) - bumpHeight(p - vec2(0.0, E));
+      n = transpose(vR) * normalize(nW - uBump*(gw*w + gt*t)/(2.0*E));
+    }
   }
   float uStuds = vFlags.x, uUnder = vFlags.y, uSmooth = vFlags.w;
   vec3 sd = axisDir(vFlags.z);
@@ -328,13 +339,17 @@ void main(){
   float sA = dot(nG, eA) < 0.0 ? -1.0 : 1.0;
   bool aligned = abs(dot(nG, eA)) > 0.999;
   vec2 q = vec2(dot(vL, eU), dot(vL, eV));
+  vec2 qdx = dFdx(q), qdy = dFdy(q);
   vec2 hb = vec2(dot(vHalf, eU), dot(vHalf, eV));
   bool hasRect = !(roundTop || roundBot || ledge) && aligned && vCap.z > vCap.x;
   vec4 rect = hasRect ? vCap * vec4(2.0*hb, 2.0*hb) : vec4(-hb, hb);
   float face = dot(nG, sd);
   bool studTop = !slope && uStuds > 0.0 && ((plain && face > 0.5) || (studsPart && aligned));
   if (studTop) {
-    n = studNormal(fract((q - rect.xy) / PITCH) - 0.5, uStuds, eA, sA, eU, eV);
+    if (uMaps > 0.5) {
+      vec2 st = mapTilt(mapSample(0.0, fract((q - rect.xy) / PITCH), qdx / PITCH, qdy / PITCH));
+      n = normalize(nG + (eU*st.x + eV*st.y) * uStuds);
+    } else n = studNormal(fract((q - rect.xy) / PITCH) - 0.5, uStuds, eA, sA, eU, eV);
   }
   if (roundTop && uStuds > 0.0) {
     studTop = true;
@@ -356,7 +371,30 @@ void main(){
   bool under = !slope && uUnder > 0.0 && ((plain && face < -0.5) || (inlet && aligned));
   if (under) {
     vec2 tilt;
-    float s = underside((q - rect.xy) / PITCH, (rect.zw - rect.xy) / PITCH, tilt);
+    float s;
+    if (uMaps > 0.5) {
+      vec2 qs = (q - rect.xy) / PITCH, sz = (rect.zw - rect.xy) / PITCH;
+      vec2 dMin = qs, dMax = sz - qs;
+      vec2 de = min(dMin, dMax);
+      vec2 gx = qdx / PITCH, gy = qdy / PITCH;
+      vec2 t;
+      if (min(de.x, de.y) < 1.0) {
+        bool edgeU = de.x < de.y;
+        float e = edgeU ? de.x : de.y;
+        float inward = edgeU ? (dMin.x < dMax.x ? 1.0 : -1.0) : (dMin.y < dMax.y ? 1.0 : -1.0);
+        vec2 uv = vec2(fract((edgeU ? qs.y : qs.x) + 0.5), e);
+        vec2 ax = edgeU ? vec2(gx.y, inward * gx.x) : vec2(gx.x, inward * gx.y);
+        vec2 ay = edgeU ? vec2(gy.y, inward * gy.x) : vec2(gy.x, inward * gy.y);
+        vec2 bt = mapTilt(mapSample(3.0, uv, ax, ay));
+        t = edgeU ? vec2(inward * bt.y, bt.x) : vec2(bt.x, inward * bt.y);
+        s = mapSample(4.0, uv, ax, ay).r;
+      } else {
+        vec2 uv = fract(qs + 0.5);
+        t = mapTilt(mapSample(5.0, uv, gx, gy));
+        s = mapSample(6.0, uv, gx, gy).r;
+      }
+      tilt = t;
+    } else s = underside((q - rect.xy) / PITCH, (rect.zw - rect.xy) / PITCH, tilt);
     shade = mix(1.0, s, uUnder);
     n = normalize(n + (eU*tilt.x + eV*tilt.y) * uUnder);
   }
@@ -366,9 +404,17 @@ void main(){
     if (hasRect) {
       vec2 len = rect.zw - rect.xy;
       vec2 bw = mix(vec2(min(vBevelK.x, 0.2*min(len.x, len.y))), vec2(bevelWf(len.x), bevelWf(len.y)), vBevelK.y);
-      vec2 k0 = 1.0 - smoothstep(bw*BEVEL_EDGE, bw, q - rect.xy);
-      vec2 k1 = 1.0 - smoothstep(bw*BEVEL_EDGE, bw, rect.zw - q);
-      n = normalize(n + eU*(k1.x - k0.x) + eV*(k1.y - k0.y));
+      if (uMaps > 0.5) {
+        vec2 d0 = q - rect.xy, d1 = rect.zw - q, uv, k;
+        if (uMaps > 1.5) { uv = d0 / len; k = 1.0 / len; }
+        else { uv = vec2(bevelUV(d0.x, d1.x, bw.x), bevelUV(d0.y, d1.y, bw.y)); k = MAP_BAND / bw; }
+        vec2 bt = mapTilt(mapSample(1.0, uv, qdx * k, qdy * k));
+        n = normalize(n + eU*bt.x + eV*bt.y);
+      } else {
+        vec2 k0 = 1.0 - smoothstep(bw*BEVEL_EDGE, bw, q - rect.xy);
+        vec2 k1 = 1.0 - smoothstep(bw*BEVEL_EDGE, bw, rect.zw - q);
+        n = normalize(n + eU*(k1.x - k0.x) + eV*(k1.y - k0.y));
+      }
     } else {
       vec3 dist = vHalf - abs(vL);
       vec3 own = step(0.5, abs(nG));

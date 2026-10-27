@@ -19,7 +19,7 @@ import { nearOf, studPx } from './camera.ts';
 import { BOX_EDGE_COUNT, boxEB, boxIB } from './meshes/registry.ts';
 import { proposedBox } from '../editor/resize.ts';
 import { perfBegin, perfEnd, perfMark } from './perf.ts';
-import { useBrickVariant } from './gl.ts';
+import { mapsState, useBrickVariant } from './gl.ts';
 import { cutActive, setCutUniforms } from './cutaway.ts';
 import { movedBox } from '../editor/move.ts';
 import { fxFrameOn, fxLight, fxPrepass, fxProgram, fxWater, type FxCtx } from './fx/frame.ts';
@@ -102,6 +102,7 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
   // slope texture: one bump is 1/SHADE.BUMPS stud; fade it out between ~1.5 and 4 px
   const bumpFade = Math.max(0, Math.min(1, (studPx(0) * STEP / S.STEPS[0] / SHADE.BUMPS - 1.5) / 2.5));
   gl.uniform1f(u.uBump, SHADE.BUMP_STRENGTH * bumpFade);
+  gl.uniform1f(u.uMaps, mapsState.mode);
   drawGroundBackdrop(ortho, view);           // the far ground plate, if an environment shows one
   drawInstances(drawFocus, cull);
   perfMark('extras');

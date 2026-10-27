@@ -3,6 +3,8 @@
 //   npm run golden:capture                         legacy viewer -> tests/golden/ (the goldens)
 //   npm run golden:capture -- --target full        new app (dist/)          -> tests/golden/full/
 //   npm run golden:capture -- --target lite        new app (dist-lite/)     -> tests/golden/lite/
+//   npm run golden:capture -- --target full --maps  game maps off and on (R-20): <stem>__<view>__off.png and __on.png in
+//                                                  tests/golden/full-maps/; the PNGs come from BRICK_REFS/game-assets/v-public/maps
 //   npm run golden:capture -- ships                only saves whose path contains "ships"
 //   npm run golden:capture -- --target full --gfx  graphics effects on (L-03) -> tests/golden/full-gfx/:
 //                                                  iso0, close and below with the default environment,
@@ -33,9 +35,12 @@ const ti = args.indexOf('--target');
 const TARGET = ti >= 0 ? args[ti + 1] : 'legacy';
 const filter = args.filter((a, i) => !a.startsWith('--') && i !== ti + 1)[0] ?? '';
 const GFX = args.includes('--gfx');
+const MAPS = args.includes('--maps');
+const MAPS_DIR = join(REFS, 'game-assets/v-public/maps');
 if (!['legacy', 'full', 'lite'].includes(TARGET)) { console.error(`unknown target ${TARGET}`); process.exit(2); }
+if (MAPS && (TARGET !== 'full' || GFX || !existsSync(MAPS_DIR))) { console.error('--maps needs --target full, no --gfx and the game maps in BRICK_REFS'); process.exit(2); }
 if (GFX && TARGET === 'legacy') { console.error('--gfx needs --target full or lite'); process.exit(2); }
-const OUT = TARGET === 'legacy' ? join(ROOT, 'tests/golden') : join(ROOT, `tests/golden/${TARGET}${GFX ? '-gfx' : ''}`);
+const OUT = TARGET === 'legacy' ? join(ROOT, 'tests/golden') : join(ROOT, `tests/golden/${TARGET}${GFX ? '-gfx' : ''}${MAPS ? '-maps' : ''}`);
 
 if (!existsSync(join(REFS, 'saves'))) {
   console.log(`no reference saves at ${REFS}; nothing to capture`);
@@ -66,12 +71,12 @@ const VIEWS = [
 ];
 
 // The new app is served over http (module scripts don't load from file://).
-const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.wasm': 'application/wasm', '.json': 'application/json' };
+const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.wasm': 'application/wasm', '.json': 'application/json', '.png': 'image/png' };
 async function serve(dir) {
   const server = createServer((req, res) => {
     const p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-    const f = join(dir, p.endsWith('/') ? p + 'index.html' : p);
-    if (!f.startsWith(dir) || !existsSync(f)) { res.writeHead(404); res.end(); return; }
+    const f = MAPS && p.startsWith('/maps/') ? join(MAPS_DIR, p.slice(6)) : join(dir, p.endsWith('/') ? p + 'index.html' : p);
+    if (!(f.startsWith(dir) || f.startsWith(MAPS_DIR)) || !existsSync(f)) { res.writeHead(404); res.end(); return; }
     res.writeHead(200, { 'content-type': MIME[extname(f)] ?? 'application/octet-stream' });
     res.end(readFileSync(f));
   });
@@ -87,7 +92,7 @@ else {
   if (!existsSync(join(dir, entry))) { console.error(`missing ${dir}/${entry}; run npm run build first`); process.exit(1); }
   const s = await serve(dir);
   server = s.server;
-  pageUrl = `${s.url}/${entry}?test`;
+  pageUrl = `${s.url}/${entry}?test${MAPS ? '&maps=1' : ''}`;
 }
 
 mkdirSync(OUT, { recursive: true });
@@ -109,6 +114,7 @@ await page.waitForFunction(() => !!window.__brickTest?.ready);
 const renderer = await page.evaluate(() => window.__brickTest.renderer());
 console.log(`target: ${TARGET}, renderer: ${renderer}`);
 await page.evaluate(() => window.__brickTest.hideUi());
+if (MAPS) await page.waitForFunction(() => window.__brickTest.mapsMode() > 0, null, { timeout: 60_000 });
 
 const shots = [];
 async function shoot(file, meta) {
@@ -140,7 +146,12 @@ for (const entry of ENTRIES) {
   if (GFX) await setGfx('default');
   for (const v of VIEWS.filter((v) => (!entry.views || entry.views.includes(v.name)) && (!GFX || GFX_VIEWS.includes(v.name)))) {
     await setView(v, status.zoom);
-    await shoot(`${stem}__${v.name}.png`, { save: rel, view: v, preset: 'default', bricks: status.bricks, gfx: GFX });
+    if (MAPS) {
+      for (const [mode, tag] of [[0, 'off'], [1, 'on']]) {
+        await page.evaluate((m) => window.__brickTest.mapsMode(m), mode);
+        await shoot(`${stem}__${v.name}__${tag}.png`, { save: rel, view: v, preset: 'default', bricks: status.bricks, maps: mode });
+      }
+    } else await shoot(`${stem}__${v.name}.png`, { save: rel, view: v, preset: 'default', bricks: status.bricks, gfx: GFX });
   }
   if (GFX) {
     await setGfx('water');
@@ -148,7 +159,7 @@ for (const entry of ENTRIES) {
     await shoot(`${stem}__water.png`, { save: rel, view: VIEWS[0], preset: 'env', bricks: status.bricks, gfx: true });
     await setGfx('none');
   }
-  if (rel === PALETTE && !GFX) {
+  if (rel === PALETTE && !GFX && !MAPS) {
     for (const p of PRESETS) {
       await setPreset(p);
       await setView(VIEWS[0], status.zoom);
