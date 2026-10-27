@@ -13,6 +13,7 @@ import { pinned, proposedBox } from '../editor/resize.ts';
 import { isFree } from '../app/mode.ts';
 import { centrePoint } from './freecam.ts';
 import { resizeIso, snapYaw, type Angles } from './iso.ts';
+import { ops as perspOps, persp, projectPseudo, tanHalf } from './persp.ts';
 
 export const PITCH_MIN = -80 * Math.PI / 180, PITCH_MAX = 80 * Math.PI / 180;   // below 0 = looking up from below
 export const ZOOM_MIN = 0.3, ZOOM_MAX = 20000;        // wide: a whole big build framed around one small brick
@@ -29,6 +30,7 @@ export function initCamera(c: HTMLCanvasElement): void {
  * frame the camera (S.cam) lives in. GL x = X, GL y = Z, GL z = Y.
  */
 export function toView(X: number, Y: number, Z: number, m: Mat4 = S.view): [number, number] {
+  if (persp.on && m === S.view) return projectPseudo(m, [X - persp.eye[0], Y - persp.eye[1], Z - persp.eye[2]], S.cam.half, tanHalf());
   return viewDir(X - S.origin[0], Y - S.origin[1], Z - S.origin[2], m);
 }
 
@@ -130,6 +132,7 @@ export function studPx(i: number): number {
  * snap), then pan / zoom to frame the focused brick (with any resize ghost).
  */
 export function updateCamera(w: number, h: number): void {
+  if (persp.on) { perspOps.tick(w, h); return; }
   const { orbit, cam, dlo, dhi } = S;
   for (let i = 0; i < 3; i++) { dlo[i] = S.lo[i]; dhi[i] = S.hi[i]; }   // snap straight to whole-stud sizes, no easing
   const turning = orbit.dragging || isoSettling();

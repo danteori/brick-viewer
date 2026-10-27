@@ -3,6 +3,7 @@
 // driven identically.
 
 import { cameraStyle } from './mode.ts';
+import { persp } from '../render/persp.ts';
 import { gliding } from './explore.ts';
 import { closeWindow, openWindow, openWindows } from '../ui/windows.ts';
 import { ELEV, S, YAW0 } from './state.ts';
@@ -29,7 +30,7 @@ import { componentsOf } from '../scene/compmodel.ts';
 import { brickKey } from '../scene/components.ts';
 import type { WireEnd } from '../scene/wires.ts';
 import { wireView } from '../ui/overlay/wires.ts';
-import { interact, live } from '../ui/panels/logic.ts';
+import { live, shownPrompt } from '../ui/panels/logic.ts';
 import { figureBoxes } from '../render/figure.ts';
 import { gridSetOf, rowsOfGrid } from '../scene/dyngrids.ts';
 import { setGraphicsPreset, setViewerGraphics } from './graphics.ts';
@@ -80,7 +81,7 @@ export interface BrickTest {
   /** the scene's components and wires (C-02 / C-03): each instance as [brick key, type, data as JSON], each wire as "source -> target" */
   components(): { instances: [string, string, string][]; wires: string[]; dirty: boolean; refused: number; drawn: { wires: number; ports: number } } | null;
   /** the live logic (C-13): tick count, rate, pause, the texts shown and the switches' states */
-  logic(): { ticks: number; tps: number; paused: boolean; interact: boolean; texts: string[]; switches: boolean[] };
+  logic(): { ticks: number; tps: number; paused: boolean; prompt: string | null; texts: string[]; switches: boolean[] };
   /** list index of the scene row showing save brick `key` ("grid/x_y_z/index"), or -1 */
   rowOfBrick(key: string): number;
   /** the player reference figure's part boxes (absolute viewer units), empty while it's off */
@@ -98,6 +99,7 @@ export interface BrickTest {
   closeWindow(id: string): void;
   /** the camera: view-plane centre, half-height, yaw and pitch (radians) */
   camera(): { x: number; y: number; half: number; yaw: number; pitch: number };
+  persp(): { on: boolean; fly: boolean; follow: boolean; eye: number[]; anchor: number[]; dist: number; effDist: number };
   grids(): { id: number; origin: number[]; frac: number[]; quat: number[]; ids: number[] }[] | null;
   /**
    * Graphics effects (L-03 / L-06; off in ?test until this is called): on / off, the game quality
@@ -192,6 +194,7 @@ export function installTestHook(canvas: HTMLCanvasElement): void {
     openWindow: (id) => { openWindow(id); },
     closeWindow: (id) => { closeWindow(id); },
     camera: () => ({ x: S.cam.x, y: S.cam.y, half: S.cam.half, yaw: S.orbit.yaw, pitch: S.orbit.pitch }),
+    persp: () => ({ on: persp.on, fly: persp.fly, follow: persp.follow, eye: persp.eye.slice(), anchor: persp.anchor.slice(), dist: persp.dist, effDist: persp.effDist }),
     focusBox: () => ({ lo: S.lo.slice(), hi: S.hi.slice() }),
     brickBox: (k) => { const b = brickView(S.scene, S.scene.ordered()[k]!); return { lo: b.lo, hi: b.hi }; },
     ids: () => S.scene.ordered(),
@@ -216,7 +219,7 @@ export function installTestHook(canvas: HTMLCanvasElement): void {
       };
     },
     logic: () => ({
-      ticks: live.ev?.ticks ?? 0, tps: live.clock.tps, paused: live.clock.paused, interact: interact.on,
+      ticks: live.ev?.ticks ?? 0, tps: live.clock.tps, paused: live.clock.paused, prompt: shownPrompt(),
       texts: live.shownTexts().map((s) => s.text), switches: live.graph?.ofKind('switch').map((n) => live.ev!.switchOn(n)) ?? [],
     }),
     rowOfBrick(key) {

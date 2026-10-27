@@ -12,6 +12,7 @@ import { cutRule } from '../render/cutaway.ts';
 import { BRZ_UNIT } from '../core/units.ts';
 import { addMirror, syncScene } from './sync.ts';
 import type { SceneStore } from './store.ts';
+import { persp, rayDirection, tanHalf, type Box } from '../render/persp.ts';
 
 export const pickGrid = {
   dirty: true, cs: 1, org: [0, 0, 0] as number[], dim: [1, 1, 1] as number[],
@@ -147,7 +148,8 @@ export function rayBox(Sv: readonly number[], D: readonly number[], l: ArrayLike
 }
 
 /** The view ray's length limit (the ortho depth range is +-60 around the render origin). */
-const SMAX = 120;
+const ORTHO_SMAX = 120, PERSP_SMAX = 20000;
+const smax = (): number => (persp.on ? PERSP_SMAX : ORTHO_SMAX);
 
 export interface Hit { k: number; s: number; ax: number }
 
@@ -157,6 +159,7 @@ export interface Hit { k: number; s: number; ax: number }
  * origin) and goes straight into the view. Start (absolute) and direction in world X, Y, Z.
  */
 export function viewRay(vx: number, vy: number): { S: number[]; D: number[] } {
+  if (persp.on) return { S: persp.eye.slice(), D: rayDirection(S.view, vx, vy, S.cam.half, tanHalf()) };
   const m = S.view, r0 = [m[0]!, m[8]!, m[4]!], r1 = [m[1]!, m[9]!, m[5]!], r2 = [m[2]!, m[10]!, m[6]!];   // view axes in world X,Y,Z
   const o = S.origin;
   return { S: [0, 1, 2].map((i) => o[i]! + (vx * r0[i]! + vy * r1[i]! + 60 * r2[i]!)), D: r2.map((v) => -v) };
@@ -169,15 +172,15 @@ export function viewRay(vx: number, vy: number): { S: number[]; D: number[] } {
  */
 export function pickRay(vx: number, vy: number): Hit | null {
   const { S: Sv, D } = viewRay(vx, vy);
-  const hides = cutRule();                                 // the X-ray cutaway's rule, or null
+  const hides = persp.on ? null : cutRule();               // the X-ray cutaway's rule, or null
   let best: Hit | null = null;
   const off = hiddenShown() ? 0 : hiddenBit(S.scene);       // the Visible-off bit while those bricks are skipped
-  const s0 = rayBox(Sv, D, S.dlo, S.dhi, 0, SMAX);
+  const s0 = rayBox(Sv, D, S.dlo, S.dhi, 0, smax());
   if (s0 && S.sel >= 0 && S.scene.alive(S.sel) && !S.hidden.has(S.sel) && !(off && isHiddenRow(S.scene, S.sel, off))) best = { k: S.sel, s: s0.s, ax: s0.ax };
   if (!S.scene.count) return best;
   walkRay(Sv, D, (k, bl, bh) => {
     if (hides && hides(bl, bh)) return;
-    const h = rayBox(Sv, D, bl, bh, 0, SMAX);
+    const h = rayBox(Sv, D, bl, bh, 0, smax());
     if (h && (!best || h.s < best.s)) best = { k, s: h.s, ax: h.ax };
   }, () => (best ? best.s : Infinity));
   return best;
@@ -191,9 +194,9 @@ function walkRay(Sg: readonly number[], D: readonly number[], visit: (k: number,
   const G = pickReady();
   // clip the ray to the grid, then walk its cells (3D DDA), stopping once the stop distance beats the cell exit
   const gl0 = G.org, gh0 = G.org.map((v, i) => v + G.dim[i]! * G.cs);
-  const span = rayBox(Sg, D, gl0, gh0, 0, SMAX);
+  const span = rayBox(Sg, D, gl0, gh0, 0, smax());
   if (!span) return;
-  let tEnd = SMAX;
+  let tEnd = smax();
   for (let i = 0; i < 3; i++) if (Math.abs(D[i]!) >= 1e-12) tEnd = Math.min(tEnd, Math.max((gl0[i]! - Sg[i]!) / D[i]!, (gh0[i]! - Sg[i]!) / D[i]!));
   const t = span.s, c: number[] = [], stp: number[] = [], tMax: number[] = [], tDel: number[] = [];
   for (let i = 0; i < 3; i++) {
@@ -241,10 +244,10 @@ export function coveringBricks(n = 7): number[] {
   }
   for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
     const { S: Sv, D } = viewRay(x0 + (x1 - x0) * (i + 0.5) / n, y0 + (y1 - y0) * (j + 0.5) / n);
-    const f = rayBox(Sv, D, lo, hi, 0, SMAX);
+    const f = rayBox(Sv, D, lo, hi, 0, smax());
     if (!f) continue;
     walkRay(Sv, D, (k, bl, bh) => {
-      const h = rayBox(Sv, D, bl, bh, 0, SMAX);
+      const h = rayBox(Sv, D, bl, bh, 0, smax());
       if (h && h.s < f.s - 1e-6) out.add(k);
     }, () => f.s);
   }
@@ -268,5 +271,18 @@ export function boxQuery(lo: readonly number[], hi: readonly number[], pad = 0):
       if (ok) out.push(k);
     }
   }
+  return out;
+}
+
+export function boxesAlong(a: readonly number[], b: readonly number[], pad: number): Box[] {
+  const lo = [0, 1, 2].map((i) => Math.min(a[i]!, b[i]!)), hi = [0, 1, 2].map((i) => Math.max(a[i]!, b[i]!));
+  const G = pickReady(), out: Box[] = [], off = hiddenShown() ? 0 : hiddenBit(S.scene);
+  for (const k of boxQuery(lo, hi, pad)) {
+    if (!S.scene.alive(k) || S.hidden.has(k) || (off && isHiddenRow(S.scene, k, off))) continue;
+    if (k === S.sel) continue;
+    const o = k * 6;
+    out.push([[G.box[o]!, G.box[o + 1]!, G.box[o + 2]!], [G.box[o + 3]!, G.box[o + 4]!, G.box[o + 5]!]]);
+  }
+  if (S.sel >= 0 && S.scene.alive(S.sel) && !S.hidden.has(S.sel) && S.scene.count) out.push([[S.dlo[0]!, S.dlo[1]!, S.dlo[2]!], [S.dhi[0]!, S.dhi[1]!, S.dhi[2]!]]);
   return out;
 }

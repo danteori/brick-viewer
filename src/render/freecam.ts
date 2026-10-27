@@ -7,6 +7,7 @@ import { S } from '../app/state.ts';
 import { viewOf } from '../core/math.ts';
 import { minHalf, PITCH_MAX, PITCH_MIN, updateDirs, ZOOM_MAX, ZOOM_MIN } from './camera.ts';
 import type { V3 } from '../scene/brick.ts';
+import { ops as perspOps, persp } from './persp.ts';
 
 /** Past this view-plane distance from the render origin the origin is moved onto the camera (float32 stays exact). */
 const REBASE = 200;
@@ -15,15 +16,17 @@ const REBASE = 200;
 export const unitsPerPx = (cw: number, ch: number): number => 2 * S.cam.half / Math.max(1, Math.min(cw, ch));
 
 export function panBy(dxPx: number, dyPx: number, cw: number, ch: number): void {
+  if (persp.on) { perspOps.pan(dxPx, dyPx, cw, ch); return; }
   const u = unitsPerPx(cw, ch);
   S.cam.x -= dxPx * u; S.cam.y += dyPx * u;
 }
 
 /** Pan by a fraction of the view height (WASD): +x right, +y up. */
-export function panView(fx: number, fy: number): void { S.cam.x += fx * S.cam.half; S.cam.y += fy * S.cam.half; }
+export function panView(fx: number, fy: number): void { if (persp.on) return; S.cam.x += fx * S.cam.half; S.cam.y += fy * S.cam.half; }
 
 /** Zoom by factor g (>1 zooms out) keeping the point under (px, py) CSS px fixed. */
 export function zoomAt(g: number, px: number, py: number, cw: number, ch: number): void {
+  if (persp.on) { perspOps.zoom(g); return; }
   const cam = S.cam, fx = Math.max(cw / ch, 1), fy = Math.max(ch / cw, 1);
   const half = Math.min(minHalf() * ZOOM_MAX, Math.max(minHalf() * ZOOM_MIN, cam.half * g));
   const ux = 2 * px / cw - 1, uy = 1 - 2 * py / ch;
@@ -44,6 +47,7 @@ export function centrePoint(): V3 {
 
 /** Orbit by a pointer delta about `pivot` (relative to the render origin): the pivot stays put on screen. Free angles; pitch keeps the usual limits. */
 export function orbitAbout(pivot: V3, dxPx: number, dyPx: number): void {
+  if (persp.on) { perspOps.look(dxPx, dyPx); return; }
   const o = S.orbit;
   o.yawT += dxPx * 0.008;
   o.pitchT = Math.max(PITCH_MIN, Math.min(PITCH_MAX, o.pitchT + dyPx * 0.006));
@@ -56,6 +60,7 @@ export function orbitAbout(pivot: V3, dxPx: number, dyPx: number): void {
 
 /** Moves the render origin onto the camera's centre line when the camera has drifted far from it. */
 export function rebaseOrigin(): void {
+  if (persp.on) return;
   const { x, y } = S.cam;
   if (Math.hypot(x, y) < REBASE) return;
   const m = S.view;
