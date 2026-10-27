@@ -110,12 +110,12 @@ test('a resize from above glides to the iso corner above; an orbit during it kee
   const at = await pressAndDragZ(page, true, 0);
   await expect(page.locator('#hud')).toContainText('(isometric)');
   await expect(page.locator('#hud')).not.toContainText('from below');
-  await page.mouse.down({ button: 'middle' });
+  await page.mouse.down({ button: 'right' });
   for (let i = 1; i <= 10; i++) { await page.mouse.move(at[0] + 6 * i, at[1]); await frames(page, 1); }
-  await page.mouse.up({ button: 'middle' });
+  await page.mouse.up({ button: 'right' });
   await page.mouse.up(); await settle(page);
   const end = await camera(page);
-  expect(end.yaw).toBeCloseTo(YAW0 + 60 * 0.008, 4);
+  expect(end.yaw).toBeCloseTo(YAW0 + 54 * 0.008, 4);
   expect(end.pitch).toBeCloseTo(ELEV, 2);
   expect(r3((await snap(page)).bricks[0].hi[2])).toBe(r3(b0.hi[2]));
 });
@@ -250,6 +250,28 @@ test('auto X-ray (U-33): a covered focus turns it on with a fitted Keep; hand ed
   await expect(page.locator('#xraybox')).toBeHidden();
   await expect(page.locator('#xray')).toHaveAttribute('aria-pressed', 'false');
   expect(errors).toEqual([]);
+});
+
+test('free camera: a middle drag pans during a resize and keeps the angle (U-37)', async ({ page }) => {
+  await page.goto('/?test&mode=one');
+  await page.waitForFunction(() => !!(window as unknown as W).__brickTest);
+  await settle(page);
+  const b0 = (await snap(page)).bricks[0];
+  const [a] = await zFace(page, true);
+  await page.mouse.move(a[0], a[1]); await frames(page);
+  await page.mouse.down(); await frames(page, 4);
+  const before = await camera(page);
+  await page.mouse.move(a[0], a[1] - 40, { steps: 4 }); await frames(page, 2);
+  await page.mouse.down({ button: 'middle' });
+  await page.mouse.move(a[0] + 90, a[1] - 40, { steps: 10 }); await frames(page, 3);
+  await page.mouse.up({ button: 'middle' });
+  const after = await camera(page);
+  expect(after.yaw).toBeCloseTo(before.yaw, 6);
+  expect(after.pitch).toBeCloseTo(before.pitch, 6);
+  expect(Math.hypot(after.x - before.x, after.y - before.y)).toBeGreaterThan(0.01);
+  await page.mouse.up(); await settle(page);
+  expect((await snap(page)).bricks.length).toBe(1);
+  expect(b0).toBeTruthy();
 });
 
 test('X-ray modes (U-39): height slice, room and see-through let a click reach the block inside; the panel shows only the sliders each mode uses', async ({ page }) => {

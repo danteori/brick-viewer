@@ -12,7 +12,7 @@ const ON_TEXT = placeholder('Precision mode: drag to move the brick');
 const OFF_TEXT = placeholder('Precision mode off');
 const NO_POSE_TEXT = placeholder('Point at the scene first');
 const PLACE_TEXT = placeholder('Place');
-export const PRECISION_HINT = placeholder('G toggles precision mode');
+export const PRECISION_HINT = placeholder('C toggles precision mode');
 export const PRECISION_ON_HINT = placeholder('drag moves the brick along its axes, right-click finishes an axis, PgUp / PgDn raise / lower, Enter places');
 
 interface Move {
@@ -22,6 +22,12 @@ interface Move {
 }
 let move: Move | null = null;
 let button: HTMLButtonElement | null = null;
+
+/** Whether `key` toggles precision mode: C, or G as an alias; C is autoCenter in the classic camera. */
+export const togglesPrecision = (key: string, classic: boolean): boolean => {
+  const k = key.toLowerCase();
+  return k === 'g' || (k === 'c' && !classic);
+};
 
 /** The ghost is in precision mode: it sits where it was and the drag moves it. */
 export const precisionOn = (): boolean => !!ed.ghost && !!ed.fixedPose;
@@ -91,12 +97,12 @@ export function precisionFinishAxis(at: [number, number] | null): void {
 
 export function precisionRelease(): void { move = null; }
 
-/** The Place button: the ghost goes down where it is, and the cursor takes it back. */
+/** The Place button: the ghost goes down where it is, and precision mode stays on. */
 export function placeFromPrecision(): void {
   const G = ed.ghost;
   if (!G || !ed.fixedPose) return;
   if (!placeGhost()) return;
-  ed.fixedPose = null; move = null;
+  move = null;
 }
 
 /** Makes the Place button and keeps it in step with the mode. */

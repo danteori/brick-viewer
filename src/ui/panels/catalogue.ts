@@ -15,7 +15,7 @@ const entryItems = (e: CatalogueEntry): Brick[] => [{
 
 /** Takes the entry as the ghost brick, as a middle-click on a brick does: click to place, Ctrl+V for another. */
 function pickEntry(e: CatalogueEntry, from: HTMLElement): void {
-  clip.items = entryItems(e);
+  clip.items = entryItems(e); clip.origin = null;
   setPasteMode('brick');
   startPlacing(clip.items, `place ${e.label.toLowerCase()}`, 'click', from, { drop: true });
   closeWindow('catwin');

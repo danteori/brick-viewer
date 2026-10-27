@@ -52,9 +52,14 @@ export function componentBricks(ids: readonly number[]): number[] {
  * new bricks) but with their components (a handle in `comps`, C-04). `keepSave`: the same bricks
  * (mirror in place): load data kept, no components carried.
  */
+export function groupOrigin(ids: readonly number[]): V3 {
+  const items = ids.map((id) => brickView(S.scene, id));
+  return [0, 1, 2].map((i) => { let v = Infinity; for (const b of items) v = Math.min(v, b.lo[i]!); return v; }) as V3;
+}
+
 export function groupItems(ids: readonly number[], keepSave = false): Brick[] {
   const items = ids.map((id) => brickView(S.scene, id)), m = keepSave ? null : componentsOf(S.scene);
-  const o = [0, 1, 2].map((i) => { let v = Infinity; for (const b of items) v = Math.min(v, b.lo[i]!); return v; });
+  const o = groupOrigin(ids);
   items.forEach((b, j) => {
     b.lo = b.lo.map((v, i) => r3(v - o[i]!)) as V3; b.hi = b.hi.map((v, i) => r3(v - o[i]!)) as V3;
     if (!keepSave && b.save) { delete b.save.seq; if (!Object.keys(b.save).length) delete b.save; }
@@ -68,7 +73,7 @@ export function groupItems(ids: readonly number[], keepSave = false): Brick[] {
 export function copySelection(): boolean {
   const ids = effectiveIds();
   if (!ids.length) { setStatus('Nothing to copy'); return false; }
-  clip.items = groupItems(ids);
+  clip.items = groupItems(ids); clip.origin = groupOrigin(ids);
   const comps = clip.items.filter((b) => b.comps !== undefined).length;
   setStatus(`Copied ${ids.length === 1 ? itemName(clip.items[0]!) : plural(ids.length)}` + (comps ? ` (with the components of ${plural(comps)}; wires are not copied)` : '') +
     (clip.mode === 'brick' ? ' · Ctrl+V to paste' : ' · Ctrl+V uploads: switch it to Paste brick under Open save'));
@@ -111,7 +116,7 @@ export function cutSelection(): void {
   if (lockedGridRows(S.scene, ids).length) { refuse("Can't cut: these bricks are in a moving grid that has components or wires (removing its bricks isn't supported yet); Ctrl+C copies"); return; }
   const comps = componentBricks(ids);
   if (comps.length) { refuse(`Can't cut: ${plural(comps.length)} ${comps.length === 1 ? 'carries' : 'carry'} components or wires (deleting those isn't supported yet); Ctrl+C copies`); return; }
-  clip.items = groupItems(ids);
+  clip.items = groupItems(ids); clip.origin = groupOrigin(ids);
   removeIds(ids, 'cut');
   initAudio(); playDelete();
   // the cut bricks are in hand at once, as a paste: click to put them down, Esc keeps them on the clipboard

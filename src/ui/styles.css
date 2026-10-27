@@ -27,7 +27,7 @@ body[data-tool="paint"] #c { cursor:crosshair !important; }
 #mode button:disabled { opacity:.4; cursor:default; color:#9a9ca3; }   /* fixed-size rounds can't switch type */
 .dim.ro, .dim.ro:hover { cursor:default; border-color:rgba(201,204,211,.18); color:#9a9ca3; }   /* read-only size (rounds) */
 #menu .mrow.ro { cursor:default; } #menu .mrow.ro input { color:#9a9ca3; border-style:dashed; }
-#lightbox, #undobox, #soundbox { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:7px 10px; border-radius:10px;
+#lightbox, #undobox, #pastehomebox, #soundbox { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:7px 10px; border-radius:10px;
         background:rgba(29,30,33,.88); border:1px solid rgba(255,255,255,.12); box-shadow:0 6px 24px rgba(0,0,0,.35);
         font:600 12px/1.2 system-ui, sans-serif; color:#9a9ca3; }
 #lightbox select { min-width:0; flex:1; padding:4px 6px; border-radius:7px; border:1px solid rgba(255,255,255,.18); background:#2b2c30;

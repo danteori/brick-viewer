@@ -223,7 +223,7 @@ export { SNAP } from './axisdrag.ts';
 /** The free camera snaps to the iso corner once the drag moves, not on a plain click. */
 let snapOnMove = false;
 const SNAP_PX = 3;
-const orbitingInResize = (): boolean => S.orbit.dragging || camDrag.kind === 'orbit';
+const cameraMovingInResize = (): boolean => S.orbit.dragging || camDrag.kind !== null;
 
 export function onDown(e: PointerEvent, canvas: HTMLCanvasElement): void {
   if (e.button === 1) { startOrbit(e, canvas); return; }
@@ -266,7 +266,7 @@ export function onMove(e: PointerEvent): void {
   if (!S.held || !S.anchor) return;
   if (!(e.buttons & 1)) { onUp({ type: 'pointerup' }); return; }   // left released while right still held
   const p: [number, number] = [e.clientX, e.clientY]; S.cursor = p;
-  if (orbitingInResize()) { S.anchor = p; return; }
+  if (cameraMovingInResize()) { S.anchor = p; return; }
   if (snapOnMove && Math.hypot(p[0] - S.anchor[0], p[1] - S.anchor[1]) > SNAP_PX) { snapOnMove = false; glideToResizeIso(); }
   axisDragMove(S, p, S.dirs, studPx, step);
   drawGuide();
@@ -300,6 +300,15 @@ export function orbitDuringResize(): void {
   if (!S.held) return;
   snapOnMove = false;
   noteResizeOrbit();
+  commit();
+  axisDragFinish(S, -1, S.cursor);
+  clearGuide();
+}
+
+/** The free camera pans during a resize: the pending step is kept, and the resize waits for the pan to end. */
+export function panDuringResize(): void {
+  if (!S.held) return;
+  snapOnMove = false;
   commit();
   axisDragFinish(S, -1, S.cursor);
   clearGuide();

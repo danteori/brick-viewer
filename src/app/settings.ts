@@ -2,6 +2,7 @@
 
 export const UNDO_KEY = 'brickViewer.undoSteps';
 export const PASTE_KEY = 'brickViewer.pasteMode';
+export const PASTE_HOME_KEY = 'brickViewer.precisionPasteHome';
 
 export function loadString(key: string): string | null {
   try { return localStorage.getItem(key); } catch { return null; }

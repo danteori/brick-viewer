@@ -4,7 +4,7 @@ import { frameFocus, toView, viewDir } from '../render/camera.ts';
 import { centrePoint, orbitAbout, panBy, panView, rebaseOrigin, zoomAt } from '../render/freecam.ts';
 import { cursorRay, ed } from '../editor/ghost.ts';
 import { pickRay } from '../scene/spatial.ts';
-import { orbitDuringResize, selectBrick, startOrbit } from '../editor/resize.ts';
+import { orbitDuringResize, panDuringResize, selectBrick, startOrbit } from '../editor/resize.ts';
 import { gridClick } from '../editor/grids.ts';
 import { isTyping } from '../editor/input.ts';
 import { initAudio, playSelect } from '../ui/audio.ts';
@@ -127,8 +127,8 @@ export function initExplore(canvas: HTMLCanvasElement): void {
   addEventListener('mousedown', (e) => {
     if (!isFree() || !S.held || e.button !== 1 || drag) return;
     e.preventDefault();
-    orbitDuringResize();
-    startDrag('orbit', e.clientX, e.clientY, pointerId, canvas);
+    panDuringResize();
+    startDrag('pan', e.clientX, e.clientY, pointerId, canvas, 1);
   }, true);
   addEventListener('mouseup', (e) => {
     if (e.button === 2) rightTrack = null;
