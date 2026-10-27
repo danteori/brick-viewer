@@ -51,7 +51,12 @@ test('The save picture shows while the worker loads, then goes', async ({ page }
     (window as unknown as { __seen: typeof seen }).__seen = seen;
     new MutationObserver(() => { if (document.getElementById('loadpreview')) seen.shown = true; }).observe(document.body, { childList: true, subtree: true });
   });
-  const r = await page.evaluate(async (s) => (window as unknown as W).__brickTest.loadSaveWorker(s, 'pic.brz'), b64(writeBrz(files)));
+  const r = await page.evaluate(async (s) => {
+    const path = '/src/scene/load.ts';
+    const load = await import(/* @vite-ignore */ path) as { hasParser(): boolean };
+    for (let i = 0; i < 200 && !load.hasParser(); i++) await new Promise((res) => setTimeout(res, 50));
+    return (window as unknown as W).__brickTest.loadSaveWorker(s, 'pic.brz');
+  }, b64(writeBrz(files)));
   expect(r.viaWorker).toBe(true);
   expect(await page.evaluate(() => (window as unknown as { __seen: { shown: boolean } }).__seen.shown)).toBe(true);
   await expect(page.locator('#loadpreview')).toHaveCount(0);
