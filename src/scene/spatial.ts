@@ -2,10 +2,12 @@
 // kept in step with the SceneStore through scene/sync.ts: rows that change move between cells, a
 // row that leaves the grid's bounds (or a new store) rebuilds it. Boxes are absolute viewer units.
 // The focused brick is tested on its own with its live box; hidden rows (a selection being moved)
-// are skipped. Overlap (collision) queries live in collision.ts. Phase 3 replaces this with the
+// are skipped, and so are Visible-off bricks while they don't show (app/hidden.ts). Overlap (collision) queries live in collision.ts. Phase 3 replaces this with the
 // CSR SpatialIndex.
 
 import { S } from '../app/state.ts';
+import { hiddenShown } from '../app/hidden.ts';
+import { hiddenBit, isHiddenRow } from './hidden.ts';
 import { cutTube, tubeHides } from '../render/cutaway.ts';
 import { BRZ_UNIT } from '../core/units.ts';
 import { addMirror, syncScene } from './sync.ts';
@@ -160,14 +162,15 @@ export function viewRay(vx: number, vy: number): { S: number[]; D: number[] } {
 /**
  * The nearest brick under view-plane point (vx, vy) (relative to the render origin), or null. With
  * the X-ray cutaway on, the bricks it hides (cutTube / tubeHides) are passed through. The focused
- * brick is never hidden.
+ * brick is never hidden by it. Visible-off bricks are passed through while they don't show.
  */
 export function pickRay(vx: number, vy: number): Hit | null {
   const { S: Sv, D } = viewRay(vx, vy), SMAX = 120;
   const tube = cutTube(), s0c = 0;                         // the X-ray cutaway's tube, or null
   let best: Hit | null = null;
+  const off = hiddenShown() ? 0 : hiddenBit(S.scene);       // the Visible-off bit while those bricks are skipped
   const s0 = rayBox(Sv, D, S.dlo, S.dhi, 0, SMAX);
-  if (s0 && S.sel >= 0 && S.scene.alive(S.sel) && !S.hidden.has(S.sel)) best = { k: S.sel, s: s0.s, ax: s0.ax };
+  if (s0 && S.sel >= 0 && S.scene.alive(S.sel) && !S.hidden.has(S.sel) && !(off && isHiddenRow(S.scene, S.sel, off))) best = { k: S.sel, s: s0.s, ax: s0.ax };
   if (!S.scene.count) return best;
   const G = pickReady(), Sg = Sv;
   // clip the ray to the grid, then walk its cells (3D DDA), stopping once a hit beats the cell exit
@@ -192,6 +195,7 @@ export function pickRay(vx: number, vy: number): Hit | null {
       if (G.stamp[k] === q || k === S.sel) continue;
       G.stamp[k] = q;
       if (hidden.size && hidden.has(k)) continue;
+      if (off && isHiddenRow(S.scene, k, off)) continue;
       const o = k * 6;
       bl[0] = G.box[o]!; bl[1] = G.box[o + 1]!; bl[2] = G.box[o + 2]!; bh[0] = G.box[o + 3]!; bh[1] = G.box[o + 4]!; bh[2] = G.box[o + 5]!;
       if (tube && tubeHides(tube, bl, bh)) continue;

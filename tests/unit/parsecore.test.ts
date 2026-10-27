@@ -7,6 +7,7 @@ import { storeFromFiles } from '../../src/scene/load.ts';
 import { adoptParsed, CULL_TILE, cullColumnsOf, parseForPost, regionMasks } from '../../src/scene/parsecore.ts';
 import { FaceCuller, FULL_BOX_ASSETS, type CullBrick } from '../../src/scene/cull.ts';
 import { ASSETS, F_ALIVE, Kind, MATERIALS, SceneStore, worldHalfOf } from '../../src/scene/store.ts';
+import { isHiddenRow } from '../../src/scene/hidden.ts';
 import { hasRefs, readRef, referenceSaves } from './refs.ts';
 import { synthSave } from './synthsave.ts';
 
@@ -15,7 +16,7 @@ function globalMasks(s: SceneStore): Uint8Array {
   const bricks: CullBrick[] = [];
   for (let id = 0; id < s.n; id++) {
     if (!(s.flags[id]! & F_ALIVE)) { bricks.push({ pos: [0, 0, 0], half: [0, 0, 0], shape: 'none', fullBox: false }); continue; }
-    const box = s.shape[id] === Kind.Box && FULL_BOX_ASSETS.has(ASSETS.name(s.asset[id]!)), h = worldHalfOf(s.orient[id]!, s.hx[id]!, s.hy[id]!, s.hz[id]!);
+    const box = s.shape[id] === Kind.Box && FULL_BOX_ASSETS.has(ASSETS.name(s.asset[id]!)) && !isHiddenRow(s, id), h = worldHalfOf(s.orient[id]!, s.hx[id]!, s.hy[id]!, s.hz[id]!);
     bricks.push({ pos: [s.px[id]!, s.py[id]!, s.pz[id]!], half: [h[0], h[1], h[2]], shape: box ? 'box' : 'other', material: MATERIALS.name(s.material[id]!), grid: s.grid[id]!, fullBox: box });
   }
   return new FaceCuller(bricks).masks;

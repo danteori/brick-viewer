@@ -14,6 +14,7 @@ import { MATERIALS_GLSL } from '../materials.ts';
 import { CUT_VS_GLSL } from '../cutaway.ts';
 import { BRICK_FX_GLSL } from '../fx/glsl.ts';
 import { LIGHTING } from '../lighting.ts';
+import { HIDDEN_GLSL } from '../hiddenlook.ts';
 
 /** luminance of the Default sky's sun + sky: the light the stud glint was tuned under */
 const SPEC_LIGHT_REF = ((s, k) => 0.2126 * (s[0]! + k[0]!) + 0.7152 * (s[1]! + k[1]!) + 0.0722 * (s[2]! + k[2]!))(LIGHTING.default.sun, LIGHTING.default.sky);
@@ -183,7 +184,7 @@ uniform vec3 uSun, uSky, uFloor;
 uniform float uExposure;
 // Special materials (src/render/materials.ts, wired in render/matpass.ts): 0 plastic (the path above
 // everything else uses), 1 glass, 2 translucent plastic, 3 glow, 4 metallic, 5 hologram (animated by uTime,
-// seconds). uMatPass: glass 0 = the multiply
+// seconds), 6 a hidden brick's ghost (render/hiddenlook.ts, also animated). uMatPass: glass 0 = the multiply
 // pass, 1 = the reflection add pass; 2 = linear emission for the bloom buffer.
 uniform float uMat, uIntensity, uMatPass, uTime;
 in float vIntensity;
@@ -194,6 +195,7 @@ const float SPEC_AA_T = ${glf(SHADE.SPEC_AA_T)}, SPEC_AA_K = ${glf(SHADE.SPEC_AA
 const float SPEC_LIGHT_REF = ${glf(SPEC_LIGHT_REF)};
 ${TONEMAP_GLSL}
 ${MATERIALS_GLSL}
+${HIDDEN_GLSL}
 #ifdef FX
 ${BRICK_FX_GLSL}
 #endif
@@ -424,6 +426,11 @@ void main(){
       surf = fxAtmos(surf);
 #endif
       fragColor = vec4(ueFilmic(uExposure * surf), translucentOpacity(inten));
+    } else if (uMat > 5.5) {
+      // hidden brick (Visible off): see-through ghost, stripes in the face's plane, bright edge
+      vec3 own = step(0.5, abs(nG)), dist = vHalf - abs(vL) + own * 1e3;
+      vec4 g = hiddenGhost(ueFilmic(uExposure * lit), vW * 50.0, orientGL(uint(vOrient + 0.5)) * nG, min(dist.x, min(dist.y, dist.z)), uTime);
+      fragColor = vec4(mix(g.rgb, SEL_TINT, vMisc.y * SEL_MIX), g.a);
     } else if (uMat > 4.5) {
       // hologram: premultiplied (blend ONE, ONE_MINUS_SRC_ALPHA): the scene behind shows through by
       // 1 - opacity and the scrolling stripes add their glow; world height in units = viewer y * 50

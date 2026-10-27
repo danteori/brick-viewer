@@ -15,6 +15,7 @@ import { storeFromFiles, type LoadReport, type SeqBrick } from './load.ts';
 import type { LoadOrder } from './compmodel.ts';
 import { ASSETS, F_ALIVE, F_HAS_FLAGS, FLAG_NAMES, GRIDS, Kind, MATERIALS, SceneStore, worldHalfOf, type StoreColumns } from './store.ts';
 import { FaceCuller, FULL_BOX_ASSETS, OPAQUE_MATERIALS, type CullBrick } from './cull.ts';
+import { hiddenBit } from './hidden.ts';
 
 /** A parsed save as posted by the worker. */
 export interface ParsedMsg {
@@ -79,13 +80,18 @@ export function adoptParsed(msg: ParsedMsg, files: FileMap): Parsed {
   return { files, store: SceneStore.fromColumns(c), report: msg.report, unsupported: msg.unsupported, order: msg.order };
 }
 
-/** The columns face culling reads (copies can be kept while the store's own go to the main thread). */
-export interface CullColumns { n: number; px: Int32Array; py: Int32Array; pz: Int32Array; hx: Uint16Array; hy: Uint16Array; hz: Uint16Array; orient: Uint8Array; asset: Uint16Array; shape: Uint8Array; material: Uint8Array; grid: Uint16Array; flags: Uint8Array }
+/**
+ * The columns face culling reads (copies can be kept while the store's own go to the main thread).
+ * `hideBit`: the collision bit of Visible off (scene/hidden.ts), 0 when the save has none: hidden
+ * bricks never cover their neighbours (when they don't show, nothing may look cut away behind them).
+ */
+export interface CullColumns { n: number; px: Int32Array; py: Int32Array; pz: Int32Array; hx: Uint16Array; hy: Uint16Array; hz: Uint16Array; orient: Uint8Array; asset: Uint16Array; shape: Uint8Array; material: Uint8Array; grid: Uint16Array; flags: Uint8Array; collision: Uint16Array; hideBit: number }
 
 /** The face-culling columns of a store (copies of its first n rows). */
-export function cullColumnsOf(s: { n: number } & Omit<CullColumns, 'n'>): CullColumns {
+export function cullColumnsOf(s: { n: number } & Omit<CullColumns, 'n' | 'hideBit'>): CullColumns {
   const n = s.n, cut = <T extends { slice(a: number, b: number): T }>(a: T): T => a.slice(0, n);
-  return { n, px: cut(s.px), py: cut(s.py), pz: cut(s.pz), hx: cut(s.hx), hy: cut(s.hy), hz: cut(s.hz), orient: cut(s.orient), asset: cut(s.asset), shape: cut(s.shape), material: cut(s.material), grid: cut(s.grid), flags: cut(s.flags) };
+  const hideBit = s instanceof SceneStore ? hiddenBit(s) : 0;
+  return { n, px: cut(s.px), py: cut(s.py), pz: cut(s.pz), hx: cut(s.hx), hy: cut(s.hy), hz: cut(s.hz), orient: cut(s.orient), asset: cut(s.asset), shape: cut(s.shape), material: cut(s.material), grid: cut(s.grid), flags: cut(s.flags), collision: cut(s.collision), hideBit };
 }
 
 /** Tile size (units, X and Y) regionMasks culls at a time. */
@@ -101,8 +107,9 @@ export function regionMasks(c: CullColumns, assets: readonly string[], materials
   // 1. the occluders (the only rows that cover or get culled), their boxes and tiles
   const occ: number[] = [], bx: number[] = [];
   const boxAsset = assets.map((a) => FULL_BOX_ASSETS.has(a)), opaque = materials.map((m) => OPAQUE_MATERIALS.has(m || 'BMC_Plastic'));
+  const hidden = (i: number): boolean => c.hideBit !== 0 && (c.flags[i]! & F_HAS_FLAGS) !== 0 && (c.collision[i]! & c.hideBit) !== 0;
   for (let i = 0; i < n; i++) {
-    if (!(c.flags[i]! & F_ALIVE) || c.shape[i] !== Kind.Box || !boxAsset[c.asset[i]!] || !opaque[c.material[i]!] || (skip && skip.has(i))) continue;
+    if (!(c.flags[i]! & F_ALIVE) || c.shape[i] !== Kind.Box || !boxAsset[c.asset[i]!] || !opaque[c.material[i]!] || (skip && skip.has(i)) || hidden(i)) continue;
     const h = worldHalfOf(c.orient[i]!, c.hx[i]!, c.hy[i]!, c.hz[i]!);
     if (!(h[0] > 0 && h[1] > 0 && h[2] > 0)) continue;
     occ.push(i);

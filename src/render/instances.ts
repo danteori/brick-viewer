@@ -15,7 +15,8 @@
 // viewer drew brick 0 first) and hidden rows (a selection being moved: the ghost shows them).
 // Glass / translucent / glow / metallic / hologram bricks go in groups of their own per (material,
 // mesh), which render/matpass.ts draws with drawSpecial (translucent and hologram ones sorted back
-// to front per chunk).
+// to front per chunk). Hidden (Visible off) rows go in a group of their own (MAT_HIDDEN, sorted too),
+// whatever their material: matpass draws it only while hidden bricks show (app/hidden.ts).
 // iMisc.x is the hidden-face mask (render/facecull.ts) for cube meshes; fully hidden rows are left out.
 
 import { S } from '../app/state.ts';
@@ -27,7 +28,8 @@ import { viewDir } from './camera.ts';
 import { addMirror } from '../scene/sync.ts';
 import { ASSETS, F_LINEAR, MATERIALS, worldHalfOf, type SceneStore } from '../scene/store.ts';
 import { topOf } from '../scene/view.ts';
-import { MAT_GLASS, MAT_GLOW, MAT_HOLOGRAM, MAT_METALLIC, MAT_TRANSLUCENT, matCode } from './matcode.ts';
+import { MAT_CODES, MAT_GLASS, MAT_GLOW, MAT_HIDDEN, MAT_HOLOGRAM, MAT_METALLIC, MAT_TRANSLUCENT, matCode } from './matcode.ts';
+import { hiddenBit, isHiddenRow } from '../scene/hidden.ts';
 import { FULLY_HIDDEN } from '../scene/cull.ts';
 import { BLOCK, LOD_LEVELS, LodBuilder, MERGE_MIN_CHUNKS } from './lod.ts';
 
@@ -48,7 +50,7 @@ interface RChunk {
   box: [number, number, number, number, number, number];
   /** lowest brick bottom in it (units), Infinity when empty */
   minZ: number;
-  /** special-material rows (glass, translucent, glow, metallic, hologram: drawn by matpass) */
+  /** special-material and hidden rows (glass, translucent, glow, metallic, hologram, hidden: drawn by matpass) */
   special: number[];
   /** how many of them per material code (index = MAT_*) */
   mc: number[];
@@ -88,7 +90,7 @@ const SUPER_LEVEL = 2;
 /** Special materials that have coarse sets (translucent plastic and hologram stay sorted per chunk). */
 const LOD_MATS = [MAT_GLOW, MAT_GLASS, MAT_METALLIC];
 /** Transparent materials whose rows are kept per mesh and sorted back to front (blending that doesn't commute). */
-const SORTED_MATS: readonly number[] = [MAT_TRANSLUCENT, MAT_HOLOGRAM];
+const SORTED_MATS: readonly number[] = [MAT_TRANSLUCENT, MAT_HOLOGRAM, MAT_HIDDEN];
 /**
  * ms a frame may spend building coarse sets. A block's build is split into steps (one member
  * chunk's rows of one material each, then the upload) and goes on over as many frames as it needs;
@@ -159,7 +161,7 @@ export class ChunkSet {
   /** chunks holding glow rows (rebuilt with special) */
   private glowChunks: RChunk[] = [];
   /** special rows per material code (index = MAT_*) */
-  matCount = [0, 0, 0, 0, 0, 0];
+  matCount: number[] = new Array<number>(MAT_CODES).fill(0);
   private specialDirty = true;
   /** lowest brick bottom except the focused one (units), Infinity when none */
   minZ = Infinity;
@@ -199,7 +201,7 @@ export class ChunkSet {
     if (!ch) {
       const s = this.store, c: [number, number, number] = [Math.floor(s.px[id]! / CHUNK) * CHUNK + CHUNK / 2, Math.floor(s.py[id]! / CHUNK) * CHUNK + CHUNK / 2, Math.floor(s.pz[id]! / CHUNK) * CHUNK + CHUNK / 2];
       const block = this.blockAt(this.blocks, c, CHUNK * BLOCK), sblock = this.blockAt(this.sblocks, c, CHUNK * BLOCK * BLOCK);
-      ch = { c, ids: new Set(), groups: new Map(), dirty: true, box: [0, 0, 0, 0, 0, 0], minZ: Infinity, special: [], mc: [0, 0, 0, 0, 0, 0], sgroups: new Map(), sortEye: new Map(), block, sblock, lists: new Map(), slists: new Map(), masked: false, seq: this.nextSeq++ };
+      ch = { c, ids: new Set(), groups: new Map(), dirty: true, box: [0, 0, 0, 0, 0, 0], minZ: Infinity, special: [], mc: new Array<number>(MAT_CODES).fill(0), sgroups: new Map(), sortEye: new Map(), block, sblock, lists: new Map(), slists: new Map(), masked: false, seq: this.nextSeq++ };
       block.chunks.add(ch); sblock.chunks.add(ch);
       this.chunks.set(key, ch);
     }
@@ -253,7 +255,7 @@ export class ChunkSet {
     }
   }
 
-  /** The special rows (glass, translucent, glow, metallic, hologram; not the focused one), in chunk order. */
+  /** The special rows (glass, translucent, glow, metallic, hologram, hidden; not the focused one), in chunk order. */
   get special(): number[] {
     if (!this.specialRows) { const r: number[] = []; for (const ch of this.chunks.values()) for (const id of ch.special) r.push(id); this.specialRows = r; }
     return this.specialRows;
@@ -411,7 +413,8 @@ export class ChunkSet {
     const lists = new Map<Mesh, number[]>(), slists = new Map<number, Map<Mesh, number[]>>();
     const box = ch.box;
     box[0] = box[1] = box[2] = Infinity; box[3] = box[4] = box[5] = -Infinity;
-    ch.minZ = Infinity; ch.special = []; ch.mc = [0, 0, 0, 0, 0, 0]; ch.masked = false;
+    ch.minZ = Infinity; ch.special = []; ch.mc = new Array<number>(MAT_CODES).fill(0); ch.masked = false;
+    const hideBit = scene ? hiddenBit(s) : 0;
     for (const id of ch.ids) {
       if (s.faceMask[id]) ch.masked = true;
       const o = s.orient[id]!, h = worldHalfOf(o, s.hx[id]!, s.hy[id]!, s.hz[id]!);
@@ -422,7 +425,7 @@ export class ChunkSet {
       ch.minZ = Math.min(ch.minZ, z - h[2]);
       if (hidden && hidden.size && hidden.has(id)) continue;
       const mesh = meshOf(s.shape[id]!, ASSETS.name(s.asset[id]!), s.hx[id]!, s.hy[id]!, s.hz[id]!);
-      const m = scene ? materialCode(s.material[id]!) : 0;   // extras draw every brick as plastic, as before
+      const m = !scene ? 0 : isHiddenRow(s, id, hideBit) ? MAT_HIDDEN : materialCode(s.material[id]!);   // extras draw every brick as plastic, as before
       let into = lists;
       if (m > 0) {
         ch.special.push(id); ch.mc[m]!++;

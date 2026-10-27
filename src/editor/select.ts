@@ -14,6 +14,8 @@
 import { S, hasFocus } from '../app/state.ts';
 import { BRZ_UNIT } from '../core/units.ts';
 import { boxQuery, pickRay } from '../scene/spatial.ts';
+import { hiddenPickable } from '../app/hidden.ts';
+import { hiddenBit } from '../scene/hidden.ts';
 import { touching } from '../scene/collision.ts';
 import { syncScene } from '../scene/sync.ts';
 import { markBrick } from '../render/instances.ts';
@@ -178,9 +180,9 @@ export function marqueeSelect(canvas: HTMLCanvasElement, x0: number, y0: number,
   const r = canvas.getBoundingClientRect(), cw = canvas.clientWidth, ch = canvas.clientHeight, cam = S.cam;
   const fx = Math.max(cw / ch, 1), fy = Math.max(ch / cw, 1), sx = 1 / (cam.half * fx), sy = 1 / (cam.half * fy);
   const ax = Math.min(x0, x1) - r.left, bx = Math.max(x0, x1) - r.left, ay = Math.min(y0, y1) - r.top, by = Math.max(y0, y1) - r.top;
-  const s = S.scene, hits: number[] = [];
+  const s = S.scene, hits: number[] = [], bit = hiddenBit(s);
   for (const id of s.ids()) {
-    if (S.hidden.has(id)) continue;
+    if (S.hidden.has(id) || !hiddenPickable(id, bit)) continue;
     const v = toView(s.px[id]! * BRZ_UNIT, s.py[id]! * BRZ_UNIT, s.pz[id]! * BRZ_UNIT);
     const px = ((v[0] - cam.x) * sx + 1) * cw / 2, py = (1 - (v[1] - cam.y) * sy) * ch / 2;
     if (px >= ax && px <= bx && py >= ay && py <= by && seen(id, s.box(id, new Array<number>(6)) as number[])) hits.push(id);

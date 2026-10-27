@@ -9,14 +9,17 @@
 //     passes per brick (multiply by its transmission, then add the Fresnel sky reflection);
 //     translucent plastic is one alpha-blended pass.
 // Those bricks sit in instance groups of their own (instances.ts), so a plastic-only scene draws
-// exactly as before. The full build adds a bloom pass around glow bricks (render/bloom.ts).
+// exactly as before. Hidden (Visible off) bricks are drawn last, only while they show
+// (app/hidden.ts), as see-through ghosts with scrolling stripes (drawHidden). The full build adds a bloom pass around glow bricks (render/bloom.ts).
 
 import { S, hasFocus } from '../app/state.ts';
+import { hiddenShown } from '../app/hidden.ts';
+import { hiddenBit, isHiddenRow } from '../scene/hidden.ts';
 import type { Brick } from '../scene/brick.ts';
 import { brickView } from '../scene/view.ts';
 import { G, bodyShape, drawBody, type BodyShape } from './draw.ts';
 import { inst } from './instances.ts';
-import { MAT_GLASS, MAT_GLOW, MAT_HOLOGRAM, MAT_METALLIC, MAT_TRANSLUCENT, matCode } from './matcode.ts';
+import { MAT_GLASS, MAT_GLOW, MAT_HIDDEN, MAT_HOLOGRAM, MAT_METALLIC, MAT_TRANSLUCENT, matCode } from './matcode.ts';
 import { boxIB } from './meshes/registry.ts';
 
 /**
@@ -36,21 +39,27 @@ let cache: Item[] = [], cacheRev = -1, cacheScene: unknown = null;
 function rows(): Item[] {
   if (cacheRev === inst.rev && cacheScene === S.scene) return cache;
   cacheRev = inst.rev; cacheScene = S.scene;
-  const s = S.scene;
+  const s = S.scene, bit = hiddenBit(s);
   cache = [];
   for (const id of inst.special) {
     if (!s.alive(id) || id === S.sel) continue;
     const b = brickView(s, id);
-    cache.push({ b, l: b.lo, h: b.hi, m: matCode(b), shape: bodyShape(b, b.lo, b.hi, s.orient[id]), sel: S.selection.has(id) });
+    cache.push({ b, l: b.lo, h: b.hi, m: isHiddenRow(s, id, bit) ? MAT_HIDDEN : matCode(b), shape: bodyShape(b, b.lo, b.hi, s.orient[id]), sel: S.selection.has(id) });
   }
   return cache;
 }
 
-/** The focused brick as an item when it has a special material and is shown. */
+/** The focused brick's code: MAT_HIDDEN when it is hidden, else its material's (0 plastic, or no focus). */
+function focusMat(): number {
+  if (!hasFocus() || !S.focus) return 0;
+  return isHiddenRow(S.scene, S.sel) ? MAT_HIDDEN : matCode(S.focus);
+}
+
+/** The focused brick as an item when it has a special material (or is hidden) and is shown. */
 function focusItem(dlo: readonly number[], dhi: readonly number[]): Item | null {
   const f = S.focus;
   if (!hasFocus() || !f || S.hidden.has(S.sel)) return null;
-  const m = matCode(f);
+  const m = focusMat();
   return m ? { b: f, l: dlo, h: dhi, m, shape: bodyShape(f, dlo, dhi, S.scene.orient[S.sel]), sel: S.selection.has(S.sel) } : null;
 }
 
@@ -62,14 +71,14 @@ const exact = (): boolean => count(MAT_GLASS) + count(MAT_TRANSLUCENT) + count(M
 /** True when this frame shows a glow brick (the bloom pass then runs): one in a chunk in view (inst.cull), or the focused one. */
 export function hasGlow(): boolean {
   if (count(MAT_GLOW) && inst.set!.glowInView(inst.cull)) return true;
-  return hasFocus() && !!S.focus && matCode(S.focus) === MAT_GLOW;
+  return focusMat() === MAT_GLOW;
 }
 
 /** The focused brick is shown and glows. */
-export const hasFocusGlow = (): boolean => hasFocus() && !!S.focus && !S.hidden.has(S.sel) && matCode(S.focus) === MAT_GLOW;
+export const hasFocusGlow = (): boolean => !S.hidden.has(S.sel) && focusMat() === MAT_GLOW;
 
-/** The focused brick is drawn here, not with the plain bodies, when it has a special material. */
-export const focusIsSpecial = (): boolean => hasFocus() && !!S.focus && matCode(S.focus) > 0;
+/** The focused brick is drawn here, not with the plain bodies, when it has a special material or is hidden. */
+export const focusIsSpecial = (): boolean => focusMat() > 0;
 
 const draw = (it: Item): void => drawBody(it.b, it.l, it.h, it.sel ? 1 : 0, it.shape);
 
@@ -100,7 +109,7 @@ export function drawGlow(dlo: readonly number[], dhi: readonly number[], pass = 
  * depth, so a metallic brick hides the glow behind it as a plastic one does.
  */
 export function drawMetallic(dlo: readonly number[], dhi: readonly number[]): void {
-  if (!count(MAT_METALLIC) && !(hasFocus() && !!S.focus && matCode(S.focus) === MAT_METALLIC)) return;
+  if (!count(MAT_METALLIC) && focusMat() !== MAT_METALLIC) return;
   const { gl, u } = G;
   gl.uniform1f(u.uMat, MAT_METALLIC); gl.uniform1f(u.uMatPass, 0);
   const f = focusItem(dlo, dhi);
@@ -111,6 +120,12 @@ export function drawMetallic(dlo: readonly number[], dhi: readonly number[]): vo
     if (f && f.m === MAT_METALLIC) { gl.uniform1f(u.uIntensity, intensityOf(f.b)); draw(f); }
   }
   gl.uniform1f(u.uMat, 0); gl.uniform1f(u.uMatPass, 0);
+}
+
+/** An item's centre along the view direction (smaller = farther: drawn first). */
+function depthOf(it: Item): number {
+  const v = S.view;
+  return ((it.l[0]! + it.h[0]!) * v[2]! + (it.l[2]! + it.h[2]!) * v[6]! + (it.l[1]! + it.h[1]!) * v[10]!) / 2;
 }
 
 /** One transparent item: glass as its two passes, hologram premultiplied, translucent plastic alpha-blended. */
@@ -136,14 +151,12 @@ export function drawMaterials(dlo: readonly number[], dhi: readonly number[]): v
   const { gl, u } = G;
   drawGlow(dlo, dhi);
   drawMetallic(dlo, dhi);
-  const f = focusItem(dlo, dhi), focusClear = f && f.m !== MAT_GLOW && f.m !== MAT_METALLIC ? f : null;
+  const f = focusItem(dlo, dhi), focusClear = f && f.m !== MAT_GLOW && f.m !== MAT_METALLIC && f.m !== MAT_HIDDEN ? f : null;
   const n = count(MAT_GLASS) + count(MAT_TRANSLUCENT) + count(MAT_HOLOGRAM);
   if (!n && !focusClear) return;
   if (exact()) {
-    const v = S.view, eye = [v[2], v[6], v[10]];
-    const depth = (it: Item): number => ((it.l[0]! + it.h[0]!) * eye[0]! + (it.l[2]! + it.h[2]!) * eye[1]! + (it.l[1]! + it.h[1]!) * eye[2]!) / 2;
     const list = focusClear ? [...rows(), focusClear] : rows();
-    const clear = list.filter((it) => it.m !== MAT_GLOW && it.m !== MAT_METALLIC).map((it) => ({ it, d: depth(it) })).sort((a, b) => a.d - b.d);
+    const clear = list.filter((it) => it.m !== MAT_GLOW && it.m !== MAT_METALLIC && it.m !== MAT_HIDDEN).map((it) => ({ it, d: depthOf(it) })).sort((a, b) => a.d - b.d);
     if (!clear.length) return;
     gl.enable(gl.BLEND); gl.depthMask(false);
     for (const { it } of clear) drawClear(it);
@@ -159,6 +172,29 @@ export function drawMaterials(dlo: readonly number[], dhi: readonly number[]): v
     if (focusClear) drawClear(focusClear);
   }
   gl.uniform1f(u.uMat, 0); gl.uniform1f(u.uMatPass, 0);
+  gl.depthMask(true); gl.disable(gl.BLEND);
+}
+
+/**
+ * Draws the hidden (Visible off) bricks as see-through ghosts, back to front, when they show
+ * (app/hidden.ts); call after drawMaterials. Leaves uMat at 0 and blending off.
+ */
+export function drawHidden(dlo: readonly number[], dhi: readonly number[]): void {
+  const f = focusItem(dlo, dhi), focusHidden = f && f.m === MAT_HIDDEN ? f : null, n = count(MAT_HIDDEN);
+  if ((!n && !focusHidden) || !hiddenShown()) return;
+  const { gl, u } = G;
+  gl.enable(gl.BLEND); gl.depthMask(false);
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+  gl.uniform1f(u.uMat, MAT_HIDDEN); gl.uniform1f(u.uMatPass, 0);
+  if (n <= EXACT_SPECIAL) {
+    const list = rows().filter((it) => it.m === MAT_HIDDEN);
+    if (focusHidden) list.push(focusHidden);
+    for (const it of list.map((it) => ({ it, d: depthOf(it) })).sort((a, b) => a.d - b.d)) draw(it.it);
+  } else {
+    drawSet(MAT_HIDDEN, true);
+    if (focusHidden) draw(focusHidden);
+  }
+  gl.uniform1f(u.uMat, 0);
   gl.depthMask(true); gl.disable(gl.BLEND);
 }
 

@@ -14,6 +14,7 @@ import { S } from '../app/state.ts';
 import { addMirror } from '../scene/sync.ts';
 import { FaceCuller, FULL_BOX_ASSETS, FULLY_HIDDEN, type CullBrick } from '../scene/cull.ts';
 import { ASSETS, Kind, MATERIALS, worldHalfOf, type SceneStore } from '../scene/store.ts';
+import { hiddenBit, isHiddenRow } from '../scene/hidden.ts';
 import { beforeSync, markBrick, masksChanged } from './instances.ts';
 
 const NONE: CullBrick = { pos: [0, 0, 0], half: [0, 0, 0], shape: 'none', fullBox: false };
@@ -70,9 +71,9 @@ let culler: FaceCuller | null = null;
 let store: SceneStore | null = null;
 let hidden: ReadonlySet<number> = new Set();
 
-function cullOf(s: SceneStore, id: number): CullBrick {
+function cullOf(s: SceneStore, id: number, hideBit = hiddenBit(s)): CullBrick {
   if (!s.alive(id) || hidden.has(id)) return NONE;
-  const box = s.shape[id] === Kind.Box && FULL_BOX_ASSETS.has(ASSETS.name(s.asset[id]!));
+  const box = s.shape[id] === Kind.Box && FULL_BOX_ASSETS.has(ASSETS.name(s.asset[id]!)) && !isHiddenRow(s, id, hideBit);   // a hidden brick covers nothing
   const h = worldHalfOf(s.orient[id]!, s.hx[id]!, s.hy[id]!, s.hz[id]!);   // a shared scratch array: copy it
   return {
     pos: [s.px[id]!, s.py[id]!, s.pz[id]!], half: [h[0], h[1], h[2]],
@@ -83,8 +84,8 @@ function cullOf(s: SceneStore, id: number): CullBrick {
 function build(s: SceneStore): void {
   const t = performance.now();
   store = s; hidden = S.hidden;
-  const bricks: CullBrick[] = new Array<CullBrick>(s.n);
-  for (let id = 0; id < s.n; id++) bricks[id] = cullOf(s, id);
+  const bricks: CullBrick[] = new Array<CullBrick>(s.n), bit = hiddenBit(s);
+  for (let id = 0; id < s.n; id++) bricks[id] = cullOf(s, id, bit);
   culler = new FaceCuller(bricks);
   const m = culler.masks;
   for (let id = 0; id < s.n; id++) s.faceMask[id] = m[id]!;
@@ -96,10 +97,10 @@ function build(s: SceneStore): void {
 /** Re-describes rows `ids` to the culler and writes back every mask that changed. */
 function update(s: SceneStore, ids: Iterable<number>): void {
   const c = culler!;
-  const list = [...ids].sort((a, b) => a - b);
+  const list = [...ids].sort((a, b) => a - b), bit = hiddenBit(s);
   for (const id of list) {
     while (c.count < id) c.set(c.count, null);
-    c.set(id, cullOf(s, id));
+    c.set(id, cullOf(s, id, bit));
   }
   // the edited rows always (an undo may have restored an old mask with the row), then every
   // neighbour whose mask changed

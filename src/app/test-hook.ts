@@ -18,6 +18,8 @@ import { ed } from '../editor/ghost.ts';
 import { selectBrick } from '../editor/resize.ts';
 import { setSelection } from '../editor/select.ts';
 import { inst, stats } from '../render/instances.ts';
+import { MAT_HIDDEN } from '../render/matcode.ts';
+import { hiddenShown, hiddenView } from './hidden.ts';
 import { resizeBlock } from '../editor/resize.ts';
 import { componentsOf } from '../scene/compmodel.ts';
 import { brickKey } from '../scene/components.ts';
@@ -93,6 +95,8 @@ export interface BrickTest {
   setGraphics(a: { on: boolean; level?: number; env?: 'none' | 'default' | 'water' }): void;
   /** what the effects did last frame */
   graphicsState(): { shadow: boolean; shadowTexel: number; ao: number; water: boolean; on: boolean };
+  /** hidden bricks (Visible off, E-21): the view mode, whether they show now, and the packed ghost rows */
+  hidden(): { mode: string; shown: boolean; ghosts: number };
 }
 
 /**
@@ -220,6 +224,7 @@ export function installTestHook(canvas: HTMLCanvasElement): void {
       const d = fxDebug();
       return { shadow: !!d.shadow, shadowTexel: d.shadow?.texel ?? 0, ao: d.ao, water: d.water, on: d.eff.on };
     },
+    hidden: () => ({ mode: hiddenView.mode, shown: hiddenShown(), ghosts: inst.set?.matCount[MAT_HIDDEN] ?? 0 }),
     byId: () => S.scene.ordered().map((id) => { const b = brickView(S.scene, id); return [id, b.lo, b.hi, b.color]; }),
     /** the scene as brick records (absolute) in list order, plus the focus and the editor state */
     snapshot() {

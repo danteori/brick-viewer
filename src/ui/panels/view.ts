@@ -3,6 +3,7 @@
 // and Keep (dead zone) sliders shown underneath while it's on.
 // Figure (P, U-16) shows the player reference figure; its button sits in the Lighting row, so the
 // View row never sets the left column's width (a wider column covers more of the scene).
+// Hidden (E-21) cycles how hidden (Visible off) bricks show: auto (while a brick is selected), shown, off.
 
 import { $ } from '../dom.ts';
 import { S } from '../../app/state.ts';
@@ -12,6 +13,9 @@ import { PLATE } from '../../core/units.ts';
 import { figure, initFigure } from '../../render/figure.ts';
 import { isTyping } from '../../editor/input.ts';
 import { initAudio, playClick } from '../audio.ts';
+import { placeholder } from '../placeholder.ts';
+import { hiddenView } from '../../app/hidden.ts';
+import { nextHiddenMode, type HiddenMode } from '../../scene/hidden.ts';
 
 /** Keep slider step: one brick (3 plates). */
 const BRICK = 3 * PLATE;
@@ -26,6 +30,25 @@ export function setXray(on: boolean): void {
   $('xraybox').hidden = !on;
 }
 
+const HIDDEN_TEXT: Record<HiddenMode, string> = { auto: placeholder('Hidden: auto'), show: placeholder('Hidden: shown'), hide: placeholder('Hidden: off') };
+const HIDDEN_TITLE = placeholder('Hidden bricks (Visible off): auto shows them while a brick is selected. Click to cycle auto, shown, off');
+const HIDDEN_PRESSED: Record<HiddenMode, string> = { auto: 'mixed', show: 'true', hide: 'false' };
+
+/** Sets how hidden (Visible off) bricks show, and the View row's Hidden button. */
+export function setHiddenMode(mode: HiddenMode): void {
+  hiddenView.mode = mode;
+  const b = $('hiddenbtn');
+  b.textContent = HIDDEN_TEXT[mode]; b.dataset.mode = mode; b.setAttribute('aria-pressed', HIDDEN_PRESSED[mode]);
+}
+
+function addHiddenButton(): void {
+  const b = document.createElement('button');
+  b.type = 'button'; b.id = 'hiddenbtn'; b.title = HIDDEN_TITLE;
+  $('viewbox').append(b);
+  setHiddenMode(hiddenView.mode);
+  b.addEventListener('click', () => { setHiddenMode(nextHiddenMode(hiddenView.mode)); initAudio(); playClick(); });
+}
+
 export function setFigure(on: boolean): void {
   figure.on = on;
   $('figure').setAttribute('aria-pressed', String(on));
@@ -33,6 +56,7 @@ export function setFigure(on: boolean): void {
 
 export function initViewPanel(): void {
   initFigure();
+  addHiddenButton();
   const fig = $<HTMLButtonElement>('figure');
   const toggleFigure = (): void => { setFigure(!figure.on); initAudio(); playClick(); };
   fig.addEventListener('click', toggleFigure);

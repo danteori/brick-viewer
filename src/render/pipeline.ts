@@ -13,7 +13,7 @@ import { syncScene } from '../scene/sync.ts';
 import { drawGrid } from './grid.ts';
 import { drawExtras, extrasDepth } from './extras.ts';
 import { drawGround, drawGroundBackdrop } from './ground.ts';
-import { bloomPass, drawGlow, drawMaterials, drawMetallic, focusIsSpecial, hasFocusGlow, hasGlow } from './matpass.ts';
+import { bloomPass, drawGlow, drawHidden, drawMaterials, drawMetallic, focusIsSpecial, hasFocusGlow, hasGlow } from './matpass.ts';
 import { LIGHTING, lightDir } from './lighting.ts';
 import { nearOf, studPx } from './camera.ts';
 import { BOX_EDGE_COUNT, boxEB, boxIB } from './meshes/registry.ts';
@@ -76,7 +76,7 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
   gl.uniform1f(u.uShowHidden, cutOn || !hidesCovered(level) ? 1 : 0);
   const drawFocus = (): void => {
     const b = S.focus;
-    if (!hasFocus() || !b || focusIsSpecial() || S.hidden.has(S.sel)) return;   // empty scene, glass / glow (drawMaterials has it), or being moved
+    if (!hasFocus() || !b || focusIsSpecial() || S.hidden.has(S.sel)) return;   // empty scene, glass / glow / hidden (matpass has it), or being moved
     drawBody(b, dlo, dhi, S.selection.has(S.sel) ? 1 : 0, bodyShape(b, dlo, dhi, S.scene.orient[S.sel]));
   };
   let fxc: FxCtx | null = null;
@@ -110,6 +110,7 @@ export function renderFrame(w: number, h: number, canvas: HTMLCanvasElement): { 
   if (fxc) { perfMark('fxWater'); fxWater(fxc); }   // the water surface over what's under it
   perfMark('materials');
   drawMaterials(dlo, dhi);                   // glow, metallic, then glass / translucent / hologram back to front (if any)
+  drawHidden(dlo, dhi);                      // hidden bricks' ghosts, while they show (app/hidden.ts)
   perfMark('bloom');
   if (bloomPass && hasGlow() && fxState.want.bloom) {              // full build: the glow halo
     // the depth-only pass takes the shader's early exit (uEdge): its colour is masked off anyway
