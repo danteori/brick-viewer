@@ -73,6 +73,7 @@ async function twoBricks(page: Page): Promise<void> {
   });
   await click(page, at);
   await settle(page);
+  await page.keyboard.press('Escape');
   await click(page, await onBrick(page, 0, [0.5, 0.5, 1]));
   await settle(page);
   const s = await snap(page);
@@ -130,6 +131,8 @@ test('delete, copy and paste a selection, each one undo step', async ({ page }) 
   expect(s.status).toMatch(/Pasted 2 bricks/);
   expect(await selection(page)).toEqual([2, 3]);           // the pasted pair stays selected
   await page.mouse.move(640, 790);
+  await page.keyboard.press('Escape');
+  expect(await selection(page)).toEqual([2, 3]);
   await page.keyboard.press('Delete');
   await settle(page);
   expect((await snap(page)).bricks.length).toBe(2);

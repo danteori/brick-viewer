@@ -6,7 +6,7 @@ interface Box { lo: number[]; hi: number[] }
 interface Api {
   settle(): Promise<number>;
   project(x: number, y: number, z: number): P2;
-  focusBox(): Box;
+  brickBox(k: number): Box;
   snapshot(): { bricks: Box[]; sel: number; status: string; ghost: boolean };
 }
 type W = { __brickTest: Api };
@@ -20,9 +20,9 @@ async function settle(page: Page): Promise<void> { await page.evaluate(() => (wi
 const snap = (page: Page): Promise<ReturnType<Api['snapshot']>> => page.evaluate(() => (window as unknown as W).__brickTest.snapshot());
 const r3 = (v: number): number => +v.toFixed(3);
 
-/** a ground point beside the startup brick: dx past its +X face, dy from its middle in Y */
+/** a ground point beside the startup brick (a placed brick takes the focus): dx past its +X face, dy from its middle in Y */
 const ground = (page: Page, dx: number, dy = 0): Promise<P2> => page.evaluate(([dx, dy]) => {
-  const t = (window as unknown as W).__brickTest, { lo, hi } = t.focusBox();
+  const t = (window as unknown as W).__brickTest, { lo, hi } = t.brickBox(0);
   return t.project(hi[0] + dx, (lo[1] + hi[1]) / 2 + dy, lo[2]);
 }, [dx, dy] as const);
 
@@ -36,6 +36,8 @@ async function pasteGhost(page: Page): Promise<void> {
   await page.waitForFunction(() => !!(window as unknown as W).__brickTest);
   await settle(page);
   await page.mouse.move(640, 790);
+  await page.mouse.wheel(0, 600);
+  await settle(page);
   await page.keyboard.press('Control+c');
   await inMenu(page, () => page.locator('#pastemode button[data-paste="brick"]').click());
   await page.keyboard.press('Control+v');
@@ -44,6 +46,7 @@ async function pasteGhost(page: Page): Promise<void> {
 /** Drags on the ground through the given points; a right-click at each inner point finishes that axis. */
 async function dragOnGround(page: Page, ...pts: [number, number][]): Promise<void> {
   const at = await Promise.all(pts.map(([dx, dy]) => ground(page, dx, dy)));
+  for (const [x, y] of at) expect(x > 0 && x < 1280 && y > 0 && y < 800, `(${x}, ${y}) on screen`).toBe(true);
   await page.mouse.move(...at[0]!); await frames(page);
   await page.mouse.down(); await frames(page);
   for (let j = 1; j < at.length; j++) {

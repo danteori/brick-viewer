@@ -1,8 +1,9 @@
 // Orbit camera (orthographic): view = Rx(pitch) * Ry(yaw). The default is the isometric view
-// (pitch 35.264 deg elevation, yaw -45 deg). Middle-drag orbits freely; starting a resize eases back
-// to the nearest of the four isometric corners: above the brick, or below it (pitch -35.264 deg) when
-// the view is looking up from underneath, so the bottom face can be grabbed (U-03). Ported from the legacy viewer: the easing and the
-// framing maths are part of the pixel reference.
+// (pitch 35.264 deg elevation, yaw -45 deg). Middle-drag orbits freely, also during a resize. Starting
+// a resize glides to the nearest isometric corner on the same side of the horizon (resizeIso), which
+// keeps the resize axis's near face in view; the end of the resize glides back, unless the user orbited
+// in between (U-32). Ported from the legacy viewer: the easing and the framing maths are part of the
+// pixel reference.
 
 import { viewOf, type Mat4 } from '../core/math.ts';
 import { STEP } from '../core/units.ts';
@@ -11,8 +12,9 @@ import type { V3 } from '../scene/brick.ts';
 import { pinned, proposedBox } from '../editor/resize.ts';
 import { isFree } from '../app/mode.ts';
 import { centrePoint } from './freecam.ts';
+import { resizeIso, snapYaw, type Angles } from './iso.ts';
 
-export const PITCH_MIN = -80 * Math.PI / 180, PITCH_MAX = 80 * Math.PI / 180;   // below 0 = looking up at the underside
+export const PITCH_MIN = -80 * Math.PI / 180, PITCH_MAX = 80 * Math.PI / 180;   // below 0 = looking up from below
 export const ZOOM_MIN = 0.3, ZOOM_MAX = 20000;        // wide: a whole big build framed around one small brick
 
 let canvas: HTMLCanvasElement;
@@ -38,20 +40,36 @@ export function viewDir(X: number, Y: number, Z: number, m: Mat4 = S.view): [num
 /** From the view's z row: world +X is GL x (m[2]), world +Y is GL z (m[10]); Z: top, or bottom from below. */
 export function updateNear(m: Mat4): void { S.ns = [m[2] >= 0 ? 1 : -1, m[10] >= 0 ? 1 : -1, m[6] >= 0 ? 1 : -1]; }
 
-/** nearest isometric corner to a yaw */
-export const snapYaw = (y: number): number => YAW0 + Math.round((y - YAW0) / (Math.PI / 2)) * (Math.PI / 2);
-/** the view looks up from below the horizon (where the target pitch is heading) */
-export const fromBelow = (): boolean => S.orbit.pitchT < 0;
-export function snapToIso(): void {
-  S.orbit.yawT = snapYaw(S.orbit.yawT); S.orbit.pitchT = fromBelow() ? -ELEV : ELEV;
-  S.viewT = viewOf(S.orbit.yawT, S.orbit.pitchT); updateDirs();
+export { snapYaw };
+
+/** The view before the resize's iso glide, while that resize lasts; null when there is none to return to. */
+let beforeResize: Angles | null = null;
+let orbitedInResize = false;
+
+function aimAt(a: Angles): void {
+  S.orbit.yawT = a.yaw; S.orbit.pitchT = a.pitch;
+  S.viewT = viewOf(a.yaw, a.pitch); updateDirs();
 }
-/** U: glide to the nearest iso corner on the other side (above <-> below). Not mid-drag. */
-export function flipUnderside(): void {
-  if (S.held || S.orbit.dragging) return;
-  S.orbit.yawT = snapYaw(S.orbit.yawT); S.orbit.pitchT = fromBelow() ? ELEV : -ELEV;
-  S.viewT = viewOf(S.orbit.yawT, S.orbit.pitchT); updateDirs();
+
+/** A resize starts: glide to its iso corner, keeping the view to return to. */
+export function glideToResizeIso(): void {
+  const from = { yaw: S.orbit.yawT, pitch: S.orbit.pitchT };
+  if (!beforeResize) beforeResize = from;
+  orbitedInResize = false;
+  aimAt(resizeIso(from));
 }
+
+/** The user orbited during the resize: its end keeps the view where the user put it. */
+export function noteResizeOrbit(): void { if (beforeResize) orbitedInResize = true; }
+
+/** A resize ends: glide back to the view from before it, if the user did not orbit. */
+export function glideBackFromResize(): void {
+  const back = beforeResize;
+  beforeResize = null;
+  if (back && !orbitedInResize) aimAt(back);
+  orbitedInResize = false;
+}
+
 export const isoSettling = (): boolean => Math.abs(S.orbit.yaw - S.orbit.yawT) + Math.abs(S.orbit.pitch - S.orbit.pitchT) > 1e-4;
 
 /**

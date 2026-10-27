@@ -1,4 +1,4 @@
-﻿// View tools: the underside camera (U-03) and the X-ray cutaway (U-05). Startup brick and synthetic
+﻿// View tools: the resize camera glide (U-32) and the X-ray cutaway (U-05). Startup brick and synthetic
 // saves only, no private data.
 
 import { expect, test, type Page } from '@playwright/test';
@@ -12,7 +12,9 @@ interface Api {
   project(x: number, y: number, z: number): P2;
   focusBox(): Box;
   brickBox(k: number): Box;
-  snapshot(): { bricks: Box[]; sel: number; status: string };
+  snapshot(): { bricks: Box[]; sel: number; status: string; zoom: number };
+  setView(a: { k: number; pitchDeg?: number; zoom?: number; baseZoom: number }): void;
+  camera(): { x: number; y: number; half: number; yaw: number; pitch: number };
   loadSave(b64: string, name: string): { bricks: number };
   focus(k: number): void;
   autoXray(on: boolean): void;
@@ -45,57 +47,76 @@ async function click(page: Page, at: P2): Promise<void> {
   await page.mouse.down(); await page.mouse.up(); await frames(page);
 }
 
-/** drag from the focused brick's bottom face centre by `plates` plate lengths along world Z (screen) */
-async function dragBottom(page: Page, plates: number): Promise<void> {
-  const [a, b] = await page.evaluate(() => {
-    const t = (window as unknown as W).__brickTest, { lo, hi } = t.focusBox();
-    const cx = (lo[0] + hi[0]) / 2, cy = (lo[1] + hi[1]) / 2;
-    return [t.project(cx, cy, lo[2]), t.project(cx, cy, lo[2] - 0.08)];
-  });
-  const v = [(b[0] - a[0]) * plates, (b[1] - a[1]) * plates];
+const DEG = Math.PI / 180, YAW0 = -Math.PI / 4, ELEV = Math.atan(1 / Math.SQRT2);
+const camera = (page: Page): Promise<ReturnType<Api['camera']>> => page.evaluate(() => (window as unknown as W).__brickTest.camera());
+const setPitch = (page: Page, pitchDeg: number): Promise<void> => page.evaluate((p) => {
+  const t = (window as unknown as W).__brickTest; t.setView({ k: 0, pitchDeg: p, baseZoom: t.snapshot().zoom });
+}, pitchDeg);
+
+/** screen point of the focused brick's face centre on axis Z: the bottom (lo) or the top (hi), and one plate further out */
+const zFace = (page: Page, top: boolean): Promise<[P2, P2]> => page.evaluate((top) => {
+  const t = (window as unknown as W).__brickTest, { lo, hi } = t.focusBox();
+  const cx = (lo[0] + hi[0]) / 2, cy = (lo[1] + hi[1]) / 2, z = top ? hi[2] : lo[2];
+  return [t.project(cx, cy, z), t.project(cx, cy, z + (top ? 0.08 : -0.08))];
+}, top);
+
+/** press on the Z face, let the iso glide finish, then drag `plates` plate lengths outward along Z in the iso view */
+async function pressAndDragZ(page: Page, top: boolean, plates: number): Promise<P2> {
+  const [a] = await zFace(page, top);
   await page.mouse.move(a[0], a[1]); await frames(page);
-  await page.mouse.down(); await frames(page);
+  await page.mouse.down(); await settle(page);
+  const [p, q] = await zFace(page, top), v = [(q[0] - p[0]) * plates, (q[1] - p[1]) * plates];
   for (let i = 1; i <= 10; i++) { await page.mouse.move(a[0] + v[0] * i / 10, a[1] + v[1] * i / 10); await frames(page, 1); }
-  await page.mouse.up(); await frames(page);
+  return [a[0] + v[0], a[1] + v[1]];
 }
 
-test('U flips to the iso corner below; the bottom face drags down and up by a plate; undo restores', async ({ page }) => {
+test('a resize from below the horizon glides to the iso corner below and back; U and #underside are gone', async ({ page }) => {
   await page.goto('/?test');
   await page.waitForFunction(() => !!(window as unknown as W).__brickTest);
   await page.locator('#ptoggle').click();
+  await setPitch(page, -20);
   await settle(page);
+  await expect(page.locator('#underside')).toHaveCount(0);
   await page.keyboard.press('u');
   await settle(page);
-  await expect(page.locator('#hud')).toContainText('(isometric, from below)');
-  await expect(page.locator('#underside')).toHaveAttribute('aria-pressed', 'true');
+  expect((await camera(page)).pitch).toBeCloseTo(-20 * DEG, 6);
   const b0 = (await snap(page)).bricks[0];
 
-  await dragBottom(page, 1);                                  // outward from the bottom: one plate down
-  await settle(page);
-  let b = (await snap(page)).bricks[0];
+  await pressAndDragZ(page, false, 1);
+  await expect(page.locator('#hud')).toContainText('(isometric, from below)');
+  const mid = await camera(page);
+  expect(mid.pitch).toBeCloseTo(-ELEV, 6); expect(mid.yaw).toBeCloseTo(YAW0, 6);
+  await page.mouse.up(); await settle(page);
+  const b = (await snap(page)).bricks[0];
   expect(r3(b.lo[2])).toBe(r3(b0.lo[2] - PLATE));
-  expect(r3(b.hi[2])).toBe(r3(b0.hi[2]));                     // the top (far face from below) stays
-  await expect(page.locator('#hud')).toContainText('(isometric, from below)');   // the resize kept the view below
-
-  await page.keyboard.press('Control+z');
-  await settle(page);
-  b = (await snap(page)).bricks[0];
-  expect(r3(b.lo[2])).toBe(r3(b0.lo[2]));
-
-  await dragBottom(page, -1);                                 // inward: one plate up (shrinks)
-  await settle(page);
-  b = (await snap(page)).bricks[0];
-  expect(r3(b.lo[2])).toBe(r3(b0.lo[2] + PLATE));
   expect(r3(b.hi[2])).toBe(r3(b0.hi[2]));
+  const end = await camera(page);
+  expect(end.pitch).toBeCloseTo(-20 * DEG, 6); expect(end.yaw).toBeCloseTo(YAW0, 6);
+
   await page.keyboard.press('Control+z');
   await settle(page);
   expect(r3((await snap(page)).bricks[0].lo[2])).toBe(r3(b0.lo[2]));
+});
 
-  // a resize from above still works from above, and U goes back up
-  await page.keyboard.press('u');
+test('a resize from above glides to the iso corner above; an orbit during it keeps the user view at the end', async ({ page }) => {
+  await page.goto('/?test');
+  await page.waitForFunction(() => !!(window as unknown as W).__brickTest);
+  await page.locator('#ptoggle').click();
+  await setPitch(page, 55);
   await settle(page);
+  const b0 = (await snap(page)).bricks[0];
+
+  const at = await pressAndDragZ(page, true, 0);
   await expect(page.locator('#hud')).toContainText('(isometric)');
   await expect(page.locator('#hud')).not.toContainText('from below');
+  await page.mouse.down({ button: 'middle' });
+  for (let i = 1; i <= 10; i++) { await page.mouse.move(at[0] + 6 * i, at[1]); await frames(page, 1); }
+  await page.mouse.up({ button: 'middle' });
+  await page.mouse.up(); await settle(page);
+  const end = await camera(page);
+  expect(end.yaw).toBeCloseTo(YAW0 + 60 * 0.008, 4);
+  expect(end.pitch).toBeCloseTo(ELEV, 2);
+  expect(r3((await snap(page)).bricks[0].hi[2])).toBe(r3(b0.hi[2]));
 });
 
 // A closed house: the focus block in the middle of the floor (it loads as brick 0), four small

@@ -58,6 +58,7 @@ async function twoBricks(page: Page): Promise<void> {
   await page.mouse.move(at[0], at[1]); await frames(page);
   await page.mouse.down(); await page.mouse.up(); await settle(page);
   expect((await page.evaluate(() => (window as unknown as W).__brickTest.snapshot().bricks.length))).toBe(2);
+  await page.keyboard.press('Escape');
 }
 
 test('B opens and closes the Bricks window; Esc closes it too', async ({ page }) => {

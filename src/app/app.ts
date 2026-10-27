@@ -18,7 +18,7 @@ import { initInstances } from '../render/instances.ts';
 import { initGrid } from '../render/grid.ts';
 import { initCamera, updateCamera } from '../render/camera.ts';
 import { renderFrame } from '../render/pipeline.ts';
-import { edgeTick, onDown, onMove, onRightDown, onUp, onWheel, orbitMove } from '../editor/resize.ts';
+import { edgeTick, onDown, onMove, onRightDown, onUp, onWheel, orbitMove, startOrbit } from '../editor/resize.ts';
 import { initExplore, exploreTick } from './explore.ts';
 import { isClassic, setCameraStyle } from './mode.ts';
 import { initWindow } from '../ui/windows.ts';
@@ -105,6 +105,8 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
   addEventListener('pointermove', orbitMove);
   addEventListener('pointerup', (e) => { if (e.button === 1 && S.orbit.dragging) S.orbit.dragging = false; });
   addEventListener('mousedown', (e) => { if (e.button === 1) e.preventDefault(); });   // no browser auto-scroll
+  addEventListener('mousedown', (e) => { if (e.button === 1 && S.held) startOrbit(e, canvas); });
+  addEventListener('mouseup', (e) => { if (e.button === 1) S.orbit.dragging = false; });
   addEventListener('pointerdown', (e) => onDown(e, canvas));
   addEventListener('pointermove', onMove);
   addEventListener('pointerup', (e) => onUp(e));
