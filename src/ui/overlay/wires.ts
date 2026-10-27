@@ -11,10 +11,12 @@
 // type the viewer can't draw) is drawn as a short stub. Nothing is drawn while the view is off, so
 // renders and goldens don't change.
 
+import { hiddenShown } from '../../app/hidden.ts';
 import { S } from '../../app/state.ts';
 import { boardBricks, boardRev } from '../../app/chips.ts';
 import { BRZ_UNIT } from '../../core/units.ts';
 import { camSignature, toView } from '../../render/camera.ts';
+import { hiddenBit, isHiddenRow, wireDrawn } from '../../scene/hidden.ts';
 import { brickKey, type BrickRef } from '../../scene/components.ts';
 import { componentsOf, onComponentsChange, shortType, type PortInfo, type PortKind, type SceneComponents } from '../../scene/compmodel.ts';
 import type { Wire, WireEnd } from '../../scene/wires.ts';
@@ -182,7 +184,7 @@ export function drawWires(sx: number, sy: number): void {
   if (!wireView.on) return;
   const m = componentsOf(S.scene), cw = canvas.clientWidth, ch = canvas.clientHeight;
   const sel = wireView.selected, f = wireView.from;
-  const key = [sceneId(), camSignature(), cw, ch, S.scene.rev, S.hidden.size, m?.version ?? -1, boardRev(), sel ? endKey(sel.s) + endKey(sel.t) : '', f ? `${f.row}/${f.comp}/${f.port.name}` : ''].join('|');
+  const key = [sceneId(), camSignature(), cw, ch, S.scene.rev, S.hidden.size, hiddenShown(), m?.version ?? -1, boardRev(), sel ? endKey(sel.s) + endKey(sel.t) : '', f ? `${f.row}/${f.comp}/${f.port.name}` : ''].join('|');
   if (key === shownKey) return;
   shownKey = key;
   if (!m) { svg.replaceChildren(); dots = []; wires = []; return; }
@@ -194,9 +196,10 @@ export function drawWires(sx: number, sy: number): void {
   dots = [];
   const bx = new Array<number>(6), scene = S.scene;
   const rowsWithComps = componentRows(m);
+  const shown = hiddenShown(), bit = hiddenBit(scene);
   let bricks = 0;
   for (const [row, ref] of rowsWithComps) {
-    if (S.hidden.has(row) || !scene.alive(row)) continue;
+    if (S.hidden.has(row) || !scene.alive(row) || (!shown && isHiddenRow(scene, row, bit))) continue;
     scene.box(row, bx);
     const lo = [bx[0]! * BRZ_UNIT, bx[1]! * BRZ_UNIT, bx[2]! * BRZ_UNIT], hi = [bx[3]! * BRZ_UNIT, bx[4]! * BRZ_UNIT, bx[5]! * BRZ_UNIT];
     const c = P([(lo[0]! + hi[0]!) / 2, (lo[1]! + hi[1]!) / 2, hi[2]!]);
@@ -240,6 +243,7 @@ export function drawWires(sx: number, sy: number): void {
     const a = layout.get(brickKey(w.source))?.get(`${w.source.component}/${w.source.port}/out`);
     const b = layout.get(brickKey(w.target))?.get(`${w.target.component}/${w.target.port}/in`);
     if (!a && !b) continue;
+    if (!wireDrawn(scene, m.rowOfRef(w.source), m.rowOfRef(w.target), shown, bit)) continue;
     if (m.orphan(w.source) || m.orphan(w.target)) continue;   // an end on a new brick that is gone (its paste undone)
     const col = KIND_COLOUR[m.wireKind(w)], i = wires.push(w) - 1, on = selKey === endKey(w.source) + '>' + endKey(w.target);
     let d: string;
