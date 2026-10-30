@@ -42,6 +42,7 @@ import { initSaveGame } from '../ui/panels/savegame.ts';
 import { initProps, tickProps } from '../ui/panels/props.ts';
 import { initSelectionPanel, tickSelection } from '../ui/panels/selection.ts';
 import { initGridPanel, tickGrid } from '../ui/panels/grid.ts';
+import { initOutliner, tickOutliner } from '../ui/panels/outliner.ts';
 import { tickChips } from './chips.ts';
 import { initComponentsPanel, tickComponents } from '../ui/panels/components.ts';
 import { initContextPanel, tickContextPanel } from '../ui/panels/context.ts';
@@ -134,6 +135,7 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
   initComponentsPanel();
   initSelectionPanel();
   initGridPanel();
+  initOutliner();
   initGhost(canvas);
   initOps();
   initClipboard([...document.querySelectorAll<HTMLButtonElement>('#pastemode button')]);
@@ -175,6 +177,7 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
       tickComponents();
       tickSelection();
       tickGrid();
+      tickOutliner();
       tickApplicator();
       tickContextPanel();
     }
