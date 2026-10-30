@@ -12,6 +12,7 @@ import { camSignature, isoSettling, toView, updateCamera, updateDirs } from '../
 import { hasParser, loadSave, loadSaveAsync, loadSettings } from '../scene/load.ts';
 import { brickView } from '../scene/view.ts';
 import { setPreset } from '../ui/panels/file.ts';
+import { downloadTap } from '../scene/save.ts';
 import { statusText } from '../ui/status.ts';
 import { clip, startPaste } from '../editor/clipboard.ts';
 import type { Brick } from '../scene/brick.ts';
@@ -30,11 +31,14 @@ import { componentsOf } from '../scene/compmodel.ts';
 import { brickKey } from '../scene/components.ts';
 import type { WireEnd } from '../scene/wires.ts';
 import { wireView } from '../ui/overlay/wires.ts';
+import { setLightView, setZoneView, volumeView } from '../ui/overlay/volumes.ts';
 import { live, shownPrompt } from '../ui/panels/logic.ts';
 import { figureBoxes } from '../render/figure.ts';
 import { gridSetOf, rowsOfGrid } from '../scene/dyngrids.ts';
 import { setGraphicsPreset, setViewerGraphics } from './graphics.ts';
-import { applyEnvironment, clearEnvironment } from './environment.ts';
+import { applyEnvironment, applyWorldBaseMap, clearEnvironment } from './environment.ts';
+import { loadedFiles } from '../scene/load.ts';
+import { shownProxies } from '../render/proxies.ts';
 import { defaultEnvironment, setEnvValue } from '../format/environment.ts';
 import { defaultGraphicsPreset, withQualityLevel } from '../format/graphics.ts';
 import { fxDebug } from '../render/fx/frame.ts';
@@ -43,6 +47,10 @@ export interface BrickTest {
   ready: true;
   renderer(): string;
   hideUi(): void;
+  /** from now on downloads are kept here, not given to the browser */
+  captureDownloads(): void;
+  /** the last captured download as base64, or null */
+  lastDownload(): { name: string; b64: string } | null;
   loadSave(b64: string, name: string): { status: string; bricks: number; zoom: number };
   /** loads as opening a file does, through the parse worker when there is one (S-01; any size); cullMax = the main-thread face-culling cap meanwhile */
   loadSaveWorker(b64: string, name: string, cullMax?: number): Promise<{ status: string; bricks: number; zoom: number; viaWorker: boolean }>;
@@ -79,6 +87,8 @@ export interface BrickTest {
   /** picks the X-ray mode (tube, slice, room, ghost) as its panel button does */
   xrayMode(mode: string): void;
   /** the scene's components and wires (C-02 / C-03): each instance as [brick key, type, data as JSON], each wire as "source -> target" */
+    volumes(): { zones: boolean; lights: boolean; drawn: { zones: number; water: number; point: number; spot: number } };
+    setVolumes(zones: boolean, lights: boolean): void;
   components(): { instances: [string, string, string][]; wires: string[]; dirty: boolean; refused: number; drawn: { wires: number; ports: number } } | null;
   /** the live logic (C-13): tick count, rate, pause, the texts shown and the switches' states */
   logic(): { ticks: number; tps: number; paused: boolean; prompt: string | null; texts: string[]; switches: boolean[] };
@@ -86,6 +96,10 @@ export interface BrickTest {
   rowOfBrick(key: string): number;
   /** the player reference figure's part boxes (absolute viewer units), empty while it's off */
   figureBoxes(): [number[], number[]][];
+  /** the entity proxies shown (balls and wheels) */
+  proxies(): { id: number; kind: string; centre: number[]; scale: number; colours: number[][] }[];
+  /** applies the loaded world's base map (tests skip it on load) and returns the ground plate: null, or its colour and stud flag */
+  baseMap(): { color: number[]; studs: boolean } | null;
   /** the scene's dynamic grids (W-03): persistent index, transform and their rows' ids; null without a GridSet */
   /** the camera style: 'free' (the one mode) or 'classic' (plain ?test) */
   mode(): string;
@@ -125,6 +139,7 @@ function paritySnap(id: number): unknown {
 
 export function installTestHook(canvas: HTMLCanvasElement): void {
   const raf = (): Promise<number> => new Promise((r) => requestAnimationFrame(r));
+  let lastDownload: { name: string; b64: string } | null = null;
   const api: BrickTest = {
     ready: true,
     renderer() {
@@ -139,6 +154,15 @@ export function installTestHook(canvas: HTMLCanvasElement): void {
       document.head.append(st);
       S.noOverlay = true; S.mouse = null;
     },
+    captureDownloads() {
+      downloadTap.take = (bytes, name) => {
+        let bin = '';
+        for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+        lastDownload = { name, b64: btoa(bin) };
+        return true;
+      };
+    },
+    lastDownload() { const d = lastDownload; lastDownload = null; return d; },
     loadSave(b64, name) {
       const bin = atob(b64), u = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
@@ -207,6 +231,8 @@ export function installTestHook(canvas: HTMLCanvasElement): void {
     xray: () => ({ on: cut.on, size: cut.size, keep: cut.keep, mode: cut.mode, room: !!cut.room }),
     xrayMode: (mode) => setXrayMode(mode as XrayMode),
     select: (ids) => setSelection(ids),
+    volumes: () => ({ zones: volumeView.zones, lights: volumeView.lights, drawn: { ...volumeView.drawn } }),
+    setVolumes: (zones, lights) => { setZoneView(zones); setLightView(lights); },
     components() {
       const m = componentsOf(S.scene);
       if (!m) return null;
@@ -230,6 +256,11 @@ export function installTestHook(canvas: HTMLCanvasElement): void {
       return row < 0 ? -1 : S.scene.ordered().indexOf(row);
     },
     figureBoxes: () => figureBoxes().map(([l, h]) => [l.slice(), h.slice()]),
+    proxies: () => shownProxies().map((p) => ({ id: p.id, kind: p.kind, centre: p.centre.slice(), scale: p.scale, colours: p.colours.map((c) => c.slice()) })),
+    baseMap() {
+      const g = loadedFiles ? applyWorldBaseMap(loadedFiles) : null;
+      return g && { color: g.color.slice(), studs: g.studTexture };
+    },
     grids() {
       const set = gridSetOf(S.scene);
       return set && [...set.grids].sort((a, b) => a[0] - b[0]).map(([id, x]) => ({ id, origin: x.origin.slice(), frac: x.frac.slice(), quat: x.quat.slice(), ids: rowsOfGrid(S.scene, id) }));

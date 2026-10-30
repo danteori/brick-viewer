@@ -17,12 +17,12 @@
 
 import { S, hasFocus } from '../app/state.ts';
 import { BRZ_UNIT } from '../core/units.ts';
-import { histEnd, txBegin, txEnd } from '../scene/history.ts';
+import { histEnd, histPush, txBegin, txEnd } from '../scene/history.ts';
 import { GRIDS } from '../scene/store.ts';
 import { rowSolid, sceneHit } from '../scene/collision.ts';
 import {
-  eulerOfQuat, exactTurn, gridCounts, gridOfRow, gridSetOf, IDENT, isDynamicRow, jointedGrids, placeJointed, quatOfEuler, rowsOfGrid, rowsOfGrids, sameXf, shiftedXf, turnedXf, xfOf,
-  type GridXf,
+  eulerOfQuat, exactTurn, gridCounts, gridOfRow, gridSetOf, IDENT, isDynamicRow, jointedGrids, placeJointed, propsOf, quatOfEuler, sameProps, rowsOfGrid, rowsOfGrids, sameXf, shiftedXf, turnedXf, xfOf,
+  type GridProps, type GridXf,
 } from '../scene/dyngrids.ts';
 import type { Vec3 } from '../scene/grids.ts';
 import { effectiveIds, setSelection } from './select.ts';
@@ -208,4 +208,17 @@ export function setGridTransform(g: number, location: Vec3, euler: [number, numb
 export function gridHud(): string {
   const g = selectedGrid();
   return g ? `<b>grid ${g} selected</b> · the Move tool (2) drags it along an axis · R / Shift+R turn it a quarter turn · Brick Properties > Grid types its place · Esc, then click, edits single bricks` : '';
+}
+
+/** Sets dynamic grid g's frozen flag and settings as one undo step. False when g is not a moving grid here. */
+export function setGridProps(g: number, next: GridProps, label: string): boolean {
+  const set = gridSetOf(S.scene);
+  if (!set || !set.grids.has(g)) return false;
+  const prev = propsOf(set, g);
+  if (sameProps(prev, next)) return true;
+  histEnd();
+  const put = (p: GridProps): void => { set.props.set(g, p); };
+  put(next);
+  histPush({ kind: 'data', label, focus: S.sel, undo: () => put(prev), redo: () => put(next), bytes: 128 });
+  return true;
 }

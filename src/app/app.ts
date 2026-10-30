@@ -6,6 +6,7 @@ import { loadFaceCull, loadFullUi, type FeatureFlags } from './features.ts';
 import { initWorlds } from './worlds.ts';
 import { initImporter } from './importer.ts';
 import { initWorldEnvironment } from './environment.ts';
+import { initEntityProxies } from './entityproxies.ts';
 import { initPaintPanel } from '../ui/panels/paint.ts';
 import { initApplicatorPanel, tickApplicator } from '../ui/panels/applicator.ts';
 import { initSoundPanel } from '../ui/panels/sound.ts';
@@ -42,10 +43,12 @@ import { initSaveGame } from '../ui/panels/savegame.ts';
 import { initProps, tickProps } from '../ui/panels/props.ts';
 import { initSelectionPanel, tickSelection } from '../ui/panels/selection.ts';
 import { initGridPanel, tickGrid } from '../ui/panels/grid.ts';
+import { initOutliner, tickOutliner } from '../ui/panels/outliner.ts';
 import { tickChips } from './chips.ts';
 import { initComponentsPanel, tickComponents } from '../ui/panels/components.ts';
 import { initContextPanel, tickContextPanel } from '../ui/panels/context.ts';
 import { drawWires, initWires } from '../ui/overlay/wires.ts';
+import { drawVolumes, initVolumes } from '../ui/overlay/volumes.ts';
 import { initLogicPanel, tickLogic } from '../ui/panels/logic.ts';
 import { initCataloguePanel } from '../ui/panels/catalogue.ts';
 import { drawDims, initDims } from '../ui/overlay/dims.ts';
@@ -88,6 +91,7 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
   initSizePanel();
   initDims(canvas);
   initWires(canvas);
+  initVolumes(canvas);
   selectBrick(S.scene.first());               // the startup brick
 
   initExplore(canvas);
@@ -134,6 +138,7 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
   initComponentsPanel();
   initSelectionPanel();
   initGridPanel();
+  initOutliner();
   initGhost(canvas);
   initOps();
   initClipboard([...document.querySelectorAll<HTMLButtonElement>('#pastemode button')]);
@@ -142,6 +147,7 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
   initTools(canvas);
   initMirror();
   initWorldEnvironment();
+  initEntityProxies();
   initPaintPanel();
   initApplicatorPanel();
   initContextPanel();
@@ -170,11 +176,13 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
       drawHud();
       drawDims(sx, sy);
       drawWires(sx, sy);
+      drawVolumes(sx, sy);
       tickLogic(t, sx, sy);
       tickProps();
       tickComponents();
       tickSelection();
       tickGrid();
+      tickOutliner();
       tickApplicator();
       tickContextPanel();
     }

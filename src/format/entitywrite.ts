@@ -49,6 +49,14 @@ export interface EntityEdit {
   removed?: ReadonlySet<number>;
   /** new dynamic grid entities */
   added?: readonly NewGridEntity[];
+  /** changed physics state of existing entities, by persistent index */
+  props?: ReadonlyMap<number, EntityProps>;
+}
+
+export interface EntityProps {
+  locked: boolean;
+  /** BrickGridDynamicActor fields to set; only fields the entity's struct has are written */
+  settings?: MpsObject | null;
 }
 
 // --- schema bytes ------------------------------------------------------------------------------------
@@ -247,7 +255,8 @@ export function entityLayoutProblem(files: ReadonlyMap<string, Uint8Array>): str
 export function editEntities(files: FileMap, edit: EntityEdit): { files: FileMap; warnings: string[] } {
   const moved = edit.moved ?? new Map(), removed = edit.removed ?? new Set<number>(), added = edit.added ?? [];
   const warnings: string[] = [];
-  if (!moved.size && !removed.size && !added.length) return { files, warnings };
+  const props = edit.props ?? new Map<number, EntityProps>();
+  if (!moved.size && !removed.size && !added.length && !props.size) return { files, warnings };
   const out: FileMap = new Map(files);
   const gsBytes = out.get(W + 'GlobalData.schema'), gmBytes = out.get(W + 'GlobalData.mps');
   if (!gsBytes || !gmBytes) throw new Error('no GlobalData');
@@ -291,11 +300,23 @@ export function editEntities(files: FileMap, edit: EntityEdit): { files: FileMap
         (f.root.Rotations as MpsObject[])[i] = xyzw(m.rotation);
         touched.add(p); found.add(id);
       }
+      const pr = props.get(id);
+      if (pr) {
+        const locked = f.root.PhysicsLockedFlags;
+        if (isFlags(locked) && (locked.Flags.length || pr.locked)) {
+          const bits = bitsOf(locked.Flags, ids.length);
+          bits[i] = pr.locked ? 1 : 0;
+          packBits(bits, locked.Flags);
+        }
+        const value = f.data[i]?.value;
+        if (value && pr.settings) for (const [k, v] of Object.entries(pr.settings)) if (k in value) value[k] = v;
+        touched.add(p); found.add(id);
+      }
       if (removed.has(id)) { const o = owners?.[i] ?? 0; ownerDelta.set(o, (ownerDelta.get(o) ?? 0) - 1); found.add(id); }
     });
     if (removed.size && removeRows(f, (i) => removed.has(ids[i]!))) touched.add(p);
   }
-  for (const id of [...moved.keys(), ...removed]) if (!found.has(id)) warnings.push(`entity ${id} is not in this save`);
+  for (const id of [...moved.keys(), ...removed, ...props.keys()]) if (!found.has(id)) warnings.push(`entity ${id} is not in this save`);
   if (added.length) {
     const p = W + 'Entities/Chunks/0_0_0.mps';
     let f = chunks.get(p);
