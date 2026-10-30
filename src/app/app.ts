@@ -37,6 +37,7 @@ import { initNotice } from '../ui/notice.ts';
 import { initStatus } from '../ui/status.ts';
 import { initSizePanel } from '../ui/panels/size.ts';
 import { initFilePanel, waitForOpeners } from '../ui/panels/file.ts';
+import { renderDebugBox } from './debugflags.ts';
 import { initSaveGame } from '../ui/panels/savegame.ts';
 import { initProps, tickProps } from '../ui/panels/props.ts';
 import { initSelectionPanel, tickSelection } from '../ui/panels/selection.ts';
@@ -121,6 +122,7 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
   addEventListener('mousedown', (e) => { if (e.button === 2) onRightDown(); });
 
   initFilePanel();
+  renderDebugBox();
   initSaveGame();
   initSoundPanel();
   initViewPanel();
