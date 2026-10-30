@@ -1,11 +1,12 @@
 import { S, type AxisDir } from '../app/state.ts';
 import { r3 } from '../core/units.ts';
 import { studPx } from '../render/camera.ts';
-import { ed, gsteps, poseGhost } from './ghost.ts';
+import { ed, placeSteps, poseGhost } from './ghost.ts';
 import { axisDragFinish, axisDragMove, newAxisDrag, type AxisDrag } from './axisdrag.ts';
 import { placeGhost } from './ops.ts';
 import { initAudio, playClick } from '../ui/audio.ts';
 import { setStatus } from '../ui/status.ts';
+import { alignKeyC } from './align.ts';
 import { placeholder } from '../ui/placeholder.ts';
 
 const ON_TEXT = placeholder('Precision mode: drag to move the brick');
@@ -26,7 +27,7 @@ let button: HTMLButtonElement | null = null;
 /** Whether `key` toggles precision mode: C, or G as an alias; C is autoCenter in the classic camera. */
 export const togglesPrecision = (key: string, classic: boolean): boolean => {
   const k = key.toLowerCase();
-  return k === 'g' || (k === 'c' && !classic);
+  return k === 'g' || (k === 'c' && !classic && !alignKeyC.on);
 };
 
 /** The ghost is in precision mode: it sits where it was and the drag moves it. */
@@ -63,7 +64,7 @@ export function togglePrecision(): void {
 }
 
 const unit = (i: number): number => {
-  const st = gsteps(ed.ghost!.items)[i]!;
+  const st = placeSteps(ed.ghost!.items)[i]!;
   return studPx(i) / S.STEPS[i]! * st;
 };
 
@@ -71,7 +72,7 @@ function step(q: AxisDir): void {
   const m = move, p = ed.fixedPose;
   if (!m || !p || !ed.ghost) return;
   if (m.axis !== q.i) { m.axis = q.i; m.pending = 0; }
-  p[q.i] = r3(p[q.i]! + q.d * gsteps(ed.ghost.items)[q.i]!);
+  p[q.i] = r3(p[q.i]! + q.d * placeSteps(ed.ghost.items)[q.i]!);
   m.pending += q.d;
   m.axes.lockAxis = m.pending ? m.axis : -1;
 }
