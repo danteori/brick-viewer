@@ -12,6 +12,7 @@ import { camSignature, isoSettling, toView, updateCamera, updateDirs } from '../
 import { hasParser, loadSave, loadSaveAsync, loadSettings } from '../scene/load.ts';
 import { brickView } from '../scene/view.ts';
 import { setPreset } from '../ui/panels/file.ts';
+import { downloadTap } from '../scene/save.ts';
 import { statusText } from '../ui/status.ts';
 import { clip, startPaste } from '../editor/clipboard.ts';
 import type { Brick } from '../scene/brick.ts';
@@ -45,6 +46,10 @@ export interface BrickTest {
   ready: true;
   renderer(): string;
   hideUi(): void;
+  /** from now on downloads are kept here, not given to the browser */
+  captureDownloads(): void;
+  /** the last captured download as base64, or null */
+  lastDownload(): { name: string; b64: string } | null;
   loadSave(b64: string, name: string): { status: string; bricks: number; zoom: number };
   /** loads as opening a file does, through the parse worker when there is one (S-01; any size); cullMax = the main-thread face-culling cap meanwhile */
   loadSaveWorker(b64: string, name: string, cullMax?: number): Promise<{ status: string; bricks: number; zoom: number; viaWorker: boolean }>;
@@ -131,6 +136,7 @@ function paritySnap(id: number): unknown {
 
 export function installTestHook(canvas: HTMLCanvasElement): void {
   const raf = (): Promise<number> => new Promise((r) => requestAnimationFrame(r));
+  let lastDownload: { name: string; b64: string } | null = null;
   const api: BrickTest = {
     ready: true,
     renderer() {
@@ -145,6 +151,15 @@ export function installTestHook(canvas: HTMLCanvasElement): void {
       document.head.append(st);
       S.noOverlay = true; S.mouse = null;
     },
+    captureDownloads() {
+      downloadTap.take = (bytes, name) => {
+        let bin = '';
+        for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+        lastDownload = { name, b64: btoa(bin) };
+        return true;
+      };
+    },
+    lastDownload() { const d = lastDownload; lastDownload = null; return d; },
     loadSave(b64, name) {
       const bin = atob(b64), u = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);

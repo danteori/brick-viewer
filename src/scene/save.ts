@@ -333,8 +333,12 @@ export function sceneBrz(): { bytes: Uint8Array; warnings: string[]; errors: str
 /** The status line text for a save that wire lint blocked. */
 export const blockedText = (errors: readonly string[]): string => `[TEXT: save blocked] ${errors.join(' · ')}`;
 
+/** Test hook: when set and it returns true, a download goes to it instead of the browser. */
+export const downloadTap: { take: ((bytes: Uint8Array, name: string) => boolean) | null } = { take: null };
+
 /** Hands bytes to the browser as a download. */
 export function download(bytes: Uint8Array, name: string, type = 'application/octet-stream'): void {
+  if (downloadTap.take?.(bytes, name)) return;
   const url = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type }));
   const a = document.createElement('a');
   a.href = url; a.download = name;
