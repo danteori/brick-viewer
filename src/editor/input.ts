@@ -4,7 +4,8 @@
 
 import { isClassic } from '../app/mode.ts';
 import { S, hasFocus } from '../app/state.ts';
-import { ed, endPlacing, ghostName, nudgeGhost, gsteps } from './ghost.ts';
+import { ed, endPlacing, ghostName, nudgeGhost, gsteps, cycleAlignment } from './ghost.ts';
+import { ALIGN_HINT, FLOAT_HINT, LOCK_HINT, MODE_NAMES, align, cyclesAlignment } from './align.ts';
 import { beginReorient, endReorient, reorienting, reorientMove, rotateTap } from './rotate.ts';
 import { placeGhost } from './ops.ts';
 import { clip, startPaste } from './clipboard.ts';
@@ -100,7 +101,7 @@ export function initEditorInput(canvas: HTMLCanvasElement): void {
     return G
       ? `<b>placing ${ghostName(G.items)}</b>${G.pose && !G.valid ? ` <b style="color:#ff7a66">(blocked: ${G.reason})</b>` : ''} · ${dragHud()} · ` +
         `${G.mode === 'drag' ? 'release' : 'click'} to place · R or Ctrl+scroll rotates (Shift+R back), hold R and drag toward an axis to point the top that way · ` +
-        `PgUp / PgDn or Shift+scroll raise / lower one ${gsteps(G.items)[2] === MICRO ? 'micro' : 'plate'}${G.dz ? ` (<b>${G.dz > 0 ? '+' : ''}${G.dz}</b>)` : ''} · Esc or right-click cancels · ${precisionOn() ? PRECISION_ON_HINT : PRECISION_HINT}`
+        `PgUp / PgDn or Shift+scroll raise / lower one ${gsteps(G.items)[2] === MICRO ? 'micro' : 'plate'}${G.dz ? ` (<b>${G.dz > 0 ? '+' : ''}${G.dz}</b>)` : ''} · ${MODE_NAMES[align.mode]} · ${ALIGN_HINT} · ${LOCK_HINT} · ${FLOAT_HINT} · Esc or right-click cancels · ${precisionOn() ? PRECISION_ON_HINT : PRECISION_HINT}`
       : 'drag a brick from Bricks into the scene (or click it, then click to place) · Ctrl+C copies the focused brick · ' +
         `Ctrl+V ${clip.mode === 'brick' ? 'pastes it' : 'opens a copied .brz (switch under Open save)'} · Delete removes the focused brick · ` +
         'R rotates the focused brick (Shift+R back), hold R and drag toward an axis to point its top that way';
@@ -109,6 +110,7 @@ export function initEditorInput(canvas: HTMLCanvasElement): void {
     if (e.button === 2 && (e.buttons & 2) && precisionDragging()) { e.stopImmediatePropagation(); precisionFinishAxis([e.clientX, e.clientY]); return; }
     if (e.button === 2 && (e.buttons & 2) && dragging()) { e.stopImmediatePropagation(); finishDragAxis(); return; }
     ed.lastMouse = [e.clientX, e.clientY]; ed.lastOver = e.target === canvas;
+    align.ctrl = e.ctrlKey; align.alt = e.altKey;
     if (precisionDragging() && (e.buttons & 1)) precisionMove(ed.lastMouse);
     if (reorienting()) { reorientMove(ed.lastMouse); return; }   // R held: the drag points the top; the ghost stays put
     const G = ed.ghost;
@@ -164,18 +166,21 @@ export function initEditorInput(canvas: HTMLCanvasElement): void {
   addEventListener('dblclick', (e) => { if (ed.ghost || performance.now() - ed.lastPlaceT < 600) e.stopImmediatePropagation(); }, true);
   let wheelAcc = 0;
   addEventListener('wheel', (e) => {
-    if (!ed.ghost || !(e.ctrlKey || e.shiftKey || e.metaKey)) return;
+    if (!ed.ghost || !(e.ctrlKey || e.shiftKey || e.metaKey || e.altKey)) return;
     e.preventDefault(); e.stopImmediatePropagation();
     const px = (e.deltaY || e.deltaX) * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? innerHeight : 1);   // Shift+wheel often arrives as deltaX
     let d = 0;
     if (Math.abs(px) >= 60) { wheelAcc = 0; d = Math.sign(px); }
     else { wheelAcc += px; if (Math.abs(wheelAcc) >= 60) { d = Math.sign(wheelAcc); wheelAcc = 0; } }
     if (!d) return;
-    if (e.shiftKey) nudgeGhost(-d);               // wheel up = raise
+    if (e.altKey) { if (ed.floatDist != null) ed.floatDist = Math.max(0, ed.floatDist - d * S.cam.half * 0.1); }
+    else if (e.shiftKey) nudgeGhost(-d);               // wheel up = raise
     else rotateTap(d < 0 ? 1 : -1);
   }, { capture: true, passive: false });
   addEventListener('keydown', (e) => {
     const k = e.key, ctrl = e.ctrlKey || e.metaKey;
+    align.ctrl = e.ctrlKey; align.alt = e.altKey;
+    if (k === 'Alt' && ed.ghost) e.preventDefault();
     if (k === 'Escape' && !ctrl && !e.altKey && (!isTyping(e.target) || (e.target as HTMLElement).tagName === 'SELECT')) {
       e.preventDefault(); (e.target as HTMLElement).blur?.(); escape(); return;
     }
@@ -198,6 +203,7 @@ export function initEditorInput(canvas: HTMLCanvasElement): void {
     if (ed.ghost) {
       if (k === 'PageUp' || k === 'PageDown') { e.preventDefault(); nudgeGhost(k === 'PageUp' ? 1 : -1); }
       if ((k === 'j' || k === 'J') && !e.repeat && !precisionOn()) { e.preventDefault(); toggleDragMode(); }
+      if (cyclesAlignment(k, isClassic()) && !e.repeat) { e.preventDefault(); cycleAlignment(); }
       if (togglesPrecision(k, isClassic()) && !e.repeat) { e.preventDefault(); togglePrecision(); }
       if (k === 'Enter' && precisionOn()) { e.preventDefault(); placeFromPrecision(); }
       return;
@@ -238,8 +244,9 @@ export function initEditorInput(canvas: HTMLCanvasElement): void {
   addEventListener('pointerup', endBox, true);
   addEventListener('pointercancel', endBox, true);
   addEventListener('keyup', (e) => {
+    align.ctrl = e.ctrlKey; align.alt = e.altKey;
     if ((e.key === 'r' || e.key === 'R') && reorienting() && endReorient()) rotateTap(rShift ? -1 : 1);
   });
   addEventListener('pointercancel', () => { rightPress = null; precisionRelease(); if (dragging()) { cancelDrag(); press = null; } }, true);
-  addEventListener('blur', () => { endReorient(); precisionRelease(); cancelDrag(); press = null; rightPress = null; if (ed.ghost && ed.ghost.mode === 'drag') endPlacing(); });
+  addEventListener('blur', () => { align.ctrl = false; align.alt = false; endReorient(); precisionRelease(); cancelDrag(); press = null; rightPress = null; if (ed.ghost && ed.ghost.mode === 'drag') endPlacing(); });
 }
