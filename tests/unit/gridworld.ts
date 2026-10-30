@@ -25,7 +25,10 @@ const SOA: Fields = [
     ['OriginalOwnerIndices', ['u32']], ['Locations', ['Vector3f', null]], ['Rotations', ['Quat4f', null]], ['PhysicsLockedFlags', 'BRSavedBitFlags'], ['PhysicsSleepingFlags', 'BRSavedBitFlags'],
     ['LinearVelocities', ['Vector3f', null]], ['AngularVelocities', ['Vector3f', null]], ['ColorsAndAlphas', ['BRSavedEntityColors', null]], ['RemainingLifeSpans', ['f32', null]], ['bColorsAreLinear', 'bool']]],
 ];
+const WHEEL_DATA: Fields[number] = ['BP_Entity_Wheel_Tuner4_C', [['Scale', 'f64'], ['FrictionMode', 'u8'], ['EntityTag', 'str']]];
+const BALL_DATA: Fields[number] = ['BP_Entity_Ball1_C', [['Scale', 'f64'], ['FrictionMode', 'u8'], ['EntityTag', 'str']]];
 export const ENTITIES_FULL = schemaWithEnums([QUALITY], [GRID_ACTOR, ...SOA]);
+const ENTITIES_PROXIES = schemaWithEnums([QUALITY], [GRID_ACTOR, WHEEL_DATA, BALL_DATA, ...SOA]);
 export const ENTITIES_BARE = schemaWithEnums([], SOA);
 const ENTITY_IDX = ENTITY_INDEX;
 const GLOBAL = schemaWithEnums([], [['BRSavedGlobalData', [['BasicBrickAssetNames', ['str']], ['ProceduralBrickAssetNames', ['str']], ['MaterialAssetNames', ['str']],
@@ -62,38 +65,53 @@ export const DYN: B[] = [
 export const DYN_LOCATION: [number, number, number] = [500.25, -300, 30];
 export const DYN_ROTATION: [number, number, number, number] = [0, 0, Math.SQRT1_2, Math.SQRT1_2];
 
-export function gridWorld(opts: { entityless?: boolean } = {}): FileMap {
-  const bare = !!opts.entityless;
+export const WHEEL_LOCATION: [number, number, number] = [200, 100, 20];
+export const BALL_LOCATION: [number, number, number] = [-200, 50, 30];
+/** quarter turn about X: the wheel's local Z axle points along world -Y */
+export const WHEEL_ROTATION: [number, number, number, number] = [Math.SQRT1_2, 0, 0, Math.SQRT1_2];
+
+/** `proxies`: also a wheel (Scale 1.5, tyre and hub colours set) and a ball (Scale 2) as entities 3 and 4. */
+export function gridWorld(opts: { entityless?: boolean; proxies?: boolean } = {}): FileMap {
+  const bare = !!opts.entityless, proxies = !!opts.proxies && !bare;
   const files: FileMap = new Map();
   files.set('Meta/World.json', utf8('{"environment": "Plate"}'));
   files.set(W + 'GlobalData.schema', GLOBAL);
   files.set(W + 'GlobalData.mps', enc(GLOBAL, { BasicBrickAssetNames: [], ProceduralBrickAssetNames: ['PB_DefaultBrick'], MaterialAssetNames: ['BMC_Plastic'],
-    EntityTypeNames: bare ? [] : ['Entity_DynamicBrickGrid'], EntityDataClassNames: bare ? [] : ['BrickGridDynamicActor'], GlobalGridEntityTypeIndex: -1 }));
+    EntityTypeNames: bare ? [] : proxies ? ['Entity_DynamicBrickGrid', 'Entity_Wheel_Tuner4', 'Entity_Ball1'] : ['Entity_DynamicBrickGrid'],
+    EntityDataClassNames: bare ? [] : proxies ? ['BrickGridDynamicActor', 'BP_Entity_Wheel_Tuner4_C', 'BP_Entity_Ball1_C'] : ['BrickGridDynamicActor'], GlobalGridEntityTypeIndex: -1 }));
   files.set(W + 'Owners.schema', OWNERS);
-  files.set(W + 'Owners.mps', enc(OWNERS, { UserIds: [{ A: 1, B: 2, C: 3, D: 4 }], UserNames: ['tester'], DisplayNames: ['Tester'], EntityCounts: [bare ? 0 : 1],
+  files.set(W + 'Owners.mps', enc(OWNERS, { UserIds: [{ A: 1, B: 2, C: 3, D: 4 }], UserNames: ['tester'], DisplayNames: ['Tester'], EntityCounts: [bare ? 0 : proxies ? 3 : 1],
     BrickCounts: [MAIN.length + (bare ? 0 : DYN.length)], ComponentCounts: [0], WireCounts: [0] }));
   files.set(W + 'Bricks/ChunkIndexShared.schema', INDEX);
   files.set(W + 'Bricks/ChunksShared.schema', NEW_CHUNKS);
   files.set(W + 'Bricks/Grids/1/ChunkIndex.mps', enc(INDEX, { Chunk3DIndices: [{ X: 0, Y: 0, Z: 0 }], ChunkOffsets: [{ X: 0, Y: 0, Z: 0 }], ChunkSizes: [2048], NumBricks: [MAIN.length], NumComponents: [0], NumWires: [0] }));
   files.set(W + 'Bricks/Grids/1/Chunks/0_0_0.mps', chunk(MAIN, [1024, 1024, 1024]));
   files.set(W + 'Entities/ChunkIndex.schema', ENTITY_IDX);
-  files.set(W + 'Entities/ChunksShared.schema', bare ? ENTITIES_BARE : ENTITIES_FULL);
+  files.set(W + 'Entities/ChunksShared.schema', bare ? ENTITIES_BARE : proxies ? ENTITIES_PROXIES : ENTITIES_FULL);
   if (bare) {
     files.set(W + 'Entities/ChunkIndex.mps', enc(ENTITY_IDX, { NextPersistentIndex: 2, Chunk3DIndices: [], NumEntities: [] }));
     return files;
   }
   files.set(W + 'Bricks/Grids/2/ChunkIndex.mps', enc(INDEX, { Chunk3DIndices: [{ X: -1, Y: -1, Z: -1 }], ChunkOffsets: [{ X: 1024, Y: 1024, Z: 1024 }], ChunkSizes: [2048], NumBricks: [DYN.length], NumComponents: [0], NumWires: [0] }));
   files.set(W + 'Bricks/Grids/2/Chunks/-1_-1_-1.mps', chunk(DYN, [0, 0, 0]));
-  files.set(W + 'Entities/ChunkIndex.mps', enc(ENTITY_IDX, { NextPersistentIndex: 3, Chunk3DIndices: [{ X: 0, Y: 0, Z: 0 }], NumEntities: [1] }));
-  const es = parseSchema(ENTITIES_FULL), white = { R: 255, G: 255, B: 255, A: 255 };
+  files.set(W + 'Entities/ChunkIndex.mps', enc(ENTITY_IDX, { NextPersistentIndex: proxies ? 5 : 3, Chunk3DIndices: [{ X: 0, Y: 0, Z: 0 }], NumEntities: [proxies ? 3 : 1] }));
+  const es = parseSchema(proxies ? ENTITIES_PROXIES : ENTITIES_FULL), white = { R: 255, G: 255, B: 255, A: 255 };
+  const slots = (c0: typeof white, c1: typeof white) => Object.fromEntries([0, 1, 2, 3, 4, 5, 6, 7].map((i) => [`Color${i}`, i === 0 ? c0 : i === 1 ? c1 : white]));
+  const rgb = (R: number, G: number, B: number) => ({ R, G, B, A: 255 });
+  const n = proxies ? 3 : 1;
+  const vec = (v: readonly number[]) => ({ X: v[0], Y: v[1], Z: v[2] });
   files.set(W + 'Entities/Chunks/0_0_0.mps', encodeSoa({
     root: {
-      TypeCounters: [{ TypeIndex: 0, NumEntities: 1 }], PersistentIndices: [2], PrefabSpawnInstanceIndices: [0], OwnerIndices: [0], OriginalOwnerIndices: [0],
-      Locations: [{ X: DYN_LOCATION[0], Y: DYN_LOCATION[1], Z: DYN_LOCATION[2] }], Rotations: [{ X: DYN_ROTATION[0], Y: DYN_ROTATION[1], Z: DYN_ROTATION[2], W: DYN_ROTATION[3] }],
-      PhysicsLockedFlags: { Flags: [1] }, PhysicsSleepingFlags: { Flags: [0] }, LinearVelocities: [{ X: 0, Y: 0, Z: 0 }], AngularVelocities: [{ X: 0, Y: 0, Z: 0 }],
-      ColorsAndAlphas: [Object.fromEntries([0, 1, 2, 3, 4, 5, 6, 7].map((i) => [`Color${i}`, white]))], RemainingLifeSpans: [0], bColorsAreLinear: false,
+      TypeCounters: proxies ? [{ TypeIndex: 0, NumEntities: 1 }, { TypeIndex: 1, NumEntities: 1 }, { TypeIndex: 2, NumEntities: 1 }] : [{ TypeIndex: 0, NumEntities: 1 }],
+      PersistentIndices: proxies ? [2, 3, 4] : [2], PrefabSpawnInstanceIndices: new Array(n).fill(0), OwnerIndices: new Array(n).fill(0), OriginalOwnerIndices: new Array(n).fill(0),
+      Locations: [vec(DYN_LOCATION), ...(proxies ? [vec(WHEEL_LOCATION), vec(BALL_LOCATION)] : [])],
+      Rotations: [{ X: DYN_ROTATION[0], Y: DYN_ROTATION[1], Z: DYN_ROTATION[2], W: DYN_ROTATION[3] }, ...(proxies ? [{ X: WHEEL_ROTATION[0], Y: WHEEL_ROTATION[1], Z: WHEEL_ROTATION[2], W: WHEEL_ROTATION[3] }, { X: 0, Y: 0, Z: 0, W: 1 }] : [])],
+      PhysicsLockedFlags: { Flags: [1] }, PhysicsSleepingFlags: { Flags: [0] }, LinearVelocities: new Array(n).fill(0).map(() => vec([0, 0, 0])), AngularVelocities: new Array(n).fill(0).map(() => vec([0, 0, 0])),
+      ColorsAndAlphas: [slots(white, white), ...(proxies ? [slots(rgb(20, 20, 20), rgb(200, 40, 40)), slots(rgb(40, 160, 220), white)] : [])],
+      RemainingLifeSpans: new Array(n).fill(0), bColorsAreLinear: false,
     },
-    data: [{ typeIndex: 0, struct: 'BrickGridDynamicActor', value: { BouyancyScale: 0.5, MassScale: 2, bEnableGravity: true, bUseNewMassCalculation: true, bReceivesDecals: true, CollisionQuality: 1, EntityTag: 'door', GameModeTeamName: '', bDetectableByAnyone: false } }],
+    data: [{ typeIndex: 0, struct: 'BrickGridDynamicActor', value: { BouyancyScale: 0.5, MassScale: 2, bEnableGravity: true, bUseNewMassCalculation: true, bReceivesDecals: true, CollisionQuality: 1, EntityTag: 'door', GameModeTeamName: '', bDetectableByAnyone: false } },
+      ...(proxies ? [{ typeIndex: 1, struct: 'BP_Entity_Wheel_Tuner4_C', value: { Scale: 1.5, FrictionMode: 0, EntityTag: '' } }, { typeIndex: 2, struct: 'BP_Entity_Ball1_C', value: { Scale: 2, FrictionMode: 0, EntityTag: '' } }] : [])],
   }, es));
   return files;
 }

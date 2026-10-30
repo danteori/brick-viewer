@@ -6,6 +6,7 @@ import { loadFaceCull, loadFullUi, type FeatureFlags } from './features.ts';
 import { initWorlds } from './worlds.ts';
 import { initImporter } from './importer.ts';
 import { initWorldEnvironment } from './environment.ts';
+import { initEntityProxies } from './entityproxies.ts';
 import { initPaintPanel } from '../ui/panels/paint.ts';
 import { initApplicatorPanel, tickApplicator } from '../ui/panels/applicator.ts';
 import { initSoundPanel } from '../ui/panels/sound.ts';
@@ -142,6 +143,7 @@ export function createApp(root: HTMLElement | null, opts: AppOptions): void {
   initTools(canvas);
   initMirror();
   initWorldEnvironment();
+  initEntityProxies();
   initPaintPanel();
   initApplicatorPanel();
   initContextPanel();
