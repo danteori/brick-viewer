@@ -30,6 +30,7 @@ import { componentsOf } from '../scene/compmodel.ts';
 import { brickKey } from '../scene/components.ts';
 import type { WireEnd } from '../scene/wires.ts';
 import { wireView } from '../ui/overlay/wires.ts';
+import { setLightView, setZoneView, volumeView } from '../ui/overlay/volumes.ts';
 import { live, shownPrompt } from '../ui/panels/logic.ts';
 import { figureBoxes } from '../render/figure.ts';
 import { gridSetOf, rowsOfGrid } from '../scene/dyngrids.ts';
@@ -79,6 +80,8 @@ export interface BrickTest {
   /** picks the X-ray mode (tube, slice, room, ghost) as its panel button does */
   xrayMode(mode: string): void;
   /** the scene's components and wires (C-02 / C-03): each instance as [brick key, type, data as JSON], each wire as "source -> target" */
+    volumes(): { zones: boolean; lights: boolean; drawn: { zones: number; water: number; point: number; spot: number } };
+    setVolumes(zones: boolean, lights: boolean): void;
   components(): { instances: [string, string, string][]; wires: string[]; dirty: boolean; refused: number; drawn: { wires: number; ports: number } } | null;
   /** the live logic (C-13): tick count, rate, pause, the texts shown and the switches' states */
   logic(): { ticks: number; tps: number; paused: boolean; prompt: string | null; texts: string[]; switches: boolean[] };
@@ -207,6 +210,8 @@ export function installTestHook(canvas: HTMLCanvasElement): void {
     xray: () => ({ on: cut.on, size: cut.size, keep: cut.keep, mode: cut.mode, room: !!cut.room }),
     xrayMode: (mode) => setXrayMode(mode as XrayMode),
     select: (ids) => setSelection(ids),
+    volumes: () => ({ zones: volumeView.zones, lights: volumeView.lights, drawn: { ...volumeView.drawn } }),
+    setVolumes: (zones, lights) => { setZoneView(zones); setLightView(lights); },
     components() {
       const m = componentsOf(S.scene);
       if (!m) return null;
