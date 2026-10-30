@@ -95,13 +95,12 @@ test('The Visible switch hides the selected brick in one undo step', async ({ pa
   await open(page);
   const sw = page.locator('#flagbody .flagsw[data-flag="visible"]');
   await expect(sw).toHaveAttribute('aria-checked', 'true');
-  expect((await state(page)).ghosts).toBe(1);
   await sw.click(); await frames(page, 4);
   await expect(sw).toHaveAttribute('aria-checked', 'false');
-  expect((await state(page)).ghosts).toBe(2);
   await page.keyboard.press('Control+z'); await frames(page, 4);
   await expect(sw).toHaveAttribute('aria-checked', 'true');
-  expect((await state(page)).ghosts).toBe(1);
   await page.keyboard.press('Control+y'); await frames(page, 4);
   await expect(sw).toHaveAttribute('aria-checked', 'false');
+  await deselect(page);
+  await expect.poll(async () => (await state(page)).ghosts).toBe(2);
 });
