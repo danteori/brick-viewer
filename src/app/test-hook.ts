@@ -36,7 +36,9 @@ import { live, shownPrompt } from '../ui/panels/logic.ts';
 import { figureBoxes } from '../render/figure.ts';
 import { gridSetOf, rowsOfGrid } from '../scene/dyngrids.ts';
 import { setGraphicsPreset, setViewerGraphics } from './graphics.ts';
-import { applyEnvironment, clearEnvironment } from './environment.ts';
+import { applyEnvironment, applyWorldBaseMap, clearEnvironment } from './environment.ts';
+import { loadedFiles } from '../scene/load.ts';
+import { shownProxies } from '../render/proxies.ts';
 import { defaultEnvironment, setEnvValue } from '../format/environment.ts';
 import { defaultGraphicsPreset, withQualityLevel } from '../format/graphics.ts';
 import { fxDebug } from '../render/fx/frame.ts';
@@ -94,6 +96,10 @@ export interface BrickTest {
   rowOfBrick(key: string): number;
   /** the player reference figure's part boxes (absolute viewer units), empty while it's off */
   figureBoxes(): [number[], number[]][];
+  /** the entity proxies shown (balls and wheels) */
+  proxies(): { id: number; kind: string; centre: number[]; scale: number; colours: number[][] }[];
+  /** applies the loaded world's base map (tests skip it on load) and returns the ground plate: null, or its colour and stud flag */
+  baseMap(): { color: number[]; studs: boolean } | null;
   /** the scene's dynamic grids (W-03): persistent index, transform and their rows' ids; null without a GridSet */
   /** the camera style: 'free' (the one mode) or 'classic' (plain ?test) */
   mode(): string;
@@ -250,6 +256,11 @@ export function installTestHook(canvas: HTMLCanvasElement): void {
       return row < 0 ? -1 : S.scene.ordered().indexOf(row);
     },
     figureBoxes: () => figureBoxes().map(([l, h]) => [l.slice(), h.slice()]),
+    proxies: () => shownProxies().map((p) => ({ id: p.id, kind: p.kind, centre: p.centre.slice(), scale: p.scale, colours: p.colours.map((c) => c.slice()) })),
+    baseMap() {
+      const g = loadedFiles ? applyWorldBaseMap(loadedFiles) : null;
+      return g && { color: g.color.slice(), studs: g.studTexture };
+    },
     grids() {
       const set = gridSetOf(S.scene);
       return set && [...set.grids].sort((a, b) => a[0] - b[0]).map(([id, x]) => ({ id, origin: x.origin.slice(), frac: x.frac.slice(), quat: x.quat.slice(), ids: rowsOfGrid(S.scene, id) }));
