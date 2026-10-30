@@ -24,6 +24,7 @@ const INDEX = schemaBytes({
   Index3: { X: 'i32', Y: 'i32', Z: 'i32' },
   BRSavedBrickChunkIndexSoA: { Chunk3DIndices: ['Index3'], ChunkOffsets: ['Index3'], ChunkSizes: ['u32'], NumBricks: ['u32'], NumComponents: ['u32'], NumWires: ['u32'] },
 });
+export const COLLISION_FIELDS = ['CollisionFlags_Player', 'CollisionFlags_Player1', 'CollisionFlags_Player2', 'CollisionFlags_Player3', 'CollisionFlags_Weapon', 'CollisionFlags_Interaction', 'CollisionFlags_Physics'];
 const CHUNK = schemaBytes({
   Counter: { AssetIndex: 'u32', NumSizes: 'u32' },
   Size16: { X: 'u16', Y: 'u16', Z: 'u16' },
@@ -33,6 +34,7 @@ const CHUNK = schemaBytes({
   BRSavedBrickChunkSoA: {
     ProceduralBrickStartingIndex: 'u32', BrickSizeCounters: ['Counter'], BrickSizes: ['Size16', null],
     BrickTypeIndices: ['u32'], OwnerIndices: ['u32'], RelativePositions: ['Pos16', null], Orientations: ['u8', null],
+    ...Object.fromEntries(COLLISION_FIELDS.map((f) => [f, 'BRSavedBitFlags'])),
     VisibilityFlags: 'BRSavedBitFlags', MaterialIndices: ['u8', null], ColorsAndAlphas: ['Col', null], bColorsAreLinear: 'bool',
   },
 });
@@ -45,6 +47,8 @@ export interface SynthBrick {
   orient?: number;
   color: [number, number, number];
   hidden?: boolean;
+  /** Collision flag fields written as off. */
+  off?: string[];
   /** BMC_* material (default BMC_Plastic) and its intensity 0-10 (default 5) */
   material?: string;
   intensity?: number;
@@ -81,7 +85,13 @@ export function synthSave(bricks: SynthBrick[], extra: { components?: Record<str
     }
     const flags = new Array((list.length + 7) >> 3).fill(0);
     list.forEach((b, i) => { if (!b.hidden) flags[i >> 3] |= 1 << (i & 7); });
+    const collision = Object.fromEntries(COLLISION_FIELDS.map((f) => {
+      const bits = new Array((list.length + 7) >> 3).fill(0);
+      list.forEach((b, i) => { if (!b.off?.includes(f)) bits[i >> 3] |= 1 << (i & 7); });
+      return [f, { Flags: bits }];
+    }));
     const ch = {
+      ...collision,
       ProceduralBrickStartingIndex: start, BrickSizeCounters: counters, BrickSizes: sizes,
       BrickTypeIndices: list.map((b) => (b.size ? typeOf.get(b)! : basic.indexOf(b.asset))),
       OwnerIndices: list.map(() => 0),
