@@ -107,3 +107,9 @@ export function boardBricks(): BoardPick[] {
   for (const [row, item] of st.rowItems) out.push({ ref: item.ref, box: st.store.box(row, new Array<number>(6)) });
   return out;
 }
+
+/** The row of the chip brick that holds microchip grid `grid` in the main grid, or -1. */
+export function rowOfChipGrid(grid: number): number {
+  for (const [row, chip] of stateOf(S.scene)?.chipOfRow ?? []) if (chip.grid === grid && S.scene.alive(row)) return row;
+  return -1;
+}

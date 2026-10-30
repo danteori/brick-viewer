@@ -1,0 +1,23 @@
+#outlinewin { left:auto; right:16px; top:64px; transform:none; width:min(360px, calc(100vw - 32px)); max-height:calc(100% - 80px); }
+#outlinelist { display:grid; gap:2px; margin:0; padding:0; list-style:none; }
+#outlinelist li { display:contents; }
+.orow { display:grid; grid-template-columns:auto 1fr auto; align-items:center; gap:2px 10px; width:100%; padding:6px 8px; border:1px solid transparent;
+        border-radius:var(--br-r-sm); background:var(--br-navy-3); color:var(--br-text); font:600 12px/1.25 var(--br-font); text-align:left; cursor:pointer; }
+.orow:hover { background:var(--br-btn-hover); color:#fff; }
+.orow.on { border-color:var(--br-select); background:rgba(0,155,238,.35); color:#fff; }
+.orow .okind { color:var(--br-muted); }
+.orow .otype { grid-column:2; color:var(--br-muted); font-size:11px; overflow-wrap:anywhere; }
+.orow .ocount { text-align:right; font-variant-numeric:tabular-nums; }
+.orow .obadges { grid-column:3; display:flex; gap:4px; justify-content:flex-end; }
+.obadge { padding:1px 6px; border-radius:6px; background:var(--br-navy-7); color:#fff; font-size:10px; letter-spacing:.04em; }
+.obadge.frozen { background:var(--br-navy-6); }
+#outlineedit { display:grid; gap:8px; padding-top:10px; border-top:1px solid rgba(255,255,255,.1); }
+#outlineedit[hidden] { display:none; }
+#outlineedit label { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+#outlineedit input[type="number"], #outlineedit select { width:110px; padding:4px 6px; border:0; border-radius:var(--br-r-sm); background:var(--br-navy-7); color:#fff; font:600 12px/1.2 var(--br-font); }
+#outlineedit input[type="checkbox"] { accent-color:var(--br-select); }
+#outlineedit button { padding:6px 10px; border:0; border-radius:var(--br-r-sm); background:var(--br-btn); color:#fff; font:700 12px/1.2 var(--br-font); cursor:pointer; }
+#outlineedit button:hover { background:var(--br-btn-hover); }
+#outlineedit button[hidden] { display:none; }
+#outlinenote { color:var(--br-muted); font-size:11px; }
+#escmenu #outlinebtn { --tile:#37B7A0; }

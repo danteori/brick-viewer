@@ -5,15 +5,16 @@
 //              indices its components and wires name stay put). A grid whose bricks are exactly
 //              what was loaded keeps its chunk files byte for byte; any other is rebuilt (chunk
 //              offset 1024, so its usual one chunk -1_-1_-1 is centred on the grid origin).
+//   physics    a changed frozen flag or BrickGridDynamicActor setting is written into the entity
 //   transform  a moved or turned grid gets its entity's new Locations / Rotations; a new grid gets
 //              an entity row (entitywrite.ts); a grid left with no bricks is removed with its entity.
 
 import type { FileMap } from '../format/brz.ts';
-import { editEntities, type NewGridEntity } from '../format/entitywrite.ts';
+import { editEntities, type EntityProps, type NewGridEntity } from '../format/entitywrite.ts';
 import { extractBricks, rebuildFromLoaded, type PlainBrick } from '../format/world.ts';
 import { srgbToLinearByte } from '../format/palette.ts';
 import { linearToSrgbByte } from '../format/stale.ts';
-import { gridSetOf, locationOf, rowsOfGrid, sameXf, toLocal } from './dyngrids.ts';
+import { gridSetOf, locationOf, propsOf, rowsOfGrid, sameProps, sameXf, toLocal } from './dyngrids.ts';
 import { plainOf } from './view.ts';
 import type { SeqBrick } from './load.ts';
 import type { SceneStore } from './store.ts';
@@ -48,7 +49,7 @@ export function writeDynamicGrids(template: FileMap, files: FileMap, s: SceneSto
   const set = gridSetOf(s), warnings: string[] = [];
   if (!set) return { files, warnings };
   let out = files;
-  const moved = new Map<number, { location: Vec3; rotation: Quat }>(), removed = new Set<number>(), added: NewGridEntity[] = [];
+  const moved = new Map<number, { location: Vec3; rotation: Quat }>(), removed = new Set<number>(), added: NewGridEntity[] = [], props = new Map<number, EntityProps>();
   const ids = [...new Set([...set.loaded.keys(), ...set.grids.keys()])].sort((a, b) => a - b);
   for (const g of ids) {
     const was = set.loaded.get(g), xf = set.grids.get(g), name = String(g);
@@ -73,9 +74,13 @@ export function writeDynamicGrids(template: FileMap, files: FileMap, s: SceneSto
     if (!xf) continue;
     if (!was) {
       const first = rowsOfGrid(s, g)[0];
-      added.push({ persistentIndex: g, location: locationOf(xf), rotation: [...xf.quat] as Quat, owner: first !== undefined ? s.owner[first]! : 0, locked: false });
-    } else if (!sameXf(xf, was.xf)) moved.set(g, { location: locationOf(xf), rotation: [...xf.quat] as Quat });
+      added.push({ persistentIndex: g, location: locationOf(xf), rotation: [...xf.quat] as Quat, owner: first !== undefined ? s.owner[first]! : 0, locked: propsOf(set, g).locked, ...(set.props.has(g) && { data: { ...propsOf(set, g).settings } }) });
+    } else {
+      if (!sameXf(xf, was.xf)) moved.set(g, { location: locationOf(xf), rotation: [...xf.quat] as Quat });
+      const now = propsOf(set, g);
+      if (!sameProps(now, was.props)) props.set(g, { locked: now.locked, settings: now.settings && { ...now.settings } });
+    }
   }
-  const e = editEntities(out, { moved, removed, added });
+  const e = editEntities(out, { moved, removed, added, props });
   return { files: e.files, warnings: warnings.concat(e.warnings) };
 }

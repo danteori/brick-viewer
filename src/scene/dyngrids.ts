@@ -17,7 +17,7 @@ import { extractBricks } from '../format/world.ts';
 import { fileMapView } from '../format/saveview.ts';
 import { entityLayoutProblem } from '../format/entitywrite.ts';
 import { buildWorldModel, rotate, type Quat, type Vec3 } from './grids.ts';
-import { parseChunkPath, saveContext } from './components.ts';
+import { parseChunkPath, saveContext, type ChunkKey } from './components.ts';
 import { decodeSoa } from '../format/schema.ts';
 import { orientOfMatrix, quatColumns, snapRotation } from './worldgrids.ts';
 import { GRIDS, type SceneStore } from './store.ts';
@@ -38,8 +38,37 @@ export interface GridXf {
   readonly R: Mat3;
 }
 
+/** The BrickGridDynamicActor fields the viewer edits. */
+export interface GridSettings {
+  BouyancyScale: number;
+  MassScale: number;
+  bEnableGravity: boolean;
+  CollisionQuality: number;
+}
+
+/** A dynamic grid's physics state: frozen, and its settings (null when the save's struct lacks them). */
+export interface GridProps {
+  locked: boolean;
+  settings: GridSettings | null;
+}
+
+export const DEFAULT_SETTINGS: Readonly<GridSettings> = Object.freeze({ BouyancyScale: 0.2, MassScale: 1, bEnableGravity: true, CollisionQuality: 0 });
+
+/** The settings in a saved BrickGridDynamicActor struct, or null when it has none of them. */
+export function settingsOf(data: Readonly<Record<string, unknown>> | null | undefined): GridSettings | null {
+  if (!data || !('MassScale' in data)) return null;
+  const num = (k: keyof GridSettings): number => (typeof data[k] === 'number' ? (data[k] as number) : Number(DEFAULT_SETTINGS[k]));
+  return { BouyancyScale: num('BouyancyScale'), MassScale: num('MassScale'), bEnableGravity: data.bEnableGravity !== false, CollisionQuality: num('CollisionQuality') };
+}
+
+export const sameProps = (a: GridProps, b: GridProps): boolean =>
+  a.locked === b.locked && (a.settings === b.settings || (!!a.settings && !!b.settings && (Object.keys(a.settings) as (keyof GridSettings)[]).every((k) => a.settings![k] === b.settings![k])));
+
 export interface LoadedGrid {
   xf: GridXf;
+  props: GridProps;
+  /** the entity was asleep when the save was made */
+  sleeping: boolean;
   /** the grid has component or wire chunks: its bricks may not be removed (their indices are named) */
   components: boolean;
   /** its chunks store linear colour bytes */
@@ -60,6 +89,8 @@ export interface GridSet {
   createProblem: string | null;
   /** dynamic grids joined by joints (both ways): a moved or turned grid takes them along */
   links: Map<number, Set<number>>;
+  /** edited physics state, by grid (a grid not here has the state it was loaded with, or the defaults when new) */
+  props: Map<number, GridProps>;
 }
 
 const sets = new WeakMap<SceneStore, GridSet>();
@@ -228,7 +259,7 @@ export function loadDynamicGrids(s: SceneStore, files: FileMap): DynLoad {
   const out: DynLoad = { grids: 0, snapped: 0, skipped: 0, failed: 0, others: 0 };
   let problem: string | null;
   try { problem = entityLayoutProblem(files); } catch (err) { problem = (err as Error).message; }
-  const set: GridSet = { grids: new Map(), loaded: new Map(), unsupported: new Map(), next: 2, createProblem: problem, links: new Map() };
+  const set: GridSet = { grids: new Map(), loaded: new Map(), unsupported: new Map(), next: 2, createProblem: problem, links: new Map(), props: new Map() };
   setGridSet(s, set);
   if (![...files.keys()].some((p) => /^World\/0\/(Bricks\/Grids\/(?!1\/)|Entities\/ChunkIndex\.mps)/.test(p))) return out;
   let model: ReturnType<typeof buildWorldModel>;
@@ -241,7 +272,7 @@ export function loadDynamicGrids(s: SceneStore, files: FileMap): DynLoad {
     let bricks: ReturnType<typeof extractBricks>;
     try { bricks = extractBricks(files, { grid: name }); } catch (err) { console.warn(`grid ${g.id} not shown`, err); out.failed++; continue; }
     const hasComp = [...files.keys()].some((p) => p.startsWith(`World/0/Bricks/Grids/${name}/`) && /\/(Components|Wires)\//.test(p));
-    set.loaded.set(g.id, { xf, components: hasComp, linear: bricks.linear[0] ?? false, owner: g.entity.owner ?? 0 });
+    set.loaded.set(g.id, { xf, props: { locked: g.entity.physicsLocked, settings: settingsOf(g.entity.data) }, sleeping: g.entity.physicsSleeping, components: hasComp, linear: bricks.linear[0] ?? false, owner: g.entity.owner ?? 0 });
     set.grids.set(g.id, xf);
     const keep: SeqBrick[] = [];
     bricks.bricks.forEach((pb, i) => {
@@ -257,16 +288,20 @@ export function loadDynamicGrids(s: SceneStore, files: FileMap): DynLoad {
   return out;
 }
 
+/** Grid g's physics state now: edited, else as loaded, else the defaults of a new grid. */
+export const propsOf = (set: GridSet, g: number): GridProps => set.props.get(g) ?? set.loaded.get(g)?.props ?? { locked: false, settings: { ...DEFAULT_SETTINGS } };
+
 /** Per Components chunk: its grid and the persistent indices of the grids its joints hold (JointEntityReferences). */
-function jointRefs(files: FileMap): { grid: number; refs: number[] }[] {
-  const out: { grid: number; refs: number[] }[] = [];
+export function jointRefs(files: FileMap): { grid: number; chunk: ChunkKey; refs: number[]; bricks: number[] }[] {
+  const out: { grid: number; chunk: ChunkKey; refs: number[]; bricks: number[] }[] = [];
   let ctx: ReturnType<typeof saveContext> | null = null;
   for (const [path, bytes] of files) {
     const at = parseChunkPath(path);
     if (!at || at.kind !== 'Components') continue;
     ctx ??= saveContext(files);
-    const refs = decodeSoa(bytes, ctx.schemaFor(path), ctx.global).root.JointEntityReferences as number[] | undefined;
-    if (refs?.length) out.push({ grid: at.grid, refs });
+    const root = decodeSoa(bytes, ctx.schemaFor(path), ctx.global).root;
+    const refs = root.JointEntityReferences as number[] | undefined, bricks = (root.JointBrickIndices as number[] | undefined) ?? [];
+    if (refs?.length) out.push({ grid: at.grid, chunk: at.chunk, refs, bricks });
   }
   return out;
 }
