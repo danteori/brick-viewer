@@ -111,3 +111,16 @@ test('free camera: C toggles precision mode and it stays on after Place; Ctrl+V 
   s = await snap(page);
   expect(s.bricks.length).toBe(n0 + 2);
 });
+
+test('alignment: V cycles the step, so one PgUp raises half a plate in Half mode', async ({ page }) => {
+  await pasteGhost(page);
+  const n0 = (await snap(page)).bricks.length, a = (await snap(page)).bricks[0]!;
+  const at = await ground(page, 1.2);
+  await page.mouse.move(...at); await frames(page);
+  await page.keyboard.press('v'); await frames(page);
+  await page.keyboard.press('PageUp'); await frames(page);
+  await page.mouse.click(...at); await settle(page);
+  const s = await snap(page);
+  expect(s.bricks.length).toBe(n0 + 1);
+  expect(r3(s.bricks[n0]!.lo[2]! - a.lo[2]!)).toBe(0.04);
+});

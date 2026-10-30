@@ -20,6 +20,7 @@ import { displayName } from '../ui/names.ts';
 import { initAudio, playClick } from '../ui/audio.ts';
 import { setStatus } from '../ui/status.ts';
 import { minOf, maxOf } from '../core/math';
+import { align, alignStatus, alignSteps, distanceAlong, floatPose, lockedPose, nextMode, snapTo, type PlaneLock } from './align.ts';
 
 export interface Ghost {
   items: Brick[];
@@ -67,6 +68,15 @@ export const ed = {
   preview: null as (() => GhostView | null) | null,
   /** precision mode: the ghost sits at this pose, not under the cursor */
   fixedPose: null as V3 | null,
+  /** Ctrl held: the pose slides on this plane */
+  lock: null as PlaneLock | null,
+  /** Alt held: the distance from the view ray's start to the ghost's centre */
+  floatDist: null as number | null,
+  /** the axis of the face the last pose sat on (2 for the ground) */
+  faceAxis: 2,
+  /** the last pose found under the cursor, with its centre */
+  lastPose: null as V3 | null,
+  lastCentre: null as V3 | null,
 };
 
 /** Items above this count are drawn instanced (a store of their own) and outlined as one box. */
@@ -98,6 +108,8 @@ export function initGhost(c: HTMLCanvasElement): void {
 
 export const gsize = (items: readonly Brick[]): V3 => [0, 1, 2].map((i) => maxOf(items, (t) => t.hi[i]!)) as V3;
 export const gsteps = (items: readonly Brick[]): V3 => (items.some((t) => t.micro) ? [MICRO, MICRO, MICRO] : [STEP, STEP, PLATE]);
+/** The placer's step on each axis: the alignment mode applied to the items. */
+export const placeSteps = (items: readonly Brick[]): V3 => alignSteps(align.mode, items.some((t) => t.micro));
 
 export function itemName(t: Brick): string {
   const st = sizeRule(t).steps, n = (i: number): number => Math.round((t.hi[i] - t.lo[i]) / st[i]);
@@ -126,7 +138,7 @@ export function endPlacing(msg?: string): void {
   if (g.from) g.from.classList.remove('on');
   ed.ghost = null;
   ed.preview = null;
-  ed.fixedPose = null;
+  ed.fixedPose = null; ed.lock = null; ed.floatDist = null; ed.lastPose = null; ed.lastCentre = null;
   if (batch) { batch.set.dispose(); batch = null; }
   document.body.classList.remove('placing');
   if (msg) setStatus(msg);
@@ -166,9 +178,22 @@ export function rotateItems(items: Brick[], turns: number): void {
 export function nudgeGhost(d: number): void {
   const G = ed.ghost;
   if (!G) return;
-  if (ed.fixedPose) ed.fixedPose[2] = r3(ed.fixedPose[2] + d * gsteps(G.items)[2]!);
+  const st = placeSteps(G.items);
+  if (ed.fixedPose) ed.fixedPose[2] = r3(ed.fixedPose[2] + d * st[2]);
+  else if (ed.lock) ed.lock.value = r3(ed.lock.value + d * st[ed.lock.axis]!);
   else G.dz += d;
   playClick();
+}
+
+/** The next alignment mode; a raised ghost keeps about the same height. */
+export function cycleAlignment(): void {
+  const G = ed.ghost;
+  if (!G) return;
+  const before = placeSteps(G.items)[2];
+  align.mode = nextMode(align.mode);
+  G.dz = Math.round(G.dz * before / placeSteps(G.items)[2]);
+  setStatus(alignStatus(align.mode));
+  initAudio(); playClick();
 }
 
 /** a ray from the cursor (the same one pickRay casts) */
@@ -195,8 +220,10 @@ export function poseGhost(): void {
   if (!G.mouse || !G.over) return;
   const r = cursorRay(G.mouse[0], G.mouse[1]);
   if (!r) return;
-  const sz = gsize(G.items), st = gsteps(G.items), gz = groundZ();
-  const snap = (v: number, ref: number, s: number): number => r3(ref + Math.round((v - ref) / s) * s);
+  const sz = gsize(G.items), st = placeSteps(G.items), gz = groundZ();
+  const snap = snapTo;
+  const free = freePose(G, r, sz, st, gz);
+  if (free) { checkPose(G, free, gz); return; }
   const hit = pickRay(r.vx, r.vy), p: V3 = [0, 0, 0];
   if (hit && hit.ax >= 0 && S.scene.alive(hit.k)) {
     // on a face: flush against it along its axis, centred on the cursor and snapped to that brick's grid
@@ -205,7 +232,9 @@ export function poseGhost(): void {
     const P = r.S.map((v, i) => v + r.D[i] * hit.s), a = hit.ax, outward = r.D[a] > 0 ? -1 : 1;
     const off = (i: number): number => sz[i] / 2;
     for (let i = 0; i < 3; i++) p[i] = i === a ? (outward > 0 ? bh[i] : r3(bl[i] - sz[i])) : snap(P[i] - off(i), bl[i], st[i]);
+    ed.faceAxis = a;
   } else {
+    ed.faceAxis = 2;
     // the ground plane, snapped to the drawn ground grid (it lines up with the focused brick's far corner)
     if (Math.abs(r.D[2]) < 1e-9) return;
     const t = (gz - r.S[2]) / r.D[2];
@@ -216,7 +245,27 @@ export function poseGhost(): void {
     p[0] = snap(P[0] - off(0), ref[0], st[0]); p[1] = snap(P[1] - off(1), ref[1], st[1]); p[2] = r3(gz);
   }
   p[2] = r3(p[2] + G.dz * st[2]);
+  ed.lastPose = p.slice() as V3;
+  ed.lastCentre = [0, 1, 2].map((i) => p[i]! + sz[i]! / 2) as V3;
   checkPose(G, p, gz);
+}
+
+/** The pose while Alt floats the ghost or Ctrl locks its plane, else null (the pose is found by picking). */
+function freePose(G: Ghost, r: { S: number[]; D: number[] }, sz: V3, st: V3, gz: number): V3 | null {
+  if (!align.alt) ed.floatDist = null;
+  if (!align.ctrl) ed.lock = null;
+  if (align.alt && ed.lastCentre) {
+    ed.floatDist ??= distanceAlong(r.S, r.D, ed.lastCentre);
+    const p = floatPose(r.S, r.D, ed.floatDist, sz, st);
+    p[2] = r3(p[2] + G.dz * st[2]);
+    return p;
+  }
+  if (align.ctrl && ed.lastPose) {
+    ed.lock ??= { axis: ed.faceAxis, value: ed.lastPose[ed.faceAxis]! };
+    const ref: V3 = hasFocus() && !S.hidden.has(S.sel) ? [farOf(0, S.dlo, S.dhi), farOf(1, S.dlo, S.dhi), gz] : [0, 0, gz];
+    return lockedPose(ed.lock, r.S, r.D, sz, st, ref);
+  }
+  return null;
 }
 
 /** Sets the ghost's pose and tests it against the ground and the bricks of its grid. */
