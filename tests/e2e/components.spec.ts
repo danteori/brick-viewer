@@ -3,7 +3,6 @@
 // wires are added and removed (fan-in refused), and every edit is one undo step.
 
 import { expect, test, type Page } from '@playwright/test';
-import { readFileSync } from 'node:fs';
 import { writeBrz } from '../../src/format/brz.ts';
 import { save } from '../unit/comp-fixture.ts';
 import { inMenu } from './windows.ts';
@@ -18,6 +17,8 @@ interface Api {
   components(): Comps | null;
   rowOfBrick(key: string): number;
   snapshot(): { status: string };
+  captureDownloads(): void;
+  lastDownload(): { name: string; b64: string } | null;
 }
 type W = { __brickTest: Api };
 
@@ -28,8 +29,11 @@ const status = async (page: Page): Promise<string> => (await page.evaluate(() =>
 const data = (c: Comps, brick: string, type: string): Record<string, unknown> => JSON.parse(c.instances.find((i) => i[0] === brick && i[1] === type)![2]) as Record<string, unknown>;
 
 async function open(page: Page, b64 = FIXTURE, name = 'components.brz'): Promise<void> {
-  await page.goto('/?test');
-  await page.waitForFunction(() => !!(window as unknown as W).__brickTest);
+  if (!page.url().includes('?test')) {
+    await page.goto('/?test');
+    await page.waitForFunction(() => !!(window as unknown as W).__brickTest);
+    await page.evaluate(() => (window as unknown as W).__brickTest.captureDownloads());
+  }
   await page.evaluate(async ([s, n]) => { const t = (window as unknown as W).__brickTest; t.loadSave(s!, n!); await t.settle(); }, [b64, name]);
   await frames(page);
 }
@@ -37,12 +41,12 @@ async function focusBrick(page: Page, key: string): Promise<void> {
   await page.evaluate((key) => { const t = (window as unknown as W).__brickTest; t.focus(t.rowOfBrick(key)); }, key);
   await frames(page);
 }
-/** Save .brz, then open the downloaded file as the scene. */
+/** Save .brz (captured by the test hook), then open the saved bytes as the scene. */
 async function saveAndReload(page: Page): Promise<void> {
-  const dl = page.waitForEvent('download');
   await inMenu(page, () => page.locator('#savebrz').click());
-  const bytes = readFileSync((await (await dl).path())!);
-  await open(page, bytes.toString('base64'), 'components (edited).brz');
+  const dl = await page.evaluate(() => (window as unknown as W).__brickTest.lastDownload());
+  expect(dl, 'Save .brz produced bytes').not.toBeNull();
+  await open(page, dl!.b64, 'components (edited).brz');
 }
 const undoKey = async (page: Page, redo = false): Promise<void> => {
   await page.mouse.move(640, 790);
